@@ -3,27 +3,26 @@
 
 use self::Fields::*;
 use byteorder::{ByteOrder, LittleEndian};
-use std::fmt::Display;
 use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::slice::Iter;
 
+mod compression;
+mod meta;
+mod rowgroup;
 mod writer;
 
-pub use self::writer::Writer;
+use crate::compression::{Compression, COMPRESSION_ENUM_SIZE};
+use crate::meta::{ColChunkMeta, RowGroupMeta};
+
+// pub use self::writer::Writer;
 
 static GBAM_MAGIC: &[u8] = b"GBAM-0.1.0\x01";
 
+const u64_size: usize = mem::size_of::<u64>();
 const u32_size: usize = mem::size_of::<u32>();
 const u16_size: usize = mem::size_of::<u16>();
 const u8_size: usize = mem::size_of::<u8>();
-
-/// Type of compression to utilize in writer.
-#[allow(missing_docs)]
-pub enum Compression {
-    ZSTD,
-    FLATE2,
-}
 
 const FIELDS_NUM: usize = 17;
 /// Types of fields contained in BAM file.
