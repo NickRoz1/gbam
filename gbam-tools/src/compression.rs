@@ -18,7 +18,7 @@ impl Default for Compression {
 pub const COMPRESSION_ENUM_SIZE: usize = u8_size * 2;
 
 impl From<&[u8]> for Compression {
-    fn from(mut bytes: &[u8]) -> Self {
+    fn from(bytes: &[u8]) -> Self {
         assert!(
             bytes.len() >= COMPRESSION_ENUM_SIZE,
             "Not enough bytes to form column chunk meta struct.",
@@ -35,7 +35,7 @@ impl From<&[u8]> for Compression {
             }
             1 => {
                 let strength = bytes[1];
-                if strength < 0 || strength > 9 {
+                if strength > 9 {
                     panic!("Metadata is damaged. FLATE2 compression strength should be in limits [0, 9].");
                 }
                 return Compression::FLATE2(strength);

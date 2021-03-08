@@ -9,6 +9,7 @@ use std::slice::Iter;
 
 mod compression;
 mod meta;
+mod reader;
 mod rowgroup;
 mod writer;
 
@@ -23,6 +24,7 @@ const u64_size: usize = mem::size_of::<u64>();
 const u32_size: usize = mem::size_of::<u32>();
 const u16_size: usize = mem::size_of::<u16>();
 const u8_size: usize = mem::size_of::<u8>();
+const mega_byte_size: usize = 1_048_576;
 
 const FIELDS_NUM: usize = 17;
 /// Types of fields contained in BAM file.
@@ -171,6 +173,26 @@ impl RawRecord {
 impl From<Vec<u8>> for RawRecord {
     fn from(bytes: Vec<u8>) -> Self {
         Self(bytes)
+    }
+}
+
+// Source: https://github.com/zaeleus/noodles/blob/316ec6f42960e4540bb2acc45b5653fb00b9970c/noodles-bam/src/record.rs#L324
+impl Default for RawRecord {
+    fn default() -> Self {
+        Self::from(vec![
+            0xff, 0xff, 0xff, 0xff, // ref_id = -1
+            0xff, 0xff, 0xff, 0xff, // pos = -1
+            0x02, // l_read_name = 2
+            0xff, // mapq = 255
+            0x48, 0x12, // bin = 4680
+            0x00, 0x00, // n_cigar_op = 0
+            0x04, 0x00, // flag = 4
+            0x00, 0x00, 0x00, 0x00, // l_seq = 0
+            0xff, 0xff, 0xff, 0xff, // next_ref_id = -1
+            0xff, 0xff, 0xff, 0xff, // next_pos = -1
+            0x00, 0x00, 0x00, 0x00, // tlen = 0
+            0x2a, 0x00, // read_name = "*\x00"
+        ])
     }
 }
 
