@@ -12,3 +12,9 @@ byteorder = "1.2.3"
 flate2 = "1.0.1"
 flume = "0.10.0"
 num_cpus = "0.2"
+noodles-bgzf = { path = "../noodles-parallel-experiment/noodles-bgzf" }
+libc = "0.2.93"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+

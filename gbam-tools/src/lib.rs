@@ -9,14 +9,17 @@ use std::slice::Iter;
 
 mod compression;
 mod meta;
-mod reader;
+// mod reader;
+/// BAM to GBAM converter
+pub mod bam_to_gbam;
 mod rowgroup;
+/// Writer module
 mod writer;
 
+use self::writer::Writer;
+pub use crate::bam_to_gbam::{bam_to_gbam, bam_to_gbam_python};
 use crate::compression::{Compression, COMPRESSION_ENUM_SIZE};
 use crate::meta::{ColChunkMeta, RowGroupMeta};
-
-// pub use self::writer::Writer;
 
 static GBAM_MAGIC: &[u8] = b"GBAM-0.1.0\x01";
 
@@ -28,7 +31,7 @@ const mega_byte_size: usize = 1_048_576;
 
 const FIELDS_NUM: usize = 17;
 /// Types of fields contained in BAM file.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub enum Fields {
     RefID,

@@ -225,13 +225,13 @@ impl CompressionDaemon {
         // Used to send compressed data to ordering thread which ensures that column chunks written in order.
         let (sorter_t, sorter_buffers_r): (flume::Sender<OutputBuf>, flume::Receiver<OutputBuf>) =
             flume::unbounded();
-
+        println!("COUNT -12- -2--------- {}", thread_count);
         for _ in 0..(thread_count - 2) {
             let tasks_stream_r_clone = tasks_stream_r.clone();
             let finished_tasks_t_clone = finished_tasks_t.clone();
             let compr_task = CompressionTask {
                 buf_num: None,
-                compr_type: Compression::ZSTD(0),
+                compr_type: Compression::ZSTD(1),
                 val_num: 0,
                 payload: Vec::new(),
                 compressed: Vec::new(),
@@ -244,24 +244,45 @@ impl CompressionDaemon {
                     task.compressed.clear();
                     let compressed_bytes = match task.compr_type {
                         Compression::FLATE2(level) => {
-                            let mut e = ZlibEncoder::new(
-                                task.compressed,
-                                flate2::Compression::new((level as u32).try_into().unwrap()),
+                            let mut e =
+                                ZlibEncoder::new(task.compressed, flate2::Compression::none());
+                            // e.write(&task.payload).unwrap();
+                            let mut offset = 0;
+                            while offset < task.payload.len() {
+                                offset += e.write(&task.payload[offset..]).unwrap();
+                            }
+                            println!(
+                                "--------------------------------- WRITING DATA: TOTAL IN : {}",
+                                e.total_in()
                             );
-                            e.write(&task.payload);
                             e.finish()
                         }
                         Compression::ZSTD(level) => {
+                            println!("COMPRESSION LEVEL {}", level);
                             let mut e = zstd::stream::Encoder::new(
                                 task.compressed,
                                 (level as u32).try_into().unwrap(),
                             )
                             .unwrap();
-                            // println!("IN TASK: {:?} / {:?}", task.payload, e.write(&task.payload));
+                            let mut offset = 0;
+                            while offset < task.payload.len() {
+                                offset += e.write(&task.payload[offset..]).unwrap();
+                            }
+                            println!(
+                                "WROTE THIS MUCH BYTES {} from this much in {}!",
+                                e.write(&task.payload).unwrap(),
+                                task.payload.len()
+                            );
                             e.finish()
                         }
                     };
                     task.compressed = compressed_bytes.unwrap();
+                    println!(
+                        "WROTE THIS MUCH BYTES {} from this much in {}!",
+                        task.compressed.len(),
+                        task.payload.len()
+                    );
+                    // std::mem::swap(&mut task.compressed, &mut task.payload);
                     println!("Leaving TASK");
                     println!("PROCESSED TASK {}", task.buf_num.unwrap());
                     finished_tasks_t_clone.send(task).unwrap();
@@ -286,9 +307,10 @@ impl CompressionDaemon {
                 }
                 if !bin_heap.is_empty() {
                     println!(
-                        "AWAITING IN HEAP {} CUR TOP {}",
+                        "AWAITING IN HEAP {} CUR TOP {} WAITING FOR {}",
                         bin_heap.len(),
-                        bin_heap.peek().unwrap().0
+                        bin_heap.peek().unwrap().0,
+                        cur_chunk_num
                     );
                 }
             }
@@ -333,7 +355,7 @@ impl CompressionDaemon {
                             offset: writer_offset + relative_offset,
                             compressor: buf.compr_type,
                         };
-                        // Incorrect! Doesnt account for order! Task may come out of order.
+                        // FIXME: Incorrect! Doesnt account for order! Task may come out of order.
                         relative_offset += buf.compressed.len() as u64;
                         {
                             println!("DEADLOCK IS");
@@ -358,6 +380,7 @@ impl CompressionDaemon {
                         buf.compressed.clear();
                         cur_buf += 1;
                     }
+                    println!("DISPATCHED TASK NUMBER {}", buf.buf_num.unwrap());
                     tasks_sink_t.send(buf).unwrap();
                 }
                 println!("FINISHED");
@@ -373,7 +396,7 @@ impl CompressionDaemon {
                 offset: writer_offset,
                 cols: vec![ColChunkMeta::default(); FIELDS_NUM],
             };
-            println!("HERE");
+            println!("HERE --------------");
             let mut relative_offset: u64 = 0;
             // Process data which is still in compression workers queues.
             loop {

@@ -1,11 +1,10 @@
-use super::{u8_size, Compression, Fields, RawRecord, FIELDS_NUM, GBAM_MAGIC};
+use super::{RawRecord, FIELDS_NUM, GBAM_MAGIC};
 use crate::meta::RowGroupMeta;
 use crate::rowgroup::{CompressionDaemon, RowGroup};
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{LittleEndian, WriteBytesExt};
 use flate2::write::ZlibEncoder;
 use std::io;
 use std::io::Write;
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 use zstd::stream::Encoder;
 
@@ -135,7 +134,7 @@ impl Drop for Writer {
     }
 }
 
-// This struct manages background thread writer.
+/// This struct manages background thread writer.
 pub struct WriterThread {
     thread_handle: Option<std::thread::JoinHandle<()>>,
     buf_pipe_t: Option<flume::Sender<Vec<u8>>>,
@@ -177,6 +176,7 @@ impl WriterThread {
         }
     }
 
+    /// Sends data to writer thread to write into file
     pub fn send(&mut self, buf: Vec<u8>) -> Result<(), flume::SendError<Vec<u8>>> {
         self.buf_pipe_t.as_ref().unwrap().send(buf)
     }

@@ -11,7 +11,7 @@ pub enum Compression {
 
 impl Default for Compression {
     fn default() -> Self {
-        Compression::ZSTD(255)
+        Compression::ZSTD(10)
     }
 }
 
