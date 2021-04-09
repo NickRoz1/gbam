@@ -107,11 +107,11 @@ where
         }
     }
     pub fn push_record(&mut self, record: &RawRecord) {
-        for field in Fields::iterator().map(|v| *v as usize) {
-            let cur_chunk = &mut self.chunks[field];
-            let offset = &mut self.offsets[field];
-            let item_counter = &mut self.num_items[field];
-            let new_data = record.get_bytes(&Fields::Pos);
+        for field in Fields::iterator().filter(|v| **v == Fields::Mapq || **v == Fields::Pos) {
+            let cur_chunk = &mut self.chunks[*field as usize];
+            let offset = &mut self.offsets[*field as usize];
+            let item_counter = &mut self.num_items[*field as usize];
+            let new_data = record.get_bytes(field);
             cur_chunk[*offset..*offset + new_data.len()].clone_from_slice(new_data);
             *offset += new_data.len();
             *item_counter += 1;
@@ -140,7 +140,6 @@ where
             let meta = self.generate_meta(field);
             let field_meta = self.file_meta.get_blocks(field);
             field_meta.push(meta);
-            println!("---------- {}", self.offsets[*field as usize]);
             // Write the data
             self.inner
                 .write(&self.chunks[*field as usize][0..self.offsets[*field as usize]]);
