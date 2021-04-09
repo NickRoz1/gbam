@@ -15,8 +15,11 @@ pub mod bam_to_gbam;
 mod rowgroup;
 /// Writer module
 mod writer;
+/// Single threaded writer
+mod writer_single_thread;
 
-use self::writer::Writer;
+// use self::writer::Writer;
+use self::writer_single_thread::Writer;
 pub use crate::bam_to_gbam::{bam_to_gbam, bam_to_gbam_python};
 use crate::compression::{Compression, COMPRESSION_ENUM_SIZE};
 use crate::meta::{ColChunkMeta, RowGroupMeta};

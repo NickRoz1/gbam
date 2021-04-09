@@ -22,11 +22,11 @@ pub extern "C" fn bam_to_gbam_python(str1: *const c_char, str2: *const c_char) {
 
 /// Converts BAM file to GBAM file
 pub fn bam_to_gbam(in_path: String, out_path: String) {
-    println!(
-        "PYTHON FFI IS WORKING. INPUT PARAMETERS ARE: {} | {}",
-        in_path, out_path
-    );
-    return ();
+    // println!(
+    //     "PYTHON FFI IS WORKING. INPUT PARAMETERS1 ARE: {} | {}",
+    //     in_path, out_path
+    // );
+    // return ();
 
     let fin = File::open(in_path).expect("failed");
     let fout = File::create(out_path).expect("failed");
@@ -35,7 +35,7 @@ pub fn bam_to_gbam(in_path: String, out_path: String) {
     let buf_writer = std::io::BufWriter::new(fout);
 
     let mut reader = ParallelReader::new(buf_reader, 10);
-    let mut writer = Writer::new(buf_writer, 4).unwrap();
+    let mut writer = Writer::new(buf_writer);
 
     let mut buf = RawRecord::from(Vec::<u8>::new());
     let mut cur_val: usize = 0;
@@ -70,6 +70,7 @@ pub fn bam_to_gbam(in_path: String, out_path: String) {
         if block_size == 0 {
             eprintln!("PARSED IN TOTAL: {}", cur_val);
             // EOF
+            writer.finish();
             return ();
         }
         cur_val += block_size;
@@ -78,6 +79,6 @@ pub fn bam_to_gbam(in_path: String, out_path: String) {
         buf.resize(block_size);
         reader.read_exact(&mut buf).expect("FAILED TO READ.");
         // write!(writer, "{:?}", buf).expect("Output failed");
-        writer.write_record(&buf);
+        writer.push_record(&buf);
     }
 }
