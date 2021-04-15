@@ -12,6 +12,7 @@ pub struct RowGroupMeta {
 }
 
 const ROW_GROUP_META_SIZE: usize = u64_size + FIELDS_NUM * COL_CHUNK_META_SIZE;
+
 impl From<&[u8]> for RowGroupMeta {
     fn from(mut bytes: &[u8]) -> Self {
         assert!(

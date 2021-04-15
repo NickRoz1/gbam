@@ -1,80 +1,10 @@
+use super::meta::{BlockMeta, FileInfo, FileMeta};
+use super::SIZE_LIMIT;
 use crate::{u32_size, u64_size, u8_size, Fields, RawRecord, FIELDS_NUM};
 use byteorder::{LittleEndian, WriteBytesExt};
-use serde::{Deserialize, Serialize};
-use serde_json::Result;
 use std::io::{Seek, SeekFrom, Write};
-
 static GBAM_MAGIC: &[u8] = b"geeBAM10";
 
-#[derive(Serialize, Deserialize)]
-enum CODECS {
-    gzip,
-    lz4,
-}
-#[derive(Serialize, Deserialize)]
-struct BlockMeta {
-    seekpos: u64,
-    numitems: u32,
-}
-
-#[derive(Serialize, Deserialize)]
-struct POS {
-    item_size: u32,
-    block_size: u32,
-    codecs: CODECS,
-    blocks: Vec<BlockMeta>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct MAPQ {
-    item_size: u32,
-    block_size: u32,
-    codecs: CODECS,
-    blocks: Vec<BlockMeta>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct FileMeta {
-    pos: POS,
-    mapq: MAPQ,
-}
-
-impl FileMeta {
-    pub fn new() -> Self {
-        FileMeta {
-            pos: POS {
-                item_size: u32_size as u32,
-                block_size: SIZE_LIMIT as u32,
-                codecs: CODECS::gzip,
-                blocks: Vec::<BlockMeta>::new(),
-            },
-            mapq: MAPQ {
-                item_size: u8_size as u32,
-                block_size: SIZE_LIMIT as u32,
-                codecs: CODECS::gzip,
-                blocks: Vec::<BlockMeta>::new(),
-            },
-        }
-    }
-
-    fn get_blocks(&mut self, field: &Fields) -> &mut Vec<BlockMeta> {
-        match field {
-            Fields::Mapq => &mut self.mapq.blocks,
-            Fields::Pos => &mut self.pos.blocks,
-            _ => panic!("Unreachable!"),
-        }
-    }
-
-    fn get_field_size(&self, field: &Fields) -> u32 {
-        match field {
-            Fields::Mapq => self.mapq.item_size,
-            Fields::Pos => self.pos.item_size,
-            _ => panic!("Unreachable!"),
-        }
-    }
-}
-
-const SIZE_LIMIT: usize = 16777216;
 /// Groups records before writing out to file.
 pub struct Writer<W>
 where
@@ -94,6 +24,7 @@ where
     W: Write + Seek,
 {
     pub fn new(mut inner: W) -> Self {
+        // Make space for the FileInfo to be written into.
         inner
             .seek(SeekFrom::Start((u64_size + u32_size * 2 + u64_size) as u64))
             .unwrap();
@@ -171,20 +102,20 @@ where
 
     /// Terminates the writer. Always call after writting all the data.
     pub fn finish(&mut self) {
+        // DONT DELETE THIS! THIS HOW IT SUPPOSED TO WORK WHEN ALL FIELDS ARE AVAILABLE!
         // for field in self.fields_to_flush.iter_mut() {
         //     *field = true;
         // }
         self.fields_to_flush[Fields::Mapq as usize] = true;
         self.fields_to_flush[Fields::Pos as usize] = true;
         self.flush();
-        let cur_pos = self.inner.seek(SeekFrom::Current(0)).unwrap();
+        let meta_start_pos = self.inner.seek(SeekFrom::Current(0)).unwrap();
         // Write meta
         let main_meta = serde_json::to_string(&self.file_meta).unwrap();
         self.inner.write(&main_meta.as_bytes()[..]);
+        // Revert back to the beginning of the file
         self.inner.seek(SeekFrom::Start(0)).unwrap();
-        self.inner.write(GBAM_MAGIC);
-        self.inner.write_u32::<LittleEndian>(1).unwrap();
-        self.inner.write_u32::<LittleEndian>(0).unwrap();
-        self.inner.write_u64::<LittleEndian>(cur_pos);
+        let file_meta = FileInfo::new([1, 0], meta_start_pos);
+        self.inner.write(&Into::<Vec<u8>>::into(file_meta)[..]);
     }
 }
