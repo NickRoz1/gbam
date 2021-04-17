@@ -110,10 +110,20 @@ impl FileMeta {
         }
     }
 
+    /// Used to retrieve BlockMeta vector mutable borrow, to push new blocks
+    /// directly into it, avoiding field matching.
     pub fn get_blocks(&mut self, field: &Fields) -> &mut Vec<BlockMeta> {
         match field {
             Fields::Mapq => &mut self.mapq.blocks,
             Fields::Pos => &mut self.pos.blocks,
+            _ => panic!("Unreachable!"),
+        }
+    }
+
+    pub fn view_blocks(&self, field: &Fields) -> &Vec<BlockMeta> {
+        match field {
+            Fields::Mapq => &self.mapq.blocks,
+            Fields::Pos => &self.pos.blocks,
             _ => panic!("Unreachable!"),
         }
     }
