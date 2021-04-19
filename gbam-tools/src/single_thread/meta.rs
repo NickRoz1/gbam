@@ -1,5 +1,5 @@
+use super::GBAM_MAGIC;
 use super::SIZE_LIMIT;
-use crate::GBAM_MAGIC;
 use crate::{u32_size, u64_size, u8_size, Fields};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
@@ -27,20 +27,21 @@ pub const FILE_INFO_SIZE: usize = u64_size + u64_size + u32_size * 2;
 impl From<&[u8]> for FileInfo {
     fn from(mut bytes: &[u8]) -> Self {
         assert!(
-            bytes.len() >= FILE_INFO_SIZE,
+            bytes.len() == FILE_INFO_SIZE,
             "Not enough bytes to form file info struct.",
         );
         assert_eq!(&bytes[..u64_size], &GBAM_MAGIC[..]);
+        let mut ver1 = &bytes[u64_size..];
+        let mut ver2 = &bytes[u64_size + u32_size..];
+        let mut seekpos = &bytes[u64_size + 2 * u32_size..];
         FileInfo {
             gbam_version: [
-                bytes
-                    .read_u32::<LittleEndian>()
+                ver1.read_u32::<LittleEndian>()
                     .expect("file info is damaged: unable to read GBAM version."),
-                bytes
-                    .read_u32::<LittleEndian>()
+                ver2.read_u32::<LittleEndian>()
                     .expect("file info is damaged: unable to read GBAM version."),
             ],
-            seekpos: bytes
+            seekpos: seekpos
                 .read_u64::<LittleEndian>()
                 .expect("file info is damaged: unable to read seekpos."),
         }

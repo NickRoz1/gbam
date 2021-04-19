@@ -9,8 +9,8 @@ use std::io::{Read, Seek, SeekFrom};
 // Represents a BAM record in which some fields may be omitted.
 #[pyclass]
 pub struct GbamRecord {
-    mapq: Option<u8>,
-    pos: Option<u32>,
+    pub mapq: Option<u8>,
+    pub pos: Option<u32>,
 }
 
 impl GbamRecord {
@@ -24,6 +24,8 @@ impl GbamRecord {
 }
 
 pub trait ReadSeekSend: Read + Seek + Send {}
+
+impl<T> ReadSeekSend for T where T: Read + Seek + Send {}
 #[pyclass]
 pub struct Reader {
     inner: Box<dyn ReadSeekSend>, // Necessary to use with PyO3. No generic parameters are allowed!
@@ -60,6 +62,14 @@ impl ParsingTemplate {
             .map(|x| x.as_ref().unwrap())
     }
 
+    pub fn set_all(&mut self) {
+        for (field, val) in Fields::iterator().zip(self.0.iter_mut()) {
+            if val.is_none() {
+                *val = Some(*field);
+            }
+        }
+    }
+
     pub fn clear(&mut self) {
         self.0
             .iter_mut()
@@ -80,6 +90,7 @@ impl Reader {
         inner.seek(SeekFrom::Start(file_info.seekpos))?;
         let mut buf = Vec::<u8>::new();
         inner.read_to_end(&mut buf)?;
+
         let file_meta_json_str = String::from_utf8(buf).unwrap();
         let file_meta =
             serde_json::from_str(&file_meta_json_str).expect("File meta json string was damaged.");
@@ -123,8 +134,8 @@ impl Reader {
         offset
     }
 
-    fn next(&mut self) -> Option<&GbamRecord> {
-        for field in Fields::iterator() {
+    pub fn next(&mut self) -> Option<&GbamRecord> {
+        for field in Fields::iterator().filter(|v| **v == Fields::Mapq || **v == Fields::Pos) {
             let cur_block_num = self.cur_block[*field as usize];
             if self.cur_num == self.loaded_records_num[*field as usize] {
                 if (cur_block_num + 1) as usize == self.file_meta.get_blocks(field).len() {

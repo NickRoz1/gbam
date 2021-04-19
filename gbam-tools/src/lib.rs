@@ -83,7 +83,7 @@ impl Fields {
 }
 
 /// Provides convenient access to record bytes
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct RawRecord(Vec<u8>);
 
 impl RawRecord {

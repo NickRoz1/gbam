@@ -1,4 +1,4 @@
-use super::meta::{BlockMeta, FileInfo, FileMeta};
+use super::meta::{BlockMeta, FileInfo, FileMeta, FILE_INFO_SIZE};
 use super::SIZE_LIMIT;
 use crate::{u32_size, u64_size, u8_size, Fields, RawRecord, FIELDS_NUM};
 use byteorder::{LittleEndian, WriteBytesExt};
@@ -26,7 +26,7 @@ where
     pub fn new(mut inner: W) -> Self {
         // Make space for the FileInfo to be written into.
         inner
-            .seek(SeekFrom::Start((u64_size + u32_size * 2 + u64_size) as u64))
+            .seek(SeekFrom::Start((FILE_INFO_SIZE) as u64))
             .unwrap();
         Writer {
             chunks: vec![vec![0; SIZE_LIMIT]; FIELDS_NUM],
@@ -100,8 +100,9 @@ where
         }
     }
 
-    /// Terminates the writer. Always call after writting all the data.
-    pub fn finish(&mut self) {
+    /// Terminates the writer. Always call after writting all the data. Returns
+    /// total amount of bytes written.
+    pub fn finish(&mut self) -> std::io::Result<u64> {
         // DONT DELETE THIS! THIS HOW IT SUPPOSED TO WORK WHEN ALL FIELDS ARE AVAILABLE!
         // for field in self.fields_to_flush.iter_mut() {
         //     *field = true;
@@ -109,13 +110,52 @@ where
         self.fields_to_flush[Fields::Mapq as usize] = true;
         self.fields_to_flush[Fields::Pos as usize] = true;
         self.flush();
-        let meta_start_pos = self.inner.seek(SeekFrom::Current(0)).unwrap();
+        let meta_start_pos = self.inner.seek(SeekFrom::Current(0))?;
         // Write meta
         let main_meta = serde_json::to_string(&self.file_meta).unwrap();
-        self.inner.write(&main_meta.as_bytes()[..]);
+        self.inner.write(&main_meta.as_bytes()[..])?;
+
+        let total_bytes_written = self.inner.seek(SeekFrom::Current(0))?;
         // Revert back to the beginning of the file
         self.inner.seek(SeekFrom::Start(0)).unwrap();
         let file_meta = FileInfo::new([1, 0], meta_start_pos);
-        self.inner.write(&Into::<Vec<u8>>::into(file_meta)[..]);
+        self.inner.write(&Into::<Vec<u8>>::into(file_meta)[..])?;
+        Ok(total_bytes_written)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::single_thread::reader::*;
+    use byteorder::ReadBytesExt;
+    use std::io::Cursor;
+    #[test]
+    fn test_writer() {
+        let raw_records = vec![RawRecord::default(); 2];
+        let mut buf: Vec<u8> = vec![0; SIZE_LIMIT];
+        let out = Cursor::new(&mut buf[..]);
+        let mut writer = Writer::new(out);
+        for rec in raw_records.iter() {
+            writer.push_record(rec);
+        }
+        let total_bytes_written = writer.finish().unwrap();
+        buf.resize(total_bytes_written as usize, 0);
+
+        let in_cursor = Box::new(Cursor::new(buf));
+        let mut parsing_template = ParsingTemplate::new();
+        parsing_template.set_all();
+        let mut reader = Reader::new(in_cursor, parsing_template).unwrap();
+        let mut it = raw_records.iter();
+        while let Some(rec) = reader.next() {
+            let rec_orig = it.next().unwrap();
+            let orig_map_q = rec_orig.get_bytes(&Fields::Mapq)[0];
+            let orig_pos = rec_orig
+                .get_bytes(&Fields::Pos)
+                .read_u32::<LittleEndian>()
+                .unwrap();
+            assert_eq!(rec.pos.unwrap(), orig_pos);
+            assert_eq!(rec.mapq.unwrap(), orig_map_q);
+        }
     }
 }
