@@ -1,5 +1,5 @@
 [package]
-name = "gbam-binary"
+name = "gbam_binary"
 version = "0.1.0"
 authors = ["nickroz"]
 edition = "2018"
@@ -7,6 +7,6 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-gbam-tools = { path = "../gbam-tools" }
+gbam_tools = { path = "../gbam_tools" }
 byteorder = "1.2.3"
 structopt = "0.3.21"

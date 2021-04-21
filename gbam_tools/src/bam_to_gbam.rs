@@ -1,24 +1,10 @@
-use crate::{Fields, RawRecord, Writer};
-use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
-use noodles_bgzf::{ParallelReader, Reader};
+use crate::{RawRecord, Writer};
+use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
+use noodles_bgzf::ParallelReader;
 use std::fs::File;
-use std::io::{Read, Seek, Write};
+use std::io::Read;
 
 use libc;
-
-use libc::c_char;
-use std::ffi::CStr;
-use std::str;
-
-/// Wrapper for Python FFI
-#[no_mangle]
-pub extern "C" fn bam_to_gbam_python(str1: *const c_char, str2: *const c_char) {
-    let buf1 = unsafe { CStr::from_ptr(str1).to_bytes() };
-    let buf2 = unsafe { CStr::from_ptr(str2).to_bytes() };
-    let string1 = str::from_utf8(buf1).unwrap().to_owned();
-    let string2 = str::from_utf8(buf2).unwrap().to_owned();
-    bam_to_gbam(string1, string2);
-}
 
 /// Converts BAM file to GBAM file
 pub fn bam_to_gbam(in_path: String, out_path: String) {
@@ -27,7 +13,6 @@ pub fn bam_to_gbam(in_path: String, out_path: String) {
     //     in_path, out_path
     // );
     // return ();
-
     let fin = File::open(in_path).expect("failed");
     let fout = File::create(out_path).expect("failed");
 

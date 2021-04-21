@@ -20,7 +20,7 @@ mod writer;
 
 // use self::writer::Writer;
 use self::single_thread::writer::Writer;
-pub use crate::bam_to_gbam::{bam_to_gbam, bam_to_gbam_python};
+pub use crate::bam_to_gbam::bam_to_gbam;
 use crate::compression::{Compression, COMPRESSION_ENUM_SIZE};
 use crate::meta::{ColChunkMeta, RowGroupMeta};
 
@@ -214,4 +214,23 @@ impl DerefMut for RawRecord {
     fn deref_mut(&mut self) -> &mut [u8] {
         &mut self.0
     }
+}
+
+use pyo3::prelude::*;
+use pyo3::{wrap_pyfunction, wrap_pymodule};
+
+/// Workaround, since it seems wrap_pyfunction cant access another module namespace.
+#[pyfunction]
+pub fn bam_to_gbam_python(in_path: String, out_path: String) {
+    bam_to_gbam(in_path, out_path);
+}
+
+#[pymodule]
+fn gbam_tools(_: Python, m: &PyModule) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(bam_to_gbam_python, m)?)
+        .unwrap();
+    m.add_class::<single_thread::reader::Reader>()?;
+    m.add_class::<single_thread::reader::ParsingTemplate>()?;
+    m.add_class::<single_thread::reader::GbamRecord>()?;
+    Ok(())
 }

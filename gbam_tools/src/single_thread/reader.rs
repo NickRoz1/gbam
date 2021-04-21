@@ -8,8 +8,11 @@ use std::io::{Read, Seek, SeekFrom};
 
 // Represents a BAM record in which some fields may be omitted.
 #[pyclass]
+#[derive(Clone)]
 pub struct GbamRecord {
+    #[pyo3(get)]
     pub mapq: Option<u8>,
+    #[pyo3(get)]
     pub pos: Option<u32>,
 }
 
@@ -23,6 +26,18 @@ impl GbamRecord {
     }
 }
 
+// #[pymethods]
+// impl GbamRecord {
+//     #[getter]
+//     fn mapq(&self) -> PyResult<Option<u8>> {
+//         Ok(self.mapq.clone())
+//     }
+//     // #[getter]
+//     // fn pos(&self) -> PyResult<Option<u32>> {
+//     //     Ok(self.pos.clone())
+//     // }
+// }
+
 pub trait ReadSeekSend: Read + Seek + Send {}
 
 impl<T> ReadSeekSend for T where T: Read + Seek + Send {}
@@ -33,7 +48,7 @@ pub struct Reader {
     file_info: FileInfo,
     parsing_template: ParsingTemplate,
     buffers: Vec<Vec<u8>>,
-    cur_record: GbamRecord,
+    pub cur_record: GbamRecord,
     cur_num: u64,
     cur_block: Vec<u64>,
     /// How many record have been loaded in memory already for each block. It's
@@ -41,29 +56,35 @@ pub struct Reader {
     loaded_records_num: Vec<u64>,
 }
 
+#[pyclass]
+#[derive(Clone)]
 // This vector regulates what fields are getting parsed from GBAM file.
-pub struct ParsingTemplate(Vec<Option<Fields>>);
+pub struct ParsingTemplate {
+    inner: Vec<Option<Fields>>,
+}
 
 impl ParsingTemplate {
     pub fn new() -> Self {
-        Self((0..FIELDS_NUM).map(|_| None).collect())
+        Self {
+            inner: ((0..FIELDS_NUM).map(|_| None).collect()),
+        }
     }
     pub fn set(&mut self, field: &Fields, val: bool) {
-        self.0[*field as usize] = match val {
+        self.inner[*field as usize] = match val {
             true => Some(*field),
             false => None,
         }
     }
 
     pub fn get_active_fields<'a>(&'a self) -> impl Iterator<Item = &'a Fields> {
-        self.0
+        self.inner
             .iter()
             .filter(|x| x.is_some())
             .map(|x| x.as_ref().unwrap())
     }
 
     pub fn set_all(&mut self) {
-        for (field, val) in Fields::iterator().zip(self.0.iter_mut()) {
+        for (field, val) in Fields::iterator().zip(self.inner.iter_mut()) {
             if val.is_none() {
                 *val = Some(*field);
             }
@@ -71,10 +92,23 @@ impl ParsingTemplate {
     }
 
     pub fn clear(&mut self) {
-        self.0
+        self.inner
             .iter_mut()
             .filter(|x| x.is_some())
             .for_each(|e| *e = None);
+    }
+}
+
+#[pymethods]
+impl ParsingTemplate {
+    #[new]
+    pub fn new_from_python(fields: Vec<bool>) -> Self {
+        assert_eq!(fields.len(), FIELDS_NUM);
+        let mut tmplt = ParsingTemplate::new();
+        for (field, val) in Fields::iterator().zip(fields) {
+            tmplt.set(field, val);
+        }
+        tmplt
     }
 }
 // Methods to be called from Rust.
@@ -158,6 +192,21 @@ impl Reader {
     }
 }
 
-// Methods to be called from Python.
+// // Methods to be called from Python.
 #[pymethods]
-impl Reader {}
+impl Reader {
+    fn next_rec(&mut self) -> PyResult<Option<GbamRecord>> {
+        Ok(self.next().cloned())
+    }
+
+    #[new]
+    fn new_for_file(path: &str, tmplt: ParsingTemplate) -> Self {
+        use std::fs::File;
+        use std::io::{self, prelude::*, BufReader};
+
+        let file = File::open(path).unwrap();
+        let reader = BufReader::new(file);
+
+        Self::new(Box::new(reader), tmplt).unwrap()
+    }
+}

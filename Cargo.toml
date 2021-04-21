@@ -1,6 +1,6 @@
 [workspace]
 
 members = [
-    "gbam-tools",
-    "gbam-binary",
+    "gbam_tools",
+    "gbam_binary",
 ]
