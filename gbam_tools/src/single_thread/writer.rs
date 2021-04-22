@@ -18,7 +18,7 @@ where
     file_meta: FileMeta,
     inner: W,
 }
-
+static mut num: u32 = 0;
 impl<W> Writer<W>
 where
     W: Write + Seek,
@@ -50,7 +50,7 @@ where
 
         let mut flush_required = false;
         for (idx, offset) in self.offsets.iter_mut().enumerate() {
-            if *offset > SIZE_LIMIT {
+            if *offset >= SIZE_LIMIT {
                 self.fields_to_flush[idx] = true;
                 flush_required = true;
             }
@@ -87,11 +87,7 @@ where
     fn generate_meta(&mut self, field: &Fields) -> BlockMeta {
         let item_size = self.file_meta.get_field_size(field);
         let field_meta = self.file_meta.get_blocks(field);
-        let mut seek_pos = 0;
-        if !field_meta.is_empty() {
-            let previous = field_meta.last().unwrap();
-            seek_pos = previous.seekpos + (previous.numitems * item_size) as u64;
-        }
+        let mut seek_pos = self.inner.seek(SeekFrom::Current(0 as i64)).unwrap();
         // Space taken by values
         let offset = self.offsets[*field as usize];
         BlockMeta {

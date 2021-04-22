@@ -8,7 +8,7 @@ use std::io::{Read, Seek, SeekFrom};
 
 // Represents a BAM record in which some fields may be omitted.
 #[pyclass]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct GbamRecord {
     #[pyo3(get)]
     pub mapq: Option<u8>,
@@ -26,18 +26,6 @@ impl GbamRecord {
     }
 }
 
-// #[pymethods]
-// impl GbamRecord {
-//     #[getter]
-//     fn mapq(&self) -> PyResult<Option<u8>> {
-//         Ok(self.mapq.clone())
-//     }
-//     // #[getter]
-//     // fn pos(&self) -> PyResult<Option<u32>> {
-//     //     Ok(self.pos.clone())
-//     // }
-// }
-
 pub trait ReadSeekSend: Read + Seek + Send {}
 
 impl<T> ReadSeekSend for T where T: Read + Seek + Send {}
@@ -50,7 +38,7 @@ pub struct Reader {
     buffers: Vec<Vec<u8>>,
     pub cur_record: GbamRecord,
     cur_num: u64,
-    cur_block: Vec<u64>,
+    cur_block: Vec<i32>,
     /// How many record have been loaded in memory already for each block. It's
     /// needed since the blocks sizes may be different.
     loaded_records_num: Vec<u64>,
@@ -76,11 +64,17 @@ impl ParsingTemplate {
         }
     }
 
-    pub fn get_active_fields<'a>(&'a self) -> impl Iterator<Item = &'a Fields> {
+    pub fn get_active_fields_iter<'a>(&'a self) -> impl Iterator<Item = &'a Fields> {
         self.inner
             .iter()
             .filter(|x| x.is_some())
             .map(|x| x.as_ref().unwrap())
+    }
+
+    pub fn get_active_fields(&self) -> Vec<Fields> {
+        self.get_active_fields_iter()
+            .map(|field| field.to_owned())
+            .collect::<Vec<_>>()
     }
 
     pub fn set_all(&mut self) {
@@ -124,11 +118,10 @@ impl Reader {
         inner.seek(SeekFrom::Start(file_info.seekpos))?;
         let mut buf = Vec::<u8>::new();
         inner.read_to_end(&mut buf)?;
-
         let file_meta_json_str = String::from_utf8(buf).unwrap();
         let file_meta =
             serde_json::from_str(&file_meta_json_str).expect("File meta json string was damaged.");
-        Ok(Self {
+        let mut reader = Self {
             inner: inner,
             file_meta: file_meta,
             file_info: file_info,
@@ -139,9 +132,13 @@ impl Reader {
                 pos: None,
             },
             cur_num: 0,
-            cur_block: vec![0; FIELDS_NUM],
+            cur_block: vec![-1; FIELDS_NUM], // to preload first blocks
             loaded_records_num: vec![0; FIELDS_NUM],
-        })
+        };
+        for field in reader.parsing_template.get_active_fields().iter() {
+            reader.load_next_block(field);
+        }
+        Ok(reader)
     }
 
     fn load_next_block(&mut self, field: &Fields) {
@@ -150,10 +147,15 @@ impl Reader {
         let next_block_meta = &self.file_meta.get_blocks(field)[next_block_num as usize];
         let block_size = next_block_meta.numitems * item_size;
 
-        self.inner.seek(SeekFrom::Start(next_block_meta.seekpos));
+        self.inner
+            .seek(SeekFrom::Start(next_block_meta.seekpos))
+            .unwrap();
         let buf = &mut self.buffers[*field as usize];
         buf.resize(block_size as usize, 0);
-        self.inner.read_exact(buf);
+        self.inner.read_exact(buf).unwrap();
+
+        self.cur_block[*field as usize] += 1;
+        self.loaded_records_num[*field as usize] += next_block_meta.numitems as u64;
     }
 
     /// Calculates offset to the record inside the block.
@@ -164,23 +166,23 @@ impl Reader {
         let dist_from_back_of_block = self.loaded_records_num[*field as usize] - self.cur_num;
         let rec_num_in_block = block_meta.numitems as u64 - dist_from_back_of_block;
 
-        let offset = rec_num_in_block as u64 * self.file_meta.get_field_size(field) as u64;
+        let offset = rec_num_in_block * self.file_meta.get_field_size(field) as u64;
         offset
     }
 
     pub fn next(&mut self) -> Option<&GbamRecord> {
-        for field in Fields::iterator().filter(|v| **v == Fields::Mapq || **v == Fields::Pos) {
-            let cur_block_num = self.cur_block[*field as usize];
-            if self.cur_num == self.loaded_records_num[*field as usize] {
-                if (cur_block_num + 1) as usize == self.file_meta.get_blocks(field).len() {
+        for field in self.parsing_template.get_active_fields() {
+            let cur_block_num = self.cur_block[field as usize];
+            if self.cur_num == self.loaded_records_num[field as usize] {
+                if (cur_block_num + 1) as usize == self.file_meta.get_blocks(&field).len() {
                     return None;
                 }
                 // One of the blocks have been exhausted;
-                self.load_next_block(field);
+                self.load_next_block(&field);
             }
         }
 
-        for active_field in self.parsing_template.get_active_fields() {
+        for active_field in self.parsing_template.get_active_fields_iter() {
             let offset = self.get_offset_into_block(active_field) as usize;
             let buffer = &self.buffers[*active_field as usize];
             let item_size = self.file_meta.get_field_size(active_field) as usize;
@@ -188,6 +190,7 @@ impl Reader {
                 .parse_from_bytes(active_field, &buffer[offset..offset + item_size]);
         }
 
+        self.cur_num += 1;
         Some(&self.cur_record)
     }
 }
@@ -196,7 +199,8 @@ impl Reader {
 #[pymethods]
 impl Reader {
     fn next_rec(&mut self) -> PyResult<Option<GbamRecord>> {
-        Ok(self.next().cloned())
+        let next = self.next().cloned();
+        Ok(next)
     }
 
     #[new]
@@ -206,7 +210,6 @@ impl Reader {
 
         let file = File::open(path).unwrap();
         let reader = BufReader::new(file);
-
         Self::new(Box::new(reader), tmplt).unwrap()
     }
 }
