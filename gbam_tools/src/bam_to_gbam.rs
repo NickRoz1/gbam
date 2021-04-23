@@ -1,6 +1,6 @@
 use crate::{RawRecord, Writer};
+use bam_parallel::ParallelReader;
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
-use noodles_bgzf::ParallelReader;
 use std::fs::File;
 use std::io::Read;
 
@@ -53,7 +53,7 @@ pub fn bam_to_gbam(in_path: String, out_path: String) {
             Err(e) => panic!(e),
         };
         if block_size == 0 {
-            eprintln!("PARSED IN TOTAL: {}", cur_val);
+            // eprintln!("PARSED IN TOTAL: {}", cur_val);
             // EOF
             writer.finish();
             return ();

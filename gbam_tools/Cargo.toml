@@ -12,7 +12,7 @@ byteorder = "1.2.3"
 flate2 = "1.0.1"
 flume = "0.10.0"
 num_cpus = "0.2"
-noodles-bgzf = { path = "replace_me" }
+bam_parallel = { git = "https://github.com/NickRoz1/bam_parallel" }
 libc = "0.2.93"
 serde_json = "1.0"
 serde = {version = "1.0.125", features = ["derive"]}

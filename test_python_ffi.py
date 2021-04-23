@@ -33,6 +33,7 @@ def test(args):
     for field_to_omit in list(map(int, Fields)):
         check_if_equal(input_path, output_file.name, [field_to_omit])
 
+    print("TESTS PASSED.")
 
 def get_parsing_tmpl(fields_to_parse):
     from gbam_tools import ParsingTemplate

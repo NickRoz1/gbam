@@ -14,8 +14,6 @@ pip3 install maturin
 maturin develop
 ```
 
-One will also have clone this repository https://github.com/NickRoz1/noodles-parallel-experiment and manually replace path to `noodles_bgzf` in `gbam_tools/Cargo.toml`. This will be fixed soon.
-
 # Usage
 
 ### To convert BAM file to GBAM file
