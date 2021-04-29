@@ -54,6 +54,7 @@ pub enum Fields {
     RawQual,
     RawTags,
     RawTagsLen, // Not in BAM spec, needed for index GBAM file
+    RawSeqLen,  // Not in BAM spec, needed for index GBAM file
 }
 
 impl Fields {
@@ -81,6 +82,29 @@ impl Fields {
         FIELDS.iter()
     }
 }
+
+// match field {
+//     // Fixed size fields
+//     Fields::RefID
+//     | Fields::Pos
+//     | Fields::LName
+//     | Fields::Mapq
+//     | Fields::Bin
+//     | Fields::NCigar
+//     | Fields::Flags
+//     | Fields::SequenceLength
+//     | Fields::NextRefID
+//     | Fields::NextPos
+//     | Fields::TemplateLength
+//     | Fields::RawTagsLen => {}
+//     // Variable size fields
+//     Fields::ReadName
+//     | Fields::RawCigar
+//     | Fields::RawSequence
+//     | Fields::RawQual
+//     | Fields::RawTags => {
+//     }
+// }
 
 /// Provides convenient access to record bytes
 #[derive(Clone, Eq, PartialEq, Debug)]
