@@ -2,8 +2,14 @@ use super::GBAM_MAGIC;
 use super::SIZE_LIMIT;
 use crate::{u32_size, u64_size, u8_size, Fields};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use serde::{Deserialize, Serialize};
-use serde_json::Result;
+use serde::ser::{SerializeMap, SerializeSeq, Serializer};
+use serde::{Deserialize, Deserializer, Serialize};
+use std::marker::PhantomData;
+
+use serde::de::{MapAccess, Visitor};
+// use serde::de::{Deserialize, Deserializer};
+// use serde_json::Result;
+use std::collections::HashMap;
 use std::io::{Read, Write};
 
 /// Holds data related to GBAM file: gbam version, seekpos to meta.
@@ -86,30 +92,90 @@ pub struct MAPQ {
     codecs: CODECS,
     blocks: Vec<BlockMeta>,
 }
+#[derive(Serialize, Deserialize)]
+pub struct FieldMeta {
+    item_size: u32,
+    block_size: u32,
+    codecs: CODECS,
+    blocks: Vec<BlockMeta>,
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct FileMeta {
-    pos: POS,
-    mapq: MAPQ,
+    field_to_meta: HashMap<Fields, FieldMeta>,
+}
+
+impl Serialize for HashMap<Fields, FieldMeta> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(self.len()))?;
+        for (k, v) in self {
+            map.serialize_entry(&k.to_string(), &v)?;
+        }
+        map.end()
+    }
+}
+
+struct MyMapVisitor {
+    marker: PhantomData<fn() -> HashMap<Fields, FieldMeta>>,
+}
+
+impl MyMapVisitor {
+    fn new() -> Self {
+        MyMapVisitor {
+            marker: PhantomData,
+        }
+    }
+}
+
+impl<'de> Visitor<'de> for MyMapVisitor {
+    type Value = HashMap<Fields, FieldMeta>;
+
+    fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
+    where
+        M: MapAccess<'de>,
+    {
+        let mut map = Self::Value::with_capacity(access.size_hint().unwrap_or(0));
+
+        // While there are entries remaining in the input, add them
+        // into our map.
+        while let Some((key, value)) = access.next_entry()? {
+            map.insert(key, value);
+        }
+
+        Ok(map)
+    }
+}
+impl<'de> Deserialize<'de> for HashMap<Fields, FieldMeta> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // Instantiate our Visitor and ask the Deserializer to drive
+        // it over the input data, resulting in an instance of MyMap.
+        deserializer.deserialize_map(MyMapVisitor::new())
+    }
 }
 
 impl FileMeta {
-    pub fn new() -> Self {
-        FileMeta {
-            pos: POS {
-                item_size: u32_size as u32,
-                block_size: SIZE_LIMIT as u32,
-                codecs: CODECS::gzip,
-                blocks: Vec::<BlockMeta>::new(),
-            },
-            mapq: MAPQ {
-                item_size: u8_size as u32,
-                block_size: SIZE_LIMIT as u32,
-                codecs: CODECS::gzip,
-                blocks: Vec::<BlockMeta>::new(),
-            },
-        }
-    }
+    // pub fn new() -> Self {
+    //     FileMeta {
+    //         pos: POS {
+    //             item_size: u32_size as u32,
+    //             block_size: SIZE_LIMIT as u32,
+    //             codecs: CODECS::gzip,
+    //             blocks: Vec::<BlockMeta>::new(),
+    //         },
+    //         mapq: MAPQ {
+    //             item_size: u8_size as u32,
+    //             block_size: SIZE_LIMIT as u32,
+    //             codecs: CODECS::gzip,
+    //             blocks: Vec::<BlockMeta>::new(),
+    //         },
+    //     }
+    // }
 
     /// Used to retrieve BlockMeta vector mutable borrow, to push new blocks
     /// directly into it, avoiding field matching.

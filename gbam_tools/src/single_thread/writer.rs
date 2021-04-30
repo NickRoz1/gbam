@@ -1,6 +1,6 @@
 use super::meta::{BlockMeta, FileInfo, FileMeta, FILE_INFO_SIZE};
 use super::SIZE_LIMIT;
-use crate::{u32_size, u64_size, u8_size, Fields, RawRecord, FIELDS_NUM};
+use crate::{u32_size, u64_size, u8_size, var_size_field_to_index, Fields, RawRecord, FIELDS_NUM};
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::{Seek, SeekFrom, Write};
 static GBAM_MAGIC: &[u8] = b"geeBAM10";
@@ -47,7 +47,7 @@ where
         let mut index_fields_buf: [u8; u32_size] = [0; u32_size];
         for field in Fields::iterator().filter(|f| {
             **f != Fields::SequenceLength
-                && **f != Fields::TemplateLength
+                && **f != Fields::TemplateLength // This fields are not written on their own. They hold index data for variable sized fields.
                 && **f != Fields::RawTagsLen
                 && **f != Fields::LName
                 && **f != Fields::RawSeqLen
@@ -60,38 +60,18 @@ where
                 | Fields::RawSequence
                 | Fields::RawTags
                 | Fields::RawCigar => {
+                    // Write variable sized field
                     self.update_field_buf(field, new_data);
-                    match self.offsets[*field as usize] {
-                        // The field has been flushed
-                        0 => {
-                            (&mut index_fields_buf[..]).write_u32::<LittleEndian>(0);
-                        }
-                        new_offset => {
-                            (&mut index_fields_buf[..])
-                                .write_u32::<LittleEndian>((new_offset - new_data.len()) as u32);
-                        }
-                    }
-                    match field {
-                        Fields::ReadName => {
-                            self.update_field_buf(&Fields::LName, &index_fields_buf)
-                        }
-                        Fields::RawQual => {
-                            self.update_field_buf(&Fields::SequenceLength, &index_fields_buf)
-                        }
-                        Fields::RawSequence => {
-                            self.update_field_buf(&Fields::RawSeqLen, &index_fields_buf)
-                        }
-                        Fields::RawTags => {
-                            self.update_field_buf(&Fields::RawTagsLen, &index_fields_buf)
-                        }
-                        Fields::TemplateLength => {
-                            self.update_field_buf(&Fields::LName, &index_fields_buf)
-                        }
-                        Fields::RawCigar => {
-                            self.update_field_buf(&Fields::RawCigar, &index_fields_buf)
-                        }
-                        _ => panic!("Unreachable"),
-                    }
+                    let offset = match self.offsets[*field as usize] {
+                        // The buffer for this field has been flushed
+                        0 => 0,
+                        new_offset => new_offset - new_data.len(),
+                    };
+                    (&mut index_fields_buf[..])
+                        .write_u32::<LittleEndian>(offset as u32)
+                        .unwrap();
+                    // Write fixed size index
+                    self.update_field_buf(&var_size_field_to_index(field), &index_fields_buf);
                 }
                 // Fixed sized fields
                 _ => {
@@ -119,35 +99,21 @@ where
         *item_counter += 1;
     }
 
-    // fn is_flush_required(&self, field: &Fields, rec_size: usize) -> bool {
-    //     let mut flush_required = false;
-    //     for (idx, offset) in offsets.iter_mut().enumerate() {
-    //         if *offset >= SIZE_LIMIT {
-    //             fields_to_flush[idx] = true;
-    //             flush_required = true;
-    //         }
-    //     }
-    //     flush_required
-    // }
-
     fn flush(&mut self, field: &Fields) {
         let meta = self.generate_meta(field);
         let field_meta = self.file_meta.get_blocks(field);
         field_meta.push(meta);
         // Write the data
         self.inner
-            .write(&self.chunks[*field as usize][0..self.offsets[*field as usize]]);
+            .write(&self.chunks[*field as usize][0..self.offsets[*field as usize]])
+            .unwrap();
 
         self.offsets[*field as usize] = 0;
         self.num_items[*field as usize] = 0;
     }
 
     fn generate_meta(&mut self, field: &Fields) -> BlockMeta {
-        let item_size = self.file_meta.get_field_size(field);
-        let field_meta = self.file_meta.get_blocks(field);
-        let mut seek_pos = self.inner.seek(SeekFrom::Current(0 as i64)).unwrap();
-        // Space taken by values
-        let offset = self.offsets[*field as usize];
+        let seek_pos = self.inner.seek(SeekFrom::Current(0 as i64)).unwrap();
         BlockMeta {
             seekpos: seek_pos,
             numitems: self.num_items[*field as usize],

@@ -7,6 +7,9 @@ use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::slice::Iter;
 
+use serde::ser::{SerializeMap, SerializeSeq, Serializer};
+use serde::{Deserialize, Deserializer, Serialize};
+
 mod compression;
 mod meta;
 // mod reader;
@@ -34,7 +37,7 @@ const mega_byte_size: usize = 1_048_576;
 
 const FIELDS_NUM: usize = 17;
 /// Types of fields contained in BAM file.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[allow(missing_docs)]
 pub enum Fields {
     RefID,
@@ -83,6 +86,12 @@ impl Fields {
     }
 }
 
+impl std::fmt::Display for Fields {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+
 // match field {
 //     // Fixed size fields
 //     Fields::RefID
@@ -105,6 +114,18 @@ impl Fields {
 //     | Fields::RawTags => {
 //     }
 // }
+
+/// Returns enum name of index field for particular variable sized field
+fn var_size_field_to_index(field: &Fields) -> Fields {
+    match field {
+        Fields::ReadName => Fields::LName,
+        Fields::RawQual => Fields::SequenceLength,
+        Fields::RawSequence => Fields::RawSeqLen,
+        Fields::RawTags => Fields::RawTagsLen,
+        Fields::RawCigar => Fields::NCigar,
+        _ => panic!("Unreachable"),
+    }
+}
 
 /// Provides convenient access to record bytes
 #[derive(Clone, Eq, PartialEq, Debug)]
