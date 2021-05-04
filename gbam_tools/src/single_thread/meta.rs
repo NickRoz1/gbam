@@ -1,10 +1,11 @@
 use super::GBAM_MAGIC;
 use super::SIZE_LIMIT;
-use crate::{u32_size, u64_size, u8_size, Fields};
+use crate::{field_item_size, field_type, u32_size, u64_size, u8_size, FieldType, Fields};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use serde::ser::{SerializeMap, SerializeSeq, Serializer};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::marker::PhantomData;
+use std::ops::IndexMut;
 
 use serde::de::{MapAccess, Visitor};
 // use serde::de::{Deserialize, Deserializer};
@@ -78,26 +79,28 @@ pub struct BlockMeta {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct POS {
-    item_size: u32,
-    block_size: u32,
+pub struct FieldMeta {
+    item_size: Option<u32>,  // NONE for variable sized fields
+    block_size: Option<u32>, // NONE for variable sized fields
     codecs: CODECS,
     blocks: Vec<BlockMeta>,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct MAPQ {
-    item_size: u32,
-    block_size: u32,
-    codecs: CODECS,
-    blocks: Vec<BlockMeta>,
-}
-#[derive(Serialize, Deserialize)]
-pub struct FieldMeta {
-    item_size: u32,
-    block_size: u32,
-    codecs: CODECS,
-    blocks: Vec<BlockMeta>,
+impl FieldMeta {
+    pub fn new(field: &Fields) -> Self {
+        FieldMeta {
+            item_size: match field_item_size(field) {
+                Some(v) => Some(v as u32),
+                None => None,
+            },
+            block_size: match field_type(field) {
+                FieldType::FixedSized => Some(SIZE_LIMIT as u32),
+                FieldType::VariableSized => None,
+            },
+            codecs: CODECS::gzip,
+            blocks: Vec::<BlockMeta>::new(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -105,13 +108,17 @@ pub struct FileMeta {
     field_to_meta: HashMap<Fields, FieldMeta>,
 }
 
-impl Serialize for HashMap<Fields, FieldMeta> {
+/// This is a wrapper struct. It is necessary to create custom serializer/deserializer in Serde.
+/// https://serde.rs/deserialize-map.html
+pub struct Field_Meta_Map(HashMap<Fields, FieldMeta>);
+
+impl Serialize for Field_Meta_Map {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let mut map = serializer.serialize_map(Some(self.len()))?;
-        for (k, v) in self {
+        let mut map = serializer.serialize_map(Some(self.0.len()))?;
+        for (k, v) in &self.0 {
             map.serialize_entry(&k.to_string(), &v)?;
         }
         map.end()
@@ -119,7 +126,7 @@ impl Serialize for HashMap<Fields, FieldMeta> {
 }
 
 struct MyMapVisitor {
-    marker: PhantomData<fn() -> HashMap<Fields, FieldMeta>>,
+    marker: PhantomData<fn() -> Field_Meta_Map>,
 }
 
 impl MyMapVisitor {
@@ -131,24 +138,27 @@ impl MyMapVisitor {
 }
 
 impl<'de> Visitor<'de> for MyMapVisitor {
-    type Value = HashMap<Fields, FieldMeta>;
+    type Value = Field_Meta_Map;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("Field to meta map")
+    }
 
     fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
     where
         M: MapAccess<'de>,
     {
-        let mut map = Self::Value::with_capacity(access.size_hint().unwrap_or(0));
+        let mut map = HashMap::<Fields, FieldMeta>::with_capacity(access.size_hint().unwrap_or(0));
 
         // While there are entries remaining in the input, add them
         // into our map.
         while let Some((key, value)) = access.next_entry()? {
             map.insert(key, value);
         }
-
-        Ok(map)
+        Ok(Field_Meta_Map(map))
     }
 }
-impl<'de> Deserialize<'de> for HashMap<Fields, FieldMeta> {
+impl<'de> Deserialize<'de> for Field_Meta_Map {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -160,46 +170,28 @@ impl<'de> Deserialize<'de> for HashMap<Fields, FieldMeta> {
 }
 
 impl FileMeta {
-    // pub fn new() -> Self {
-    //     FileMeta {
-    //         pos: POS {
-    //             item_size: u32_size as u32,
-    //             block_size: SIZE_LIMIT as u32,
-    //             codecs: CODECS::gzip,
-    //             blocks: Vec::<BlockMeta>::new(),
-    //         },
-    //         mapq: MAPQ {
-    //             item_size: u8_size as u32,
-    //             block_size: SIZE_LIMIT as u32,
-    //             codecs: CODECS::gzip,
-    //             blocks: Vec::<BlockMeta>::new(),
-    //         },
-    //     }
-    // }
+    pub fn new() -> Self {
+        let mut map = HashMap::<Fields, FieldMeta>::new();
+        for field in Fields::iterator() {
+            let field_meta = FieldMeta::new(field);
+            map.insert(*field, FieldMeta::new(field));
+        }
+        FileMeta { field_to_meta: map }
+    }
 
     /// Used to retrieve BlockMeta vector mutable borrow, to push new blocks
     /// directly into it, avoiding field matching.
     pub fn get_blocks(&mut self, field: &Fields) -> &mut Vec<BlockMeta> {
-        match field {
-            Fields::Mapq => &mut self.mapq.blocks,
-            Fields::Pos => &mut self.pos.blocks,
-            _ => panic!("Unreachable!"),
-        }
+        &mut self.field_to_meta.get_mut(field).unwrap().blocks
     }
 
     pub fn view_blocks(&self, field: &Fields) -> &Vec<BlockMeta> {
-        match field {
-            Fields::Mapq => &self.mapq.blocks,
-            Fields::Pos => &self.pos.blocks,
-            _ => panic!("Unreachable!"),
-        }
+        &self.field_to_meta[field].blocks
     }
 
     pub fn get_field_size(&self, field: &Fields) -> u32 {
-        match field {
-            Fields::Mapq => self.mapq.item_size,
-            Fields::Pos => self.pos.item_size,
-            _ => panic!("Unreachable!"),
-        }
+        // TODO: return nones for variable sized types
+        return 4;
+        // &self.field_to_meta[field].blocks
     }
 }

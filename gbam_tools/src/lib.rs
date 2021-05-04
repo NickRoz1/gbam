@@ -86,34 +86,72 @@ impl Fields {
     }
 }
 
+/// Variable sized fields have fixed size value NONE
+pub(crate) fn field_item_size(field: &Fields) -> Option<usize> {
+    match field {
+        RefID => Some(u32_size),
+        Pos => Some(u32_size),
+        LName => Some(u8_size),
+        Mapq => Some(u8_size),
+        Bin => Some(u16_size),
+        NCigar => Some(u16_size),
+        Flags => Some(u16_size),
+        SequenceLength => Some(u32_size),
+        NextRefID => Some(u32_size),
+        NextPos => Some(u32_size),
+        TemplateLength => Some(u32_size),
+        ReadName => None,
+        RawCigar => None,
+        RawSequence => None,
+        RawQual => None,
+        RawTags => None,
+        _ => panic!("This field is not supported: {} \n", *field as usize),
+    }
+}
+
 impl std::fmt::Display for Fields {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
     }
 }
 
-// match field {
-//     // Fixed size fields
-//     Fields::RefID
-//     | Fields::Pos
-//     | Fields::LName
-//     | Fields::Mapq
-//     | Fields::Bin
-//     | Fields::NCigar
-//     | Fields::Flags
-//     | Fields::SequenceLength
-//     | Fields::NextRefID
-//     | Fields::NextPos
-//     | Fields::TemplateLength
-//     | Fields::RawTagsLen => {}
-//     // Variable size fields
-//     Fields::ReadName
-//     | Fields::RawCigar
-//     | Fields::RawSequence
-//     | Fields::RawQual
-//     | Fields::RawTags => {
-//     }
-// }
+/// Type of Field.
+#[derive(Debug)]
+#[allow(missing_docs)]
+pub(crate) enum FieldType {
+    VariableSized,
+    FixedSized,
+}
+
+// May be useful:
+pub(crate) fn field_type(field: &Fields) -> FieldType {
+    match field {
+        // Fixed size fields
+        Fields::RefID
+        | Fields::Pos
+        | Fields::LName
+        | Fields::Mapq
+        | Fields::Bin
+        | Fields::NCigar
+        | Fields::Flags
+        | Fields::SequenceLength
+        | Fields::NextRefID
+        | Fields::NextPos
+        | Fields::TemplateLength
+        | Fields::RawTagsLen => {
+            return FieldType::FixedSized;
+        }
+        // Variable size fields
+        Fields::ReadName
+        | Fields::RawCigar
+        | Fields::RawSequence
+        | Fields::RawQual
+        | Fields::RawTags => {
+            return FieldType::VariableSized;
+        }
+        _ => panic!("Unreachable"),
+    }
+}
 
 /// Returns enum name of index field for particular variable sized field
 fn var_size_field_to_index(field: &Fields) -> Fields {
