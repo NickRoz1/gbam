@@ -1,17 +1,23 @@
-use gbam_tools::bam_to_gbam;
+// use gbam_tools::bam_to_gbam;
+use gbam_tools::{Fields, ParsingTemplate, Reader};
 use structopt::StructOpt;
 
 #[derive(StructOpt)]
 struct Cli {
     /// The path to the BAM file to read
     in_path: String,
-    /// The path to the GBAM file to write
-    out_path: String,
 }
 
 fn main() {
-    let args = Cli::from_args();
-    bam_to_gbam(args.in_path, args.out_path);
+    // let args = Cli::from_args();
+    // bam_to_gbam(args.in_path, args.out_path);
+    let path = "1.bam";
+    let mut tmplt = ParsingTemplate::new();
+    tmplt.set(&Fields::RawSequence, true);
+    let mut reader = Reader::new_for_file(path, tmplt);
+    while let Some(rec) = reader.next() {
+        println!("{:?}", rec);
+    }
 }
 
 // fn main() {

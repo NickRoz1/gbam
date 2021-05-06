@@ -10,11 +10,11 @@ use std::slice::Iter;
 use serde::ser::{SerializeMap, SerializeSeq, Serializer};
 use serde::{Deserialize, Deserializer, Serialize};
 
-mod compression;
-mod meta;
-// mod reader;
 /// BAM to GBAM converter
 pub mod bam_to_gbam;
+mod compression;
+mod meta;
+// pub mod reader;
 mod rowgroup;
 /// Single threaded reader
 mod single_thread;
@@ -22,6 +22,7 @@ mod single_thread;
 mod writer;
 
 // use self::writer::Writer;
+pub use self::single_thread::reader::{ParsingTemplate, Reader};
 use self::single_thread::writer::Writer;
 pub use crate::bam_to_gbam::bam_to_gbam;
 use crate::compression::{Compression, COMPRESSION_ENUM_SIZE};
@@ -35,27 +36,31 @@ const u16_size: usize = mem::size_of::<u16>();
 const u8_size: usize = mem::size_of::<u8>();
 const mega_byte_size: usize = 1_048_576;
 
-const FIELDS_NUM: usize = 17;
+const FIELDS_NUM: usize = 18;
+/// Fields which contain data (not index fields).
+const DATA_FIELDS_NUM: usize = 12;
 /// Types of fields contained in BAM file.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[allow(missing_docs)]
 pub enum Fields {
+    /// Data fields
     RefID,
     Pos,
-    LName,
     Mapq,
     Bin,
-    NCigar,
     Flags,
-    SequenceLength,
     NextRefID,
     NextPos,
-    TemplateLength,
     ReadName,
     RawCigar,
     RawSequence,
     RawQual,
     RawTags,
+    /// Index fields
+    LName,
+    NCigar,
+    SequenceLength,
+    TemplateLength,
     RawTagsLen, // Not in BAM spec, needed for index GBAM file
     RawSeqLen,  // Not in BAM spec, needed for index GBAM file
 }
@@ -64,48 +69,63 @@ impl Fields {
     /// Returns iterator over enum fields
     pub fn iterator() -> Iter<'static, Fields> {
         static FIELDS: [Fields; FIELDS_NUM] = [
+            /// Data fields
             RefID,
             Pos,
-            LName,
             Mapq,
             Bin,
-            NCigar,
             Flags,
-            SequenceLength,
             NextRefID,
             NextPos,
-            TemplateLength,
             ReadName,
             RawCigar,
             RawSequence,
             RawQual,
             RawTags,
+            /// Index fields
+            LName,
+            NCigar,
+            SequenceLength,
+            TemplateLength,
+            RawSeqLen,
             RawTagsLen,
         ];
         FIELDS.iter()
     }
 }
 
+/// Fields holding index are not data fields
+pub(crate) fn is_data_field(field: &Fields) -> bool {
+    match field {
+        RefID | Pos | Mapq | Bin | Flags | NextRefID | NextPos | ReadName | RawCigar
+        | RawSequence | RawQual | RawTags => true,
+        _ => false,
+    }
+}
+
 /// Variable sized fields have fixed size value NONE
+/// This is **not** BAM sizes!
 pub(crate) fn field_item_size(field: &Fields) -> Option<usize> {
     match field {
         RefID => Some(u32_size),
         Pos => Some(u32_size),
-        LName => Some(u8_size),
+        LName => Some(u32_size),
         Mapq => Some(u8_size),
         Bin => Some(u16_size),
-        NCigar => Some(u16_size),
+        NCigar => Some(u32_size),
         Flags => Some(u16_size),
         SequenceLength => Some(u32_size),
         NextRefID => Some(u32_size),
         NextPos => Some(u32_size),
         TemplateLength => Some(u32_size),
+        RawTagsLen => Some(u32_size),
+        RawSeqLen => Some(u32_size),
         ReadName => None,
         RawCigar => None,
         RawSequence => None,
         RawQual => None,
         RawTags => None,
-        _ => panic!("This field is not supported: {} \n", *field as usize),
+        _ => panic!("This field is not supported: {} \n", field.to_string()),
     }
 }
 
@@ -138,6 +158,7 @@ pub(crate) fn field_type(field: &Fields) -> FieldType {
         | Fields::NextRefID
         | Fields::NextPos
         | Fields::TemplateLength
+        | Fields::RawSeqLen
         | Fields::RawTagsLen => {
             return FieldType::FixedSized;
         }
