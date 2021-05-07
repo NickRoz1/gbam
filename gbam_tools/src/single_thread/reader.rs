@@ -83,6 +83,19 @@ impl Default for GbamRecord {
     }
 }
 
+impl std::fmt::Display for GbamRecord {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+
+#[pymethods]
+impl GbamRecord {
+    pub fn to_str(&self) -> String {
+        self.to_string()
+    }
+}
+
 pub trait ReadSeekSend: Read + Seek + Send {}
 
 impl<T> ReadSeekSend for T where T: Read + Seek + Send {}
@@ -183,9 +196,7 @@ impl ParsingTemplate {
     pub fn new_from_python(fields: Vec<bool>) -> Self {
         assert_eq!(fields.len(), DATA_FIELDS_NUM);
         let mut tmplt = ParsingTemplate::new();
-        println!("{:?}", tmplt);
         for (field, val) in Fields::iterator().zip(fields) {
-            println!("{:?}", field);
             tmplt.set(field, val);
         }
         tmplt
@@ -219,7 +230,7 @@ impl Reader {
             cur_block: vec![-1; FIELDS_NUM], // to preload first blocks
             loaded_records_num: vec![0; FIELDS_NUM],
         };
-        println!("{:?}", reader.parsing_template.get_active_fields());
+
         for field in reader.parsing_template.get_active_fields().iter() {
             reader.load_next_block(field);
         }
@@ -228,11 +239,6 @@ impl Reader {
 
     fn load_next_block(&mut self, field: &Fields) {
         let next_block_num = self.cur_block[*field as usize] + 1;
-        println!(
-            "Field: {}. VALUE :{:?}",
-            field.to_string(),
-            self.cur_block[*field as usize]
-        );
         let block_size = match field_type(field) {
             FieldType::VariableSized => {
                 self.file_meta.get_blocks_sizes(field)[next_block_num as usize]
@@ -248,7 +254,6 @@ impl Reader {
         self.load_data(seekpos, field, block_size).unwrap();
 
         self.cur_block[*field as usize] = next_block_num;
-        println!("{:?}", self.cur_block[*field as usize]);
         self.loaded_records_num[*field as usize] +=
             self.file_meta.get_blocks(field)[next_block_num as usize].numitems as u64;
     }
@@ -281,7 +286,6 @@ impl Reader {
     }
 
     fn calc_rec_num_in_block(&self, field: &Fields) -> u64 {
-        println!("{:?}", field);
         assert!(self.cur_block[*field as usize] > -1);
         let block_meta =
             &self.file_meta.view_blocks(field)[self.cur_block[*field as usize] as usize];
@@ -300,21 +304,26 @@ impl Reader {
 
     /// Parses current index value. All these fields are u32.
     fn get_idx_val(&self, field: &Fields, rec_num_in_block: u64) -> u32 {
-        println!("{:?}", field);
-        match field {
-            Fields::LName
-            | Fields::SequenceLength
-            | Fields::RawSeqLen
-            | Fields::RawTagsLen
-            | Fields::NCigar => self
-                .get_field_bytes(field, rec_num_in_block)
-                .read_u32::<LittleEndian>()
-                .unwrap(),
-            _ => panic!("Only index fields allowed!"),
+        if is_data_field(field) {
+            panic!("Only index fields allowed!")
         }
+        self.get_idx_field_bytes_for_rec(field, rec_num_in_block)
+            .read_u32::<LittleEndian>()
+            .unwrap()
     }
 
-    fn get_field_bytes(&self, field: &Fields, rec_num_in_block: u64) -> &[u8] {
+    /// Query bytes for index field containing value for specified record number
+    fn get_idx_field_bytes_for_rec(&self, field: &Fields, rec_num_in_block: u64) -> &[u8] {
+        if is_data_field(field) {
+            panic!("Only index fields allowed!")
+        }
+        let item_size = self.get_cur_item_size(field, rec_num_in_block) as usize;
+        let offset = item_size * rec_num_in_block as usize;
+        let buffer = &self.buffers[*field as usize];
+        &buffer[offset..offset + item_size]
+    }
+
+    fn get_variable_field_bytes(&self, field: &Fields, rec_num_in_block: u64) -> &[u8] {
         let offset = self.get_offset_into_block(field) as usize;
         let buffer = &self.buffers[*field as usize];
         let item_size = self.get_cur_item_size(field, rec_num_in_block) as usize;
@@ -322,6 +331,7 @@ impl Reader {
     }
 
     /// Size of current item in bytes
+    /// TODO: Separate function for constant size fields
     fn get_cur_item_size(&self, field: &Fields, rec_num_in_block: u64) -> usize {
         match field_type(field) {
             FieldType::VariableSized => {
@@ -348,10 +358,9 @@ impl Reader {
             let cur_block_num = self.cur_block[field as usize];
             if self.block_exhausted(&field) {
                 if (cur_block_num + 1) as usize == self.file_meta.get_blocks(&field).len() {
-                    // No more records of this type in buffer
+                    // No more records of this type in input
                     return None;
                 }
-                // One of the blocks have been exhausted;
                 self.load_next_block(&field);
             }
         }
@@ -362,7 +371,6 @@ impl Reader {
             let rec_num_in_block = self.calc_rec_num_in_block(active_field);
             let item_size = self.get_cur_item_size(active_field, rec_num_in_block) as usize;
 
-            println!("FIELD {} : {:?}", active_field.to_string(), buffer.len());
             self.cur_record
                 .parse_from_bytes(active_field, &buffer[offset..offset + item_size]);
         }

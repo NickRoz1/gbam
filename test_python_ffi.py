@@ -2,6 +2,7 @@ import gbam_tools
 from tempfile import NamedTemporaryFile
 import pysam
 from enum import IntEnum
+from array import array
 
 
 # These values should have same values as in Rust version
@@ -63,40 +64,48 @@ def get_parsing_tmpl(fields_to_parse):
 def check_if_equal(bam_path, gbam_path, no_check_fields=[]):
     # Suppress warnings to work with BAM files without index file. 
     # https://github.com/pysam-developers/pysam/issues/939#issuecomment-669016051
-    # save = pysam.set_verbosity(0)
-    # bam_file = pysam.AlignmentFile(bam_path, "rb")
-    # pysam.set_verbosity(save)
+    save = pysam.set_verbosity(0)
+    bam_file = pysam.AlignmentFile(bam_path, "rb")
+    pysam.set_verbosity(save)
 
     fields_to_check = [field for field in list(map(int, Fields)) if field not in no_check_fields]
 
     gbam_file = get_reader(gbam_path, get_parsing_tmpl(fields_to_check)) 
     from gbam_tools import GbamRecord
 
+    i = 0
     while True:
         cur_gbam = gbam_file.next_rec()
-        print(cur_gbam)
-        # cur_bam = next(bam_file, None)
+        # print(cur_gbam.to_str())
+        # print(cur_gbam.read_name)
+        cur_bam = next(bam_file, None)
 
-        # if cur_gbam == None or cur_bam == None:
-        #     # Assert there is no records left
-        #     assert(cur_gbam == cur_bam)
-        #     break
+        if cur_gbam == None or cur_bam == None:
+            # Assert there is no records left
+            assert(cur_gbam == cur_bam)
+            break
         
-        # for field in fields_to_check:
-        #     if field == Fields.RAWSEQUENCE:
-        #         assert(cur_bam.query_sequence == cur_gbam.seq)
-        #     if field == Fields.REFID:
-        #         assert(cur_bam.reference_id == cur_gbam.refid)
-        #     if field == Fields.MAPQ:
-        #         assert(cur_bam.mapping_quality == cur_gbam.mapq)
-        #     if field == Fields.POS:
-        #         assert(cur_bam.reference_start == cur_gbam.pos)
-        #     if field == Fields.RAWQUAL:
-        #         assert(cur_bam.query_qualities == cur_gbam.qual)
-        #     if field == Fields.RAWCIGAR:
-        #         assert(cur_bam.cigarstring == cur_gbam.cigar)
-        #     if field == Fields.READNAME:
-        #         assert(cur_bam.reference_name == cur_gbam.read_name)
+        for field in fields_to_check:
+            # if field == Fields.RAWSEQUENCE:
+            #     assert(cur_bam.query_alignment_sequence ==  cur_gbam.seq)
+
+            if field == Fields.REFID:
+                assert(cur_bam.reference_id == cur_gbam.refid)
+            if field == Fields.MAPQ:
+                assert(cur_bam.mapping_quality == cur_gbam.mapq)
+            if field == Fields.POS:
+                assert(cur_bam.reference_start == cur_gbam.pos)
+            if field == Fields.RAWQUAL:
+                assert(cur_bam.query_qualities == array('B', cur_gbam.qual))
+            # if field == Fields.RAWCIGAR:
+            #     assert(cur_bam.cigarstring == cur_gbam.cigar)
+            
+            if field == Fields.READNAME:
+                # print(list(bytearray(cur_bam.query_name, 'utf8')))
+                # print("|||||")
+                # print(cur_gbam.read_name[:-1])
+                assert(list(bytearray(cur_bam.query_name, 'utf8')) == cur_gbam.read_name[:-1])
+                
             
         # else:
         #     assert(cur_gbam.mapq == None)
