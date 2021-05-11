@@ -1,4 +1,5 @@
 use super::meta::{BlockMeta, FileInfo, FileMeta, FILE_INFO_SIZE};
+use super::writer::calc_crc_for_meta_bytes;
 use super::SIZE_LIMIT;
 use crate::{field_type, var_size_field_to_index, FieldType};
 use crate::{is_data_field, u32_size, Fields, DATA_FIELDS_NUM, FIELDS_NUM};
@@ -216,6 +217,12 @@ impl Reader {
         inner.seek(SeekFrom::Start(file_info.seekpos))?;
         let mut buf = Vec::<u8>::new();
         inner.read_to_end(&mut buf)?;
+        if calc_crc_for_meta_bytes(&buf[..]) != file_info.crc32 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Metadata JSON was damaged.",
+            ));
+        }
         let file_meta_json_str = String::from_utf8(buf).unwrap();
         let file_meta =
             serde_json::from_str(&file_meta_json_str).expect("File meta json string was damaged.");
@@ -374,7 +381,7 @@ impl Reader {
             self.cur_record
                 .parse_from_bytes(active_field, &buffer[offset..offset + item_size]);
         }
-        // TODO :: NULLIFY CURNUM ON REPEATED CALLS
+        // TODO :: NULLIFY CURNUM ON REPEATED CALLS IF WE REUSE THE READER
         self.cur_num += 1;
         Some(&self.cur_record)
     }

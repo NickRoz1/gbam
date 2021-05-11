@@ -5,8 +5,8 @@ use crate::{
     Fields, RawRecord, FIELDS_NUM,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
+use crc32fast::Hasher;
 use std::io::{Seek, SeekFrom, Write};
-static GBAM_MAGIC: &[u8] = b"geeBAM10";
 
 /// The data is held in blocks.
 ///
@@ -130,15 +130,24 @@ where
         let meta_start_pos = self.inner.seek(SeekFrom::Current(0))?;
         // Write meta
         let main_meta = serde_json::to_string(&self.file_meta).unwrap();
-        self.inner.write(&main_meta.as_bytes()[..])?;
+        let main_meta_bytes = &main_meta.as_bytes()[..];
+        let crc32 = calc_crc_for_meta_bytes(main_meta_bytes);
+        self.inner.write(main_meta_bytes)?;
 
         let total_bytes_written = self.inner.seek(SeekFrom::Current(0))?;
         // Revert back to the beginning of the file
         self.inner.seek(SeekFrom::Start(0)).unwrap();
-        let file_meta = FileInfo::new([1, 0], meta_start_pos);
-        self.inner.write(&Into::<Vec<u8>>::into(file_meta)[..])?;
+        let file_meta = FileInfo::new([1, 0], meta_start_pos, crc32);
+        let file_meta_bytes = &Into::<Vec<u8>>::into(file_meta)[..];
+        self.inner.write(file_meta_bytes)?;
         Ok(total_bytes_written)
     }
+}
+
+pub fn calc_crc_for_meta_bytes(bytes: &[u8]) -> u32 {
+    let mut hasher = Hasher::new();
+    hasher.update(bytes);
+    hasher.finalize()
 }
 
 #[cfg(test)]

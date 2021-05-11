@@ -17,19 +17,21 @@ use std::io::{Read, Write};
 pub struct FileInfo {
     pub gbam_version: [u32; 2],
     pub seekpos: u64,
+    pub crc32: u32,
 }
 
 impl FileInfo {
-    pub fn new(gbam_version: [u32; 2], seekpos: u64) -> Self {
+    pub fn new(gbam_version: [u32; 2], seekpos: u64, crc32: u32) -> Self {
         FileInfo {
             gbam_version: gbam_version,
             seekpos: seekpos,
+            crc32: crc32,
         }
     }
 }
 
 /// The GBAM magic size is 8 bytes (u64_size).
-pub const FILE_INFO_SIZE: usize = u64_size + u64_size + u32_size * 2;
+pub const FILE_INFO_SIZE: usize = u64_size + u32_size * 2 + u64_size + u32_size;
 
 impl From<&[u8]> for FileInfo {
     fn from(mut bytes: &[u8]) -> Self {
@@ -41,6 +43,7 @@ impl From<&[u8]> for FileInfo {
         let mut ver1 = &bytes[u64_size..];
         let mut ver2 = &bytes[u64_size + u32_size..];
         let mut seekpos = &bytes[u64_size + 2 * u32_size..];
+        let mut crc32 = &bytes[u64_size + 2 * u32_size + u64_size..];
         FileInfo {
             gbam_version: [
                 ver1.read_u32::<LittleEndian>()
@@ -51,6 +54,9 @@ impl From<&[u8]> for FileInfo {
             seekpos: seekpos
                 .read_u64::<LittleEndian>()
                 .expect("file info is damaged: unable to read seekpos."),
+            crc32: crc32
+                .read_u32::<LittleEndian>()
+                .expect("file info is damaged: unable to read crc32."),
         }
     }
 }
@@ -63,6 +69,7 @@ impl Into<Vec<u8>> for FileInfo {
             res.write_u32::<LittleEndian>(*val);
         }
         res.write_u64::<LittleEndian>(self.seekpos).unwrap();
+        res.write_u32::<LittleEndian>(self.crc32).unwrap();
         res
     }
 }

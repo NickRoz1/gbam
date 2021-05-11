@@ -28,7 +28,7 @@ pub fn bam_to_gbam(in_path: String, out_path: String) {
     let mut magic = [0; 4];
     reader.read_exact(&mut magic).expect("Failed to read.");
 
-    if &magic[..] != b"BAM\x01" { // TODO
+    if &magic[..] != b"BAM\x01" {
         panic!("invalid BAM header");
     }
 
