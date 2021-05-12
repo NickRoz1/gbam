@@ -32,7 +32,7 @@ const U16_SIZE: usize = mem::size_of::<u16>();
 const U8_SIZE: usize = mem::size_of::<u8>();
 const MEGA_BYTE_SIZE: usize = 1_048_576;
 
-const SIZE_LIMIT: usize = 16777216;
+const SIZE_LIMIT: usize = 16 * MEGA_BYTE_SIZE;
 static GBAM_MAGIC: &[u8] = b"geeBAM10";
 
 const FIELDS_NUM: usize = 18;
@@ -43,11 +43,13 @@ const DATA_FIELDS_NUM: usize = 12;
 #[allow(missing_docs)]
 pub enum Fields {
     /// Data fields
+    #[allow(clippy::upper_case_acronyms)]
     RefID,
     Pos,
     Mapq,
     Bin,
     Flags,
+    #[allow(clippy::upper_case_acronyms)]
     NextRefID,
     NextPos,
     ReadName,
@@ -95,11 +97,21 @@ impl Fields {
 
 /// Fields holding index are not data fields
 pub(crate) fn is_data_field(field: &Fields) -> bool {
-    match field {
-        RefID | Pos | Mapq | Bin | Flags | NextRefID | NextPos | ReadName | RawCigar
-        | RawSequence | RawQual | RawTags => true,
-        _ => false,
-    }
+    matches!(
+        field,
+        RefID
+            | Pos
+            | Mapq
+            | Bin
+            | Flags
+            | NextRefID
+            | NextPos
+            | ReadName
+            | RawCigar
+            | RawSequence
+            | RawQual
+            | RawTags
+    )
 }
 
 /// Variable sized fields have fixed size value NONE
@@ -124,7 +136,6 @@ pub(crate) fn field_item_size(field: &Fields) -> Option<usize> {
         RawSequence => None,
         RawQual => None,
         RawTags => None,
-        _ => panic!("This field is not supported: {} \n", field.to_string()),
     }
 }
 
@@ -158,18 +169,13 @@ pub(crate) fn field_type(field: &Fields) -> FieldType {
         | Fields::NextPos
         | Fields::TemplateLength
         | Fields::RawSeqLen
-        | Fields::RawTagsLen => {
-            return FieldType::FixedSized;
-        }
+        | Fields::RawTagsLen => FieldType::FixedSized,
         // Variable size fields
         Fields::ReadName
         | Fields::RawCigar
         | Fields::RawSequence
         | Fields::RawQual
-        | Fields::RawTags => {
-            return FieldType::VariableSized;
-        }
-        _ => panic!("Unreachable"),
+        | Fields::RawTags => FieldType::VariableSized,
     }
 }
 

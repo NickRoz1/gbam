@@ -1,12 +1,12 @@
 // use gbam_tools::bam_to_gbam;
 use gbam_tools::{Fields, ParsingTemplate, Reader};
-use structopt::StructOpt;
+// use structopt::StructOpt;
 
-#[derive(StructOpt)]
-struct Cli {
-    /// The path to the BAM file to read
-    in_path: String,
-}
+// #[derive(StructOpt)]
+// struct Cli {
+//     /// The path to the BAM file to read
+//     in_path: String,
+// }
 
 fn main() {
     // let args = Cli::from_args();
@@ -15,7 +15,7 @@ fn main() {
     let mut tmplt = ParsingTemplate::new();
     tmplt.set(&Fields::RawSequence, true);
     let mut reader = Reader::new_for_file(path, tmplt);
-    while let Some(rec) = reader.next() {
+    while let Some(rec) = reader.next_rec() {
         println!("{:?}", rec);
     }
 }

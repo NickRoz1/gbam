@@ -1,17 +1,16 @@
 use super::GBAM_MAGIC;
 use super::SIZE_LIMIT;
-use crate::{field_item_size, field_type, FieldType, Fields, U32_SIZE, U64_SIZE, U8_SIZE};
+use crate::{field_item_size, field_type, FieldType, Fields, U32_SIZE, U64_SIZE};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use serde::ser::{SerializeMap, SerializeSeq, Serializer};
+use serde::ser::{SerializeMap, Serializer};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::marker::PhantomData;
-use std::ops::IndexMut;
 
 use serde::de::{MapAccess, Visitor};
 // use serde::de::{Deserialize, Deserializer};
 // use serde_json::Result;
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::Write;
 
 /// Holds data related to GBAM file: gbam version, seekpos to meta.
 pub(crate) struct FileInfo {
@@ -23,9 +22,9 @@ pub(crate) struct FileInfo {
 impl FileInfo {
     pub fn new(gbam_version: [u32; 2], seekpos: u64, crc32: u32) -> Self {
         FileInfo {
-            gbam_version: gbam_version,
-            seekpos: seekpos,
-            crc32: crc32,
+            gbam_version,
+            seekpos,
+            crc32,
         }
     }
 }
@@ -34,12 +33,12 @@ impl FileInfo {
 pub const FILE_INFO_SIZE: usize = U64_SIZE + U32_SIZE * 2 + U64_SIZE + U32_SIZE;
 
 impl From<&[u8]> for FileInfo {
-    fn from(mut bytes: &[u8]) -> Self {
+    fn from(bytes: &[u8]) -> Self {
         assert!(
             bytes.len() == FILE_INFO_SIZE,
             "Not enough bytes to form file info struct.",
         );
-        assert_eq!(&bytes[..U64_SIZE], &GBAM_MAGIC[..]);
+        assert_eq!(&bytes[..U64_SIZE], GBAM_MAGIC);
         let mut ver1 = &bytes[U64_SIZE..];
         let mut ver2 = &bytes[U64_SIZE + U32_SIZE..];
         let mut seekpos = &bytes[U64_SIZE + 2 * U32_SIZE..];
@@ -61,12 +60,13 @@ impl From<&[u8]> for FileInfo {
     }
 }
 
+#[allow(clippy::from_over_into)]
 impl Into<Vec<u8>> for FileInfo {
     fn into(self) -> Vec<u8> {
         let mut res = Vec::<u8>::new();
-        res.write(&GBAM_MAGIC[..]);
-        for val in self.gbam_version.into_iter() {
-            res.write_u32::<LittleEndian>(*val);
+        res.write_all(GBAM_MAGIC).unwrap();
+        for val in self.gbam_version.iter() {
+            res.write_u32::<LittleEndian>(*val).unwrap();
         }
         res.write_u64::<LittleEndian>(self.seekpos).unwrap();
         res.write_u32::<LittleEndian>(self.crc32).unwrap();
@@ -76,11 +76,11 @@ impl Into<Vec<u8>> for FileInfo {
 
 /// Type of encoding used in GBAM writer
 #[derive(Serialize, Deserialize)]
-pub enum CODECS {
+pub enum Codecs {
     /// Gzip encoding
-    gzip,
+    Gzip,
     /// LZ4 encoding
-    lz4,
+    Lz4,
 }
 #[derive(Serialize, Deserialize)]
 pub(crate) struct BlockMeta {
@@ -93,7 +93,7 @@ struct FieldMeta {
     item_size: Option<u32>,         // NONE for variable sized fields
     block_size: Option<u32>,        // NONE for variable sized fields
     blocks_sizes: Option<Vec<u32>>, // NONE for fixed sized fields
-    codecs: CODECS,
+    codecs: Codecs,
     blocks: Vec<BlockMeta>,
 }
 
@@ -112,7 +112,7 @@ impl FieldMeta {
                 FieldType::FixedSized => None,
                 FieldType::VariableSized => Some(Vec::<u32>::new()),
             },
-            codecs: CODECS::gzip,
+            codecs: Codecs::Gzip,
             blocks: Vec::<BlockMeta>::new(),
         }
     }
@@ -125,9 +125,9 @@ pub(crate) struct FileMeta {
 
 /// This is a wrapper struct. It is necessary to create custom serializer/deserializer in Serde.
 /// https://serde.rs/deserialize-map.html
-pub struct Field_Meta_Map(HashMap<Fields, FieldMeta>);
+pub struct FieldMetaMap(HashMap<Fields, FieldMeta>);
 
-impl Serialize for Field_Meta_Map {
+impl Serialize for FieldMetaMap {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -141,7 +141,7 @@ impl Serialize for Field_Meta_Map {
 }
 
 struct MyMapVisitor {
-    marker: PhantomData<fn() -> Field_Meta_Map>,
+    marker: PhantomData<fn() -> FieldMetaMap>,
 }
 
 impl MyMapVisitor {
@@ -153,7 +153,7 @@ impl MyMapVisitor {
 }
 
 impl<'de> Visitor<'de> for MyMapVisitor {
-    type Value = Field_Meta_Map;
+    type Value = FieldMetaMap;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
         formatter.write_str("Field to meta map")
@@ -170,10 +170,10 @@ impl<'de> Visitor<'de> for MyMapVisitor {
         while let Some((key, value)) = access.next_entry()? {
             map.insert(key, value);
         }
-        Ok(Field_Meta_Map(map))
+        Ok(FieldMetaMap(map))
     }
 }
-impl<'de> Deserialize<'de> for Field_Meta_Map {
+impl<'de> Deserialize<'de> for FieldMetaMap {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,

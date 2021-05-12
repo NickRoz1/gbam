@@ -1,10 +1,9 @@
-use super::meta::{BlockMeta, FileInfo, FileMeta, FILE_INFO_SIZE};
+use super::meta::{FileInfo, FileMeta, FILE_INFO_SIZE};
 use super::writer::calc_crc_for_meta_bytes;
 use super::SIZE_LIMIT;
 use crate::{field_type, var_size_field_to_index, FieldType};
 use crate::{is_data_field, Fields, DATA_FIELDS_NUM, FIELDS_NUM, U32_SIZE};
-use bit_vec::BitVec;
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt};
 use pyo3::prelude::*;
 use std::io::{Read, Seek, SeekFrom};
 
@@ -29,7 +28,7 @@ pub struct GbamRecord {
     pub flag: Option<u16>,
     /// Ref-ID of the next segment
     #[pyo3(get)]
-    pub next_refID: Option<u32>,
+    pub next_ref_id: Option<u32>,
     /// 0-based leftmost pos of the next segmen
     #[pyo3(get)]
     pub next_pos: Option<u32>,
@@ -58,7 +57,7 @@ impl GbamRecord {
             Fields::Mapq => self.mapq = Some(bytes[0].to_owned()),
             Fields::Bin => self.bin = Some(bytes.read_u16::<LittleEndian>().unwrap()),
             Fields::Flags => self.flag = Some(bytes.read_u16::<LittleEndian>().unwrap()),
-            Fields::NextRefID => self.next_refID = Some(bytes.read_u32::<LittleEndian>().unwrap()),
+            Fields::NextRefID => self.next_ref_id = Some(bytes.read_u32::<LittleEndian>().unwrap()),
             Fields::NextPos => self.next_pos = Some(bytes.read_u32::<LittleEndian>().unwrap()),
             Fields::ReadName => self.read_name = Some(bytes.to_vec()),
             Fields::RawCigar => {
@@ -85,7 +84,7 @@ impl Default for GbamRecord {
             mapq: None,
             bin: None,
             flag: None,
-            next_refID: None,
+            next_ref_id: None,
             next_pos: None,
             read_name: None,
             cigar: None,
@@ -119,7 +118,6 @@ impl<T> ReadSeekSend for T where T: Read + Seek + Send {}
 pub struct Reader {
     inner: Box<dyn ReadSeekSend>, // Box is necessary to use with PyO3 -  no generic parameters are allowed!
     file_meta: FileMeta,
-    file_info: FileInfo,
     parsing_template: ParsingTemplate,
     buffers: Vec<Vec<u8>>,
     /// Current active record
@@ -166,6 +164,7 @@ impl ParsingTemplate {
         }
     }
     /// Get iterator over fields currently requested for parsing
+    #[allow(clippy::needless_lifetimes)]
     pub fn get_active_fields_iter<'a>(&'a self) -> impl Iterator<Item = &'a Fields> {
         self.inner
             .iter()
@@ -174,6 +173,7 @@ impl ParsingTemplate {
     }
 
     /// Get iterator over data fields (no index fields) currently requested for parsing
+    #[allow(clippy::needless_lifetimes)]
     pub fn get_active_data_fields_iter<'a>(&'a self) -> impl Iterator<Item = &'a Fields> {
         self.inner
             .iter()
@@ -201,6 +201,12 @@ impl ParsingTemplate {
             .iter_mut()
             .filter(|x| x.is_some())
             .for_each(|e| *e = None);
+    }
+}
+
+impl Default for ParsingTemplate {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -241,9 +247,8 @@ impl Reader {
         let file_meta =
             serde_json::from_str(&file_meta_json_str).expect("File meta json string was damaged.");
         let mut reader = Self {
-            inner: inner,
-            file_meta: file_meta,
-            file_info: file_info,
+            inner,
+            file_meta,
             parsing_template: parsing_tmplt,
             buffers: (0..FIELDS_NUM).map(|_| vec![0; SIZE_LIMIT]).collect(),
             cur_record: GbamRecord::default(),
@@ -312,10 +317,11 @@ impl Reader {
             &self.file_meta.view_blocks(field)[self.cur_block[*field as usize] as usize];
         // self.cur_num is universal, but amount of items in buffer is not
         let dist_from_back_of_block = self.loaded_records_num[*field as usize] - self.cur_num;
-        let rec_num_in_block = block_meta.numitems as u64 - dist_from_back_of_block;
-        rec_num_in_block
+
+        block_meta.numitems as u64 - dist_from_back_of_block
     }
 
+    #[allow(dead_code)]
     fn is_last_in_block(&self, rec_num: u64, field: &Fields) -> bool {
         assert!(self.cur_block[*field as usize] > -1);
         let block_meta =
@@ -344,6 +350,7 @@ impl Reader {
         &buffer[offset..offset + item_size]
     }
 
+    #[allow(dead_code)]
     fn get_variable_field_bytes(&self, field: &Fields, rec_num_in_block: u64) -> &[u8] {
         let offset = self.get_offset_into_block(field) as usize;
         let buffer = &self.buffers[*field as usize];
@@ -374,7 +381,7 @@ impl Reader {
     }
 
     /// Get next GBAM record
-    pub fn next(&mut self) -> Option<&GbamRecord> {
+    pub fn next_rec(&mut self) -> Option<&GbamRecord> {
         for field in self.parsing_template.get_active_fields() {
             let cur_block_num = self.cur_block[field as usize];
             if self.block_exhausted(&field) {
@@ -404,8 +411,9 @@ impl Reader {
 // // Methods to be called from Python.
 #[pymethods]
 impl Reader {
-    fn next_rec(&mut self) -> PyResult<Option<GbamRecord>> {
-        let next = self.next().cloned();
+    #[allow(clippy::unnecessary_wraps)]
+    fn next_record(&mut self) -> PyResult<Option<GbamRecord>> {
+        let next = self.next_rec().cloned();
         Ok(next)
     }
 
@@ -413,7 +421,7 @@ impl Reader {
     /// Create new reader for file at path
     pub fn new_for_file(path: &str, tmplt: ParsingTemplate) -> Self {
         use std::fs::File;
-        use std::io::{self, prelude::*, BufReader};
+        use std::io::BufReader;
 
         let file = File::open(path).unwrap();
         let reader = BufReader::new(file);

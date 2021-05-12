@@ -44,7 +44,7 @@ where
             offsets: [0; FIELDS_NUM],
             num_items: [0; FIELDS_NUM],
             file_meta: FileMeta::new(),
-            inner: inner,
+            inner,
         }
     }
     /// Push BAM record into this writer
@@ -99,15 +99,15 @@ where
         }
         let meta = self.generate_meta(field);
         let data_size = self.offsets[*field as usize];
-        match field_type(field) {
-            FieldType::VariableSized => self.file_meta.push_block_size(field, data_size),
-            _ => (),
+        if let FieldType::VariableSized = field_type(field) {
+            self.file_meta.push_block_size(field, data_size);
         }
+
         let field_meta = self.file_meta.get_blocks(field);
         field_meta.push(meta);
         // Write the data
         self.inner
-            .write(&self.chunks[*field as usize][0..data_size])
+            .write_all(&self.chunks[*field as usize][0..data_size])
             .unwrap();
 
         self.offsets[*field as usize] = 0;
@@ -115,7 +115,7 @@ where
     }
 
     fn generate_meta(&mut self, field: &Fields) -> BlockMeta {
-        let seek_pos = self.inner.seek(SeekFrom::Current(0 as i64)).unwrap();
+        let seek_pos = self.inner.seek(SeekFrom::Current(0)).unwrap();
         BlockMeta {
             seekpos: seek_pos,
             numitems: self.num_items[*field as usize],
@@ -132,16 +132,16 @@ where
         let meta_start_pos = self.inner.seek(SeekFrom::Current(0))?;
         // Write meta
         let main_meta = serde_json::to_string(&self.file_meta).unwrap();
-        let main_meta_bytes = &main_meta.as_bytes()[..];
+        let main_meta_bytes = main_meta.as_bytes();
         let crc32 = calc_crc_for_meta_bytes(main_meta_bytes);
-        self.inner.write(main_meta_bytes)?;
+        self.inner.write_all(main_meta_bytes)?;
 
         let total_bytes_written = self.inner.seek(SeekFrom::Current(0))?;
         // Revert back to the beginning of the file
         self.inner.seek(SeekFrom::Start(0)).unwrap();
         let file_meta = FileInfo::new([1, 0], meta_start_pos, crc32);
         let file_meta_bytes = &Into::<Vec<u8>>::into(file_meta)[..];
-        self.inner.write(file_meta_bytes)?;
+        self.inner.write_all(file_meta_bytes)?;
         Ok(total_bytes_written)
     }
 }
@@ -175,7 +175,7 @@ mod tests {
         parsing_template.set_all();
         let mut reader = Reader::new(in_cursor, parsing_template).unwrap();
         let mut it = raw_records.iter();
-        while let Some(rec) = reader.next() {
+        while let Some(rec) = reader.next_rec() {
             let rec_orig = it.next().unwrap();
             let orig_map_q = rec_orig.get_bytes(&Fields::Mapq)[0];
             let orig_pos = rec_orig

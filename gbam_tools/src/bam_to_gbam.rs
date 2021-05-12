@@ -1,10 +1,8 @@
 use crate::{RawRecord, Writer};
 use bam_parallel::ParallelReader;
-use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt};
 use std::fs::File;
 use std::io::Read;
-
-use libc;
 
 /// Converts BAM file to GBAM file
 pub fn bam_to_gbam(in_path: String, out_path: String) {
@@ -23,7 +21,6 @@ pub fn bam_to_gbam(in_path: String, out_path: String) {
     let mut writer = Writer::new(buf_writer);
 
     let mut buf = RawRecord::from(Vec::<u8>::new());
-    let mut cur_val: usize = 0;
 
     let mut magic = [0; 4];
     reader.read_exact(&mut magic).expect("Failed to read.");
@@ -50,16 +47,13 @@ pub fn bam_to_gbam(in_path: String, out_path: String) {
         let block_size = match reader.read_u32::<LittleEndian>() {
             Ok(bs) => bs as usize,
             Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof => 0,
-            Err(e) => panic!(e),
+            Err(e) => panic!("{}", e),
         };
         if block_size == 0 {
-            // eprintln!("PARSED IN TOTAL: {}", cur_val);
             // EOF
-            writer.finish();
-            return ();
+            writer.finish().unwrap();
+            return;
         }
-        cur_val += block_size;
-        // println!("STATUS: {}\n", cur_val);
 
         buf.resize(block_size);
         reader.read_exact(&mut buf).expect("FAILED TO READ.");

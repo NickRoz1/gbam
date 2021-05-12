@@ -45,7 +45,7 @@ def test(args):
 
     # for field_to_omit in list(map(int, Fields)):
     print("Here")
-    bam_path = "../test_data/1.bam"
+    bam_path = "../test_data/wgEncodeUwRepliSeqGm12878G1bAlnRep1.bam"
     gbam_path = "../test_data/res.gbam"
     check_if_equal(bam_path, gbam_path)
 
@@ -75,7 +75,7 @@ def check_if_equal(bam_path, gbam_path, no_check_fields=[]):
 
     i = 0
     while True:
-        cur_gbam = gbam_file.next_rec()
+        cur_gbam = gbam_file.next_record()
         # print(cur_gbam.to_str())
         # print(cur_gbam.read_name)
         cur_bam = next(bam_file, None)
