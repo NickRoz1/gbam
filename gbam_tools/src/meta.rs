@@ -1,120 +1,228 @@
-use super::{Compression, COMPRESSION_ENUM_SIZE, FIELDS_NUM, U64_SIZE};
+use super::GBAM_MAGIC;
+use super::SIZE_LIMIT;
+use crate::{field_item_size, field_type, FieldType, Fields, U32_SIZE, U64_SIZE, U8_SIZE};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use std::io::Write;
-/// File starts with magic number. The BAM table is then divided into rowgroups,
-/// each rowgroup is written into the file column by column (column chunk inside
-/// the rowgroup). Each column chunk compressed separately. Information about
-/// column chunk offset and length is stored in the file metadata.
-#[derive(Clone, Debug)]
-pub struct RowGroupMeta {
-    pub offset: u64,
-    pub cols: Vec<ColChunkMeta>,
+use serde::ser::{SerializeMap, SerializeSeq, Serializer};
+use serde::{Deserialize, Deserializer, Serialize};
+use std::marker::PhantomData;
+use std::ops::IndexMut;
+
+use serde::de::{MapAccess, Visitor};
+// use serde::de::{Deserialize, Deserializer};
+// use serde_json::Result;
+use std::collections::HashMap;
+use std::io::{Read, Write};
+
+/// Holds data related to GBAM file: gbam version, seekpos to meta.
+pub(crate) struct FileInfo {
+    pub gbam_version: [u32; 2],
+    pub seekpos: u64,
+    pub crc32: u32,
 }
 
-const ROW_GROUP_META_SIZE: usize = U64_SIZE + FIELDS_NUM * COL_CHUNK_META_SIZE;
-
-impl From<&[u8]> for RowGroupMeta {
-    fn from(mut bytes: &[u8]) -> Self {
-        assert!(
-            bytes.len() >= ROW_GROUP_META_SIZE,
-            "Not enough bytes to form row group meta struct.",
-        );
-        RowGroupMeta {
-            offset: bytes
-                .read_u64::<LittleEndian>()
-                .expect("Rowgroup metadata is damaged."),
-            cols: (0..FIELDS_NUM).map(|_| ColChunkMeta::from(bytes)).collect(),
+impl FileInfo {
+    pub fn new(gbam_version: [u32; 2], seekpos: u64, crc32: u32) -> Self {
+        FileInfo {
+            gbam_version: gbam_version,
+            seekpos: seekpos,
+            crc32: crc32,
         }
     }
 }
 
-impl Into<Vec<u8>> for RowGroupMeta {
+/// The GBAM magic size is 8 bytes (U64_SIZE).
+pub const FILE_INFO_SIZE: usize = U64_SIZE + U32_SIZE * 2 + U64_SIZE + U32_SIZE;
+
+impl From<&[u8]> for FileInfo {
+    fn from(mut bytes: &[u8]) -> Self {
+        assert!(
+            bytes.len() == FILE_INFO_SIZE,
+            "Not enough bytes to form file info struct.",
+        );
+        assert_eq!(&bytes[..U64_SIZE], &GBAM_MAGIC[..]);
+        let mut ver1 = &bytes[U64_SIZE..];
+        let mut ver2 = &bytes[U64_SIZE + U32_SIZE..];
+        let mut seekpos = &bytes[U64_SIZE + 2 * U32_SIZE..];
+        let mut crc32 = &bytes[U64_SIZE + 2 * U32_SIZE + U64_SIZE..];
+        FileInfo {
+            gbam_version: [
+                ver1.read_u32::<LittleEndian>()
+                    .expect("file info is damaged: unable to read GBAM version."),
+                ver2.read_u32::<LittleEndian>()
+                    .expect("file info is damaged: unable to read GBAM version."),
+            ],
+            seekpos: seekpos
+                .read_u64::<LittleEndian>()
+                .expect("file info is damaged: unable to read seekpos."),
+            crc32: crc32
+                .read_u32::<LittleEndian>()
+                .expect("file info is damaged: unable to read crc32."),
+        }
+    }
+}
+
+impl Into<Vec<u8>> for FileInfo {
     fn into(self) -> Vec<u8> {
         let mut res = Vec::<u8>::new();
-        self.dump_as_bytes(&mut res);
+        res.write(&GBAM_MAGIC[..]);
+        for val in self.gbam_version.into_iter() {
+            res.write_u32::<LittleEndian>(*val);
+        }
+        res.write_u64::<LittleEndian>(self.seekpos).unwrap();
+        res.write_u32::<LittleEndian>(self.crc32).unwrap();
         res
     }
 }
 
-impl RowGroupMeta {
-    pub fn dump_as_bytes<T: Write>(&self, writer: &mut T) {
-        writer.write_u64::<LittleEndian>(self.offset).unwrap();
-        for col in &self.cols {
-            col.dump_as_bytes(writer);
+/// Type of encoding used in GBAM writer
+#[derive(Serialize, Deserialize)]
+pub enum CODECS {
+    /// Gzip encoding
+    gzip,
+    /// LZ4 encoding
+    lz4,
+}
+#[derive(Serialize, Deserialize)]
+pub(crate) struct BlockMeta {
+    pub seekpos: u64,
+    pub numitems: u32,
+}
+
+#[derive(Serialize, Deserialize)]
+struct FieldMeta {
+    item_size: Option<u32>,         // NONE for variable sized fields
+    block_size: Option<u32>,        // NONE for variable sized fields
+    blocks_sizes: Option<Vec<u32>>, // NONE for fixed sized fields
+    codecs: CODECS,
+    blocks: Vec<BlockMeta>,
+}
+
+impl FieldMeta {
+    pub fn new(field: &Fields) -> Self {
+        FieldMeta {
+            item_size: match field_item_size(field) {
+                Some(v) => Some(v as u32), // TODO.
+                None => None,
+            },
+            block_size: match field_type(field) {
+                FieldType::FixedSized => Some(SIZE_LIMIT as u32),
+                FieldType::VariableSized => None,
+            },
+            blocks_sizes: match field_type(field) {
+                FieldType::FixedSized => None,
+                FieldType::VariableSized => Some(Vec::<u32>::new()),
+            },
+            codecs: CODECS::gzip,
+            blocks: Vec::<BlockMeta>::new(),
         }
     }
 }
 
-const COL_CHUNK_META_SIZE: usize = U64_SIZE * 4 + COMPRESSION_ENUM_SIZE;
-#[derive(Clone, Debug, PartialEq, Default)]
-pub struct ColChunkMeta {
-    pub offset: u64,
-    pub compr_size: u64,
-    pub uncompr_size: u64,
-    pub val_num: u64,
-    pub compressor: Compression,
+#[derive(Serialize, Deserialize)]
+pub(crate) struct FileMeta {
+    field_to_meta: HashMap<Fields, FieldMeta>,
 }
 
-impl From<&[u8]> for ColChunkMeta {
-    fn from(mut bytes: &[u8]) -> Self {
-        assert!(
-            bytes.len() >= COL_CHUNK_META_SIZE,
-            "Not enough bytes to form column chunk meta struct.",
-        );
-        ColChunkMeta {
-            offset: bytes
-                .read_u64::<LittleEndian>()
-                .expect("Column metadata is damaged."),
-            compr_size: bytes
-                .read_u64::<LittleEndian>()
-                .expect("Column metadata is damaged."),
-            uncompr_size: bytes
-                .read_u64::<LittleEndian>()
-                .expect("Column metadata is damaged."),
-            val_num: bytes
-                .read_u64::<LittleEndian>()
-                .expect("Column metadata is damaged."),
-            compressor: Compression::from(bytes),
+/// This is a wrapper struct. It is necessary to create custom serializer/deserializer in Serde.
+/// https://serde.rs/deserialize-map.html
+pub struct Field_Meta_Map(HashMap<Fields, FieldMeta>);
+
+impl Serialize for Field_Meta_Map {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(self.0.len()))?;
+        for (k, v) in &self.0 {
+            map.serialize_entry(&k.to_string(), &v)?;
+        }
+        map.end()
+    }
+}
+
+struct MyMapVisitor {
+    marker: PhantomData<fn() -> Field_Meta_Map>,
+}
+
+impl MyMapVisitor {
+    fn new() -> Self {
+        MyMapVisitor {
+            marker: PhantomData,
         }
     }
 }
 
-impl ColChunkMeta {
-    pub fn dump_as_bytes<T: Write>(&self, writer: &mut T) {
-        writer.write_u64::<LittleEndian>(self.offset).unwrap();
-        writer.write_u64::<LittleEndian>(self.compr_size).unwrap();
-        writer.write_u64::<LittleEndian>(self.uncompr_size).unwrap();
-        writer.write_u64::<LittleEndian>(self.val_num).unwrap();
-        self.compressor.dump_as_bytes(writer).unwrap();
+impl<'de> Visitor<'de> for MyMapVisitor {
+    type Value = Field_Meta_Map;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("Field to meta map")
+    }
+
+    fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
+    where
+        M: MapAccess<'de>,
+    {
+        let mut map = HashMap::<Fields, FieldMeta>::with_capacity(access.size_hint().unwrap_or(0));
+
+        // While there are entries remaining in the input, add them
+        // into our map.
+        while let Some((key, value)) = access.next_entry()? {
+            map.insert(key, value);
+        }
+        Ok(Field_Meta_Map(map))
+    }
+}
+impl<'de> Deserialize<'de> for Field_Meta_Map {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // Instantiate our Visitor and ask the Deserializer to drive
+        // it over the input data, resulting in an instance of MyMap.
+        deserializer.deserialize_map(MyMapVisitor::new())
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn test_row_and_col_meta() -> () {
-        let mut cols_info = Vec::<ColChunkMeta>::new();
-        for _ in 0..FIELDS_NUM {
-            cols_info.push(ColChunkMeta {
-                offset: 1,
-                compr_size: 2,
-                uncompr_size: 3,
-                val_num: 4,
-                compressor: Compression::ZSTD(2),
-            });
+impl FileMeta {
+    pub fn new() -> Self {
+        let mut map = HashMap::<Fields, FieldMeta>::new();
+        for field in Fields::iterator() {
+            map.insert(*field, FieldMeta::new(field));
         }
+        FileMeta { field_to_meta: map }
+    }
 
-        let original = RowGroupMeta {
-            offset: 5,
-            cols: cols_info,
-        };
+    /// Used to retrieve BlockMeta vector mutable borrow, to push new blocks
+    /// directly into it, avoiding field matching.
+    pub fn get_blocks(&mut self, field: &Fields) -> &mut Vec<BlockMeta> {
+        &mut self.field_to_meta.get_mut(field).unwrap().blocks
+    }
 
-        let buf: Vec<u8> = original.clone().into();
+    pub fn view_blocks(&self, field: &Fields) -> &Vec<BlockMeta> {
+        &self.field_to_meta[field].blocks
+    }
 
-        let restored = RowGroupMeta::from(&buf[..]);
+    pub fn get_field_size(&self, field: &Fields) -> &Option<u32> {
+        &self.field_to_meta[field].item_size
+    }
 
-        assert_eq!(restored.offset, original.offset);
-        assert_eq!(&restored.cols[..], &original.cols[..]);
+    pub fn get_blocks_sizes(&mut self, field: &Fields) -> &mut Vec<u32> {
+        self.field_to_meta
+            .get_mut(field)
+            .unwrap()
+            .blocks_sizes
+            .as_mut()
+            .unwrap()
+    }
+
+    pub fn push_block_size(&mut self, field: &Fields, size: usize) {
+        self.field_to_meta
+            .get_mut(field)
+            .unwrap()
+            .blocks_sizes
+            .as_mut()
+            .unwrap()
+            .push(size as u32);
     }
 }

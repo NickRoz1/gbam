@@ -11,32 +11,29 @@ use serde::{Deserialize, Serialize};
 
 /// BAM to GBAM converter
 pub mod bam_to_gbam;
-mod compression;
-mod meta;
-// pub mod reader;
+/// Meta information for GBAM file
+pub mod meta;
+/// GBAM reader
+pub mod reader;
 /// BAM record module
 pub mod record;
-mod rowgroup;
-/// Single threaded reader
-mod single_thread;
-/// Writer module
-mod writer;
+/// GBAM writer
+pub mod writer;
 
 // use self::writer::Writer;
-pub use self::single_thread::reader::{ParsingTemplate, Reader};
-use self::single_thread::writer::Writer;
+pub use self::reader::{ParsingTemplate, Reader};
+use self::writer::Writer;
 pub use crate::bam_to_gbam::bam_to_gbam;
-use crate::compression::{Compression, COMPRESSION_ENUM_SIZE};
-use crate::meta::{ColChunkMeta, RowGroupMeta};
 pub use record::RawRecord;
-
-static GBAM_MAGIC: &[u8] = b"GBAM-0.1.0\x01";
 
 const U64_SIZE: usize = mem::size_of::<u64>();
 const U32_SIZE: usize = mem::size_of::<u32>();
 const U16_SIZE: usize = mem::size_of::<u16>();
 const U8_SIZE: usize = mem::size_of::<u8>();
 const MEGA_BYTE_SIZE: usize = 1_048_576;
+
+const SIZE_LIMIT: usize = 16777216;
+static GBAM_MAGIC: &[u8] = b"geeBAM10";
 
 const FIELDS_NUM: usize = 18;
 /// Fields which contain data (not index fields).
@@ -201,8 +198,8 @@ pub fn bam_to_gbam_python(in_path: String, out_path: String) {
 fn gbam_tools(_: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(bam_to_gbam_python, m)?)
         .unwrap();
-    m.add_class::<single_thread::reader::Reader>()?;
-    m.add_class::<single_thread::reader::ParsingTemplate>()?;
-    m.add_class::<single_thread::reader::GbamRecord>()?;
+    m.add_class::<reader::Reader>()?;
+    m.add_class::<reader::ParsingTemplate>()?;
+    m.add_class::<reader::GbamRecord>()?;
     Ok(())
 }

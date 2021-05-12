@@ -1,244 +1,422 @@
-use super::{Fields, FIELDS_NUM, GBAM_MAGIC};
-use std::collections::HashMap;
-use std::io::Read;
-use std::rc::Rc;
+use super::meta::{BlockMeta, FileInfo, FileMeta, FILE_INFO_SIZE};
+use super::writer::calc_crc_for_meta_bytes;
+use super::SIZE_LIMIT;
+use crate::{field_type, var_size_field_to_index, FieldType};
+use crate::{is_data_field, Fields, DATA_FIELDS_NUM, FIELDS_NUM, U32_SIZE};
+use bit_vec::BitVec;
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use pyo3::prelude::*;
+use std::io::{Read, Seek, SeekFrom};
 
-/// GBAM record only includes queried fields.
+#[pyclass]
+#[derive(Clone, Debug)]
+/// Represents a GBAM record in which some fields may be omitted.
 pub struct GbamRecord {
-    // Used to determine which fields are currently available.
-    offsets: HashMap<Fields, usize>,
-    // The loaded fields.
-    data: Vec<u8>,
+    /// Reference sequence ID
+    #[pyo3(get)]
+    pub refid: Option<u32>,
+    /// 0-based leftmost coordinate
+    #[pyo3(get)]
+    pub pos: Option<u32>,
+    /// Mapping quality
+    #[pyo3(get)]
+    pub mapq: Option<u8>,
+    /// BAI index bin,
+    #[pyo3(get)]
+    pub bin: Option<u16>,
+    /// Bitwise flags
+    #[pyo3(get)]
+    pub flag: Option<u16>,
+    /// Ref-ID of the next segment
+    #[pyo3(get)]
+    pub next_refID: Option<u32>,
+    /// 0-based leftmost pos of the next segmen
+    #[pyo3(get)]
+    pub next_pos: Option<u32>,
+    /// Read name
+    #[pyo3(get)]
+    pub read_name: Option<Vec<u8>>,
+    /// CIGAR
+    #[pyo3(get)]
+    pub cigar: Option<Vec<u32>>,
+    /// 4-bit  encoded  read
+    #[pyo3(get)]
+    pub seq: Option<Vec<u8>>,
+    /// Phred-scaled base qualities.
+    #[pyo3(get)]
+    pub qual: Option<Vec<u8>>,
+    /// List of auxiliary data
+    #[pyo3(get)]
+    pub tags: Option<Vec<u8>>,
 }
 
 impl GbamRecord {
-    pub fn new(offsets: HashMap<Fields, usize>, data: Vec<u8>) -> Self {
+    pub(crate) fn parse_from_bytes(&mut self, field: &Fields, mut bytes: &[u8]) {
+        match field {
+            Fields::RefID => self.refid = Some(bytes.read_u32::<LittleEndian>().unwrap()),
+            Fields::Pos => self.pos = Some(bytes.read_u32::<LittleEndian>().unwrap()),
+            Fields::Mapq => self.mapq = Some(bytes[0].to_owned()),
+            Fields::Bin => self.bin = Some(bytes.read_u16::<LittleEndian>().unwrap()),
+            Fields::Flags => self.flag = Some(bytes.read_u16::<LittleEndian>().unwrap()),
+            Fields::NextRefID => self.next_refID = Some(bytes.read_u32::<LittleEndian>().unwrap()),
+            Fields::NextPos => self.next_pos = Some(bytes.read_u32::<LittleEndian>().unwrap()),
+            Fields::ReadName => self.read_name = Some(bytes.to_vec()),
+            Fields::RawCigar => {
+                self.cigar = Some(
+                    bytes
+                        .chunks(U32_SIZE)
+                        .map(|mut slice| slice.read_u32::<LittleEndian>().unwrap())
+                        .collect(),
+                )
+            }
+            Fields::RawSequence => self.seq = Some(bytes.to_vec()),
+            Fields::RawQual => self.qual = Some(bytes.to_vec()),
+            Fields::RawTags => self.tags = Some(bytes.to_vec()),
+            _ => panic!("Not yet covered type: {}", field.to_string()),
+        }
+    }
+}
+
+impl Default for GbamRecord {
+    fn default() -> Self {
         GbamRecord {
-            offsets: offsets,
-            data: data,
+            refid: None,
+            pos: None,
+            mapq: None,
+            bin: None,
+            flag: None,
+            next_refID: None,
+            next_pos: None,
+            read_name: None,
+            cigar: None,
+            seq: None,
+            qual: None,
+            tags: None,
         }
     }
+}
 
-    /// Checks whether field is parsed.
-    /// Panics on fail.
-    fn is_parsed(&self, field: Fields) {
-        assert!(self.offsets.contains_key(&field));
-    }
-
-    /// Read refID
-    pub fn read_refID(&self) {
-        self.is_parsed(Fields::RefID);
-    }
-
-    /// Read pos
-    pub fn read_pos(&mut self) {
-        self.is_parsed(Fields::Pos);
-    }
-
-    /// Read length of read name
-    pub fn read_l_read_name(&mut self) {
-        self.is_parsed(Fields::LName);
-    }
-
-    /// Read mapq
-    pub fn read_mapq(&mut self) {
-        self.is_parsed(Fields::Mapq);
-    }
-
-    /// Read bin
-    pub fn read_bin(&mut self) {
-        self.is_parsed(Fields::Bin);
-    }
-
-    /// Read number of cigar operations
-    pub fn read_ncigar(&mut self) {
-        self.is_parsed(Fields::NCigar);
-    }
-
-    /// Read flags
-    pub fn read_flags(&mut self) {
-        self.is_parsed(Fields::Flags);
-    }
-
-    /// Read length of sequence
-    pub fn read_l_seq(&mut self) {
-        self.is_parsed(Fields::SequenceLength);
-    }
-
-    /// Read next refID
-    pub fn read_next_refID(&mut self) {
-        self.is_parsed(Fields::NextRefID);
-    }
-
-    /// Read next position
-    pub fn read_next_pos(&mut self) {
-        self.is_parsed(Fields::NextPos);
-    }
-
-    /// Read length of template
-    pub fn read_l_template(&mut self) {
-        self.is_parsed(Fields::TemplateLength);
-    }
-
-    /// Read read name
-    pub fn read_read_name(&mut self) {
-        self.is_parsed(Fields::Bin);
-        self.0[Fields::ReadName as usize] = true;
-        self.0[Fields::LName as usize] = true;
-    }
-
-    /// Read raw cigar
-    pub fn read_raw_cigar(&mut self) {
-        self.is_parsed(Fields::Bin);
-        self.0[Fields::RawCigar as usize] = true;
-        self.0[Fields::NCigar as usize] = true;
-    }
-
-    /// Read raw sequence
-    pub fn read_raw_sequence(&mut self) {
-        self.is_parsed(Fields::Bin);
-        self.0[Fields::RawSequence as usize] = true;
-        self.0[Fields::SequenceLength as usize] = true;
-    }
-
-    /// Read base qualities
-    pub fn read_raw_qual(&mut self) {
-        self.is_parsed(Fields::Bin);
-        self.0[Fields::RawQual as usize] = true;
-        self.0[Fields::SequenceLength as usize] = true;
-    }
-
-    /// Read tags
-    pub fn read_raw_tags(&mut self) {
-        self.is_parsed(Fields::Bin);
-        self.0[Fields::RawTags as usize] = true;
-        self.0[Fields::RawTagsLen as usize] = true;
-    }
-
-    /// Read length of tags
-    pub fn read_l_tags(&mut self) {
-        self.is_parsed(Fields::Bin);
-        self.0[Fields::RawTagsLen as usize] = true;
+impl std::fmt::Display for GbamRecord {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
     }
 }
-/// GBAM reader is capable of parsing whole rowgroups (assembling the splitted
-/// fields of BAM records back into full record), or quickly parsing a few
-/// columns (BAM fields ignoring others).
+
+#[pymethods]
+impl GbamRecord {
+    /// Convert GBAM structure to string representation
+    pub fn to_str(&self) -> String {
+        self.to_string()
+    }
+}
+
+/// These trait has to be implemented for any inner reader supplying data to GBAM reader
+pub trait ReadSeekSend: Read + Seek + Send {}
+
+impl<T> ReadSeekSend for T where T: Read + Seek + Send {}
+#[pyclass]
+/// Reader for GBAM file format
 pub struct Reader {
-    reading_mode: ReadingMode,
-    buffer: Vec<GbamRecord>,
+    inner: Box<dyn ReadSeekSend>, // Box is necessary to use with PyO3 -  no generic parameters are allowed!
+    file_meta: FileMeta,
+    file_info: FileInfo,
+    parsing_template: ParsingTemplate,
+    buffers: Vec<Vec<u8>>,
+    /// Current active record
+    pub cur_record: GbamRecord,
+    cur_num: u64,
+    cur_block: Vec<i32>,
+    /// How many record have been loaded in memory already for each block. It's
+    /// needed since the blocks sizes may be different.
+    loaded_records_num: Vec<u64>,
 }
 
-impl Reader {
-    pub fn new(reading_mode: ReadingMode) -> Self {
-        Reader {
-            reading_mode: reading_mode,
-        }
-    }
+#[pyclass]
+#[derive(Clone, Debug)]
+/// This struct regulates what fields are getting parsed from GBAM file.
+pub struct ParsingTemplate {
+    inner: Vec<Option<Fields>>,
 }
 
-/// This structure is used to customize reading mode for GBAM reader. By calling
-/// methods of this struct one can customize which fields will be parsed.
-pub struct ReadingMode(Vec<bool>);
-
-impl ReadingMode {
+impl ParsingTemplate {
+    /// Create new parsing templates with all fields set to false
     pub fn new() -> Self {
-        Self(vec![false; FIELDS_NUM])
+        Self {
+            inner: ((0..FIELDS_NUM).map(|_| None).collect()),
+        }
     }
-    /// Assembles all BAM records from rowgroup batch back.
-    pub fn read_all(&mut self) {
-        for setting in self.0.iter_mut() {
-            *setting = true;
+    /// Set field value
+    pub fn set(&mut self, field: &Fields, val: bool) {
+        match field_type(field) {
+            FieldType::FixedSized => {
+                self.inner[*field as usize] = Self::bool_to_val(field, val);
+            }
+            FieldType::VariableSized => {
+                self.inner[*field as usize] = Self::bool_to_val(field, val);
+                self.inner[var_size_field_to_index(field) as usize] =
+                    Self::bool_to_val(&var_size_field_to_index(field), val);
+            }
         }
     }
 
-    /// Read refID
-    pub fn read_refID(&mut self) {
-        self.0[Fields::RefID as usize] = true;
+    fn bool_to_val(field: &Fields, val: bool) -> Option<Fields> {
+        match val {
+            true => Some(*field),
+            false => None,
+        }
+    }
+    /// Get iterator over fields currently requested for parsing
+    pub fn get_active_fields_iter<'a>(&'a self) -> impl Iterator<Item = &'a Fields> {
+        self.inner
+            .iter()
+            .filter(|x| x.is_some())
+            .map(|x| x.as_ref().unwrap())
     }
 
-    /// Read pos
-    pub fn read_pos(&mut self) {
-        self.0[Fields::Pos as usize] = true;
+    /// Get iterator over data fields (no index fields) currently requested for parsing
+    pub fn get_active_data_fields_iter<'a>(&'a self) -> impl Iterator<Item = &'a Fields> {
+        self.inner
+            .iter()
+            .filter(|x| x.is_some() && is_data_field(&x.unwrap()))
+            .map(|x| x.as_ref().unwrap())
     }
 
-    /// Read length of read name
-    pub fn read_l_read_name(&mut self) {
-        self.0[Fields::LName as usize] = true;
+    /// Get fields currently requested for parsing
+    pub fn get_active_fields(&self) -> Vec<Fields> {
+        self.get_active_fields_iter()
+            .map(|field| field.to_owned())
+            .collect::<Vec<_>>()
+    }
+    /// Set all fields to active state
+    pub fn set_all(&mut self) {
+        for (field, val) in Fields::iterator().zip(self.inner.iter_mut()) {
+            if val.is_none() {
+                *val = Some(*field);
+            }
+        }
+    }
+    /// Set all fields to disabled state
+    pub fn clear(&mut self) {
+        self.inner
+            .iter_mut()
+            .filter(|x| x.is_some())
+            .for_each(|e| *e = None);
+    }
+}
+
+#[pymethods]
+impl ParsingTemplate {
+    #[new]
+    /// Create new ParsingTemplate with predefined values
+    pub fn new_from_python(fields: Vec<bool>) -> Self {
+        assert_eq!(fields.len(), DATA_FIELDS_NUM);
+        let mut tmplt = ParsingTemplate::new();
+        for (field, val) in Fields::iterator().zip(fields) {
+            tmplt.set(field, val);
+        }
+        tmplt
+    }
+}
+// Methods to be called from Rust.
+impl Reader {
+    /// Create new reader
+    pub fn new(
+        mut inner: Box<dyn ReadSeekSend>,
+        parsing_tmplt: ParsingTemplate,
+    ) -> std::io::Result<Self> {
+        let mut file_info_bytes: [u8; FILE_INFO_SIZE] = [0; FILE_INFO_SIZE];
+        inner.read_exact(&mut file_info_bytes[..])?;
+        let file_info = FileInfo::from(&file_info_bytes[..]);
+        // Read file meta
+        inner.seek(SeekFrom::Start(file_info.seekpos))?;
+        let mut buf = Vec::<u8>::new();
+        inner.read_to_end(&mut buf)?;
+        if calc_crc_for_meta_bytes(&buf[..]) != file_info.crc32 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Metadata JSON was damaged.",
+            ));
+        }
+        let file_meta_json_str = String::from_utf8(buf).unwrap();
+        let file_meta =
+            serde_json::from_str(&file_meta_json_str).expect("File meta json string was damaged.");
+        let mut reader = Self {
+            inner: inner,
+            file_meta: file_meta,
+            file_info: file_info,
+            parsing_template: parsing_tmplt,
+            buffers: (0..FIELDS_NUM).map(|_| vec![0; SIZE_LIMIT]).collect(),
+            cur_record: GbamRecord::default(),
+            cur_num: 0,
+            cur_block: vec![-1; FIELDS_NUM], // to preload first blocks
+            loaded_records_num: vec![0; FIELDS_NUM],
+        };
+
+        for field in reader.parsing_template.get_active_fields().iter() {
+            reader.load_next_block(field);
+        }
+        Ok(reader)
     }
 
-    /// Read mapq
-    pub fn read_mapq(&mut self) {
-        self.0[Fields::Mapq as usize] = true;
+    fn load_next_block(&mut self, field: &Fields) {
+        let next_block_num = self.cur_block[*field as usize] + 1;
+        let block_size = match field_type(field) {
+            FieldType::VariableSized => {
+                self.file_meta.get_blocks_sizes(field)[next_block_num as usize]
+            }
+            FieldType::FixedSized => {
+                let item_size = self.file_meta.get_field_size(field).unwrap();
+                let next_block_meta = &self.file_meta.get_blocks(field)[next_block_num as usize];
+                next_block_meta.numitems * item_size
+            }
+        };
+
+        let seekpos = self.file_meta.get_blocks(field)[next_block_num as usize].seekpos;
+        self.load_data(seekpos, field, block_size).unwrap();
+
+        self.cur_block[*field as usize] = next_block_num;
+        self.loaded_records_num[*field as usize] +=
+            self.file_meta.get_blocks(field)[next_block_num as usize].numitems as u64;
     }
 
-    /// Read bin
-    pub fn read_bin(&mut self) {
-        self.0[Fields::Bin as usize] = true;
+    fn load_data(&mut self, seekpos: u64, field: &Fields, block_size: u32) -> std::io::Result<()> {
+        self.inner.seek(SeekFrom::Start(seekpos))?;
+        let buf = &mut self.buffers[*field as usize];
+        buf.resize(block_size as usize, 0);
+        self.inner.read_exact(buf)?;
+        Ok(())
     }
 
-    /// Read number of cigar operations
-    pub fn read_ncigar(&mut self) {
-        self.0[Fields::NCigar as usize] = true;
+    /// Calculates offset to the record inside the block.
+    fn get_offset_into_block(&self, field: &Fields) -> u32 {
+        let rec_num_in_block = self.calc_rec_num_in_block(field);
+        match field_type(field) {
+            FieldType::VariableSized => {
+                if rec_num_in_block == 0 {
+                    0
+                } else {
+                    let idx_field = &var_size_field_to_index(field);
+                    let idx_field_rec_num = self.calc_rec_num_in_block(idx_field);
+                    self.get_idx_val(idx_field, idx_field_rec_num - 1) as u32
+                }
+            }
+            FieldType::FixedSized => {
+                rec_num_in_block as u32 * self.file_meta.get_field_size(field).unwrap() as u32
+            }
+        }
     }
 
-    /// Read flags
-    pub fn read_flags(&mut self) {
-        self.0[Fields::Flags as usize] = true;
+    fn calc_rec_num_in_block(&self, field: &Fields) -> u64 {
+        assert!(self.cur_block[*field as usize] > -1);
+        let block_meta =
+            &self.file_meta.view_blocks(field)[self.cur_block[*field as usize] as usize];
+        // self.cur_num is universal, but amount of items in buffer is not
+        let dist_from_back_of_block = self.loaded_records_num[*field as usize] - self.cur_num;
+        let rec_num_in_block = block_meta.numitems as u64 - dist_from_back_of_block;
+        rec_num_in_block
     }
 
-    /// Read length of sequence
-    pub fn read_l_seq(&mut self) {
-        self.0[Fields::SequenceLength as usize] = true;
+    fn is_last_in_block(&self, rec_num: u64, field: &Fields) -> bool {
+        assert!(self.cur_block[*field as usize] > -1);
+        let block_meta =
+            &self.file_meta.view_blocks(field)[self.cur_block[*field as usize] as usize];
+        (block_meta.numitems - 1) as u64 == rec_num
     }
 
-    /// Read next refID
-    pub fn read_next_refID(&mut self) {
-        self.0[Fields::NextRefID as usize] = true;
+    /// Parses current index value. All these fields are u32.
+    fn get_idx_val(&self, field: &Fields, rec_num_in_block: u64) -> u32 {
+        if is_data_field(field) {
+            panic!("Only index fields allowed!")
+        }
+        self.get_idx_field_bytes_for_rec(field, rec_num_in_block)
+            .read_u32::<LittleEndian>()
+            .unwrap()
     }
 
-    /// Read next position
-    pub fn read_next_pos(&mut self) {
-        self.0[Fields::NextPos as usize] = true;
+    /// Query bytes for index field containing value for specified record number
+    fn get_idx_field_bytes_for_rec(&self, field: &Fields, rec_num_in_block: u64) -> &[u8] {
+        if is_data_field(field) {
+            panic!("Only index fields allowed!")
+        }
+        let item_size = self.get_cur_item_size(field, rec_num_in_block) as usize;
+        let offset = item_size * rec_num_in_block as usize;
+        let buffer = &self.buffers[*field as usize];
+        &buffer[offset..offset + item_size]
     }
 
-    /// Read length of template
-    pub fn read_l_template(&mut self) {
-        self.0[Fields::TemplateLength as usize] = true;
+    fn get_variable_field_bytes(&self, field: &Fields, rec_num_in_block: u64) -> &[u8] {
+        let offset = self.get_offset_into_block(field) as usize;
+        let buffer = &self.buffers[*field as usize];
+        let item_size = self.get_cur_item_size(field, rec_num_in_block) as usize;
+        &buffer[offset..offset + item_size]
     }
 
-    /// Read read name
-    pub fn read_read_name(&mut self) {
-        self.0[Fields::ReadName as usize] = true;
-        self.0[Fields::LName as usize] = true;
+    /// Size of current item in bytes
+    /// TODO: Separate function for constant size fields
+    fn get_cur_item_size(&self, field: &Fields, rec_num_in_block: u64) -> usize {
+        match field_type(field) {
+            FieldType::VariableSized => {
+                let idx_field = var_size_field_to_index(field);
+                let cur_idx_rec_num = self.calc_rec_num_in_block(&idx_field);
+                if rec_num_in_block == 0 {
+                    self.get_idx_val(&idx_field, cur_idx_rec_num) as usize
+                } else {
+                    let item_size = self.get_idx_val(&idx_field, cur_idx_rec_num)
+                        - self.get_idx_val(&idx_field, cur_idx_rec_num - 1);
+                    item_size as usize
+                }
+            }
+            FieldType::FixedSized => self.file_meta.get_field_size(field).unwrap() as usize,
+        }
+    }
+    fn block_exhausted(&self, field: &Fields) -> bool {
+        self.cur_num == self.loaded_records_num[*field as usize]
     }
 
-    /// Read raw cigar
-    pub fn read_raw_cigar(&mut self) {
-        self.0[Fields::RawCigar as usize] = true;
-        self.0[Fields::NCigar as usize] = true;
+    /// Get next GBAM record
+    pub fn next(&mut self) -> Option<&GbamRecord> {
+        for field in self.parsing_template.get_active_fields() {
+            let cur_block_num = self.cur_block[field as usize];
+            if self.block_exhausted(&field) {
+                if (cur_block_num + 1) as usize == self.file_meta.get_blocks(&field).len() {
+                    // No more records of this type in input
+                    return None;
+                }
+                self.load_next_block(&field);
+            }
+        }
+
+        for active_field in self.parsing_template.get_active_data_fields_iter() {
+            let offset = self.get_offset_into_block(active_field) as usize;
+            let buffer = &self.buffers[*active_field as usize];
+            let rec_num_in_block = self.calc_rec_num_in_block(active_field);
+            let item_size = self.get_cur_item_size(active_field, rec_num_in_block) as usize;
+
+            self.cur_record
+                .parse_from_bytes(active_field, &buffer[offset..offset + item_size]);
+        }
+        // TODO :: NULLIFY CURNUM ON REPEATED CALLS IF WE REUSE THE READER
+        self.cur_num += 1;
+        Some(&self.cur_record)
+    }
+}
+
+// // Methods to be called from Python.
+#[pymethods]
+impl Reader {
+    fn next_rec(&mut self) -> PyResult<Option<GbamRecord>> {
+        let next = self.next().cloned();
+        Ok(next)
     }
 
-    /// Read raw sequence
-    pub fn read_raw_sequence(&mut self) {
-        self.0[Fields::RawSequence as usize] = true;
-        self.0[Fields::SequenceLength as usize] = true;
-    }
+    #[new]
+    /// Create new reader for file at path
+    pub fn new_for_file(path: &str, tmplt: ParsingTemplate) -> Self {
+        use std::fs::File;
+        use std::io::{self, prelude::*, BufReader};
 
-    /// Read base qualities
-    pub fn read_raw_qual(&mut self) {
-        self.0[Fields::RawQual as usize] = true;
-        self.0[Fields::SequenceLength as usize] = true;
-    }
-
-    /// Read tags
-    pub fn read_raw_tags(&mut self) {
-        self.0[Fields::RawTags as usize] = true;
-        self.0[Fields::RawTagsLen as usize] = true;
-    }
-
-    /// Read length of tags
-    pub fn read_l_tags(&mut self) {
-        self.0[Fields::RawTagsLen as usize] = true;
+        let file = File::open(path).unwrap();
+        let reader = BufReader::new(file);
+        Self::new(Box::new(reader), tmplt).unwrap()
     }
 }
