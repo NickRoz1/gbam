@@ -1,4 +1,4 @@
-use super::u8_size;
+use super::U8_SIZE;
 use std::io::Write;
 /// Type of compression to utilize in writer.
 /// Serialized into two bytes - type of compression and its strength.
@@ -15,7 +15,7 @@ impl Default for Compression {
     }
 }
 
-pub const COMPRESSION_ENUM_SIZE: usize = u8_size * 2;
+pub const COMPRESSION_ENUM_SIZE: usize = U8_SIZE * 2;
 
 impl From<&[u8]> for Compression {
     fn from(bytes: &[u8]) -> Self {

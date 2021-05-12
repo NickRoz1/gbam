@@ -1,4 +1,4 @@
-use super::{u64_size, Compression, COMPRESSION_ENUM_SIZE, FIELDS_NUM};
+use super::{Compression, COMPRESSION_ENUM_SIZE, FIELDS_NUM, U64_SIZE};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::Write;
 /// File starts with magic number. The BAM table is then divided into rowgroups,
@@ -11,7 +11,7 @@ pub struct RowGroupMeta {
     pub cols: Vec<ColChunkMeta>,
 }
 
-const ROW_GROUP_META_SIZE: usize = u64_size + FIELDS_NUM * COL_CHUNK_META_SIZE;
+const ROW_GROUP_META_SIZE: usize = U64_SIZE + FIELDS_NUM * COL_CHUNK_META_SIZE;
 
 impl From<&[u8]> for RowGroupMeta {
     fn from(mut bytes: &[u8]) -> Self {
@@ -45,7 +45,7 @@ impl RowGroupMeta {
     }
 }
 
-const COL_CHUNK_META_SIZE: usize = u64_size * 4 + COMPRESSION_ENUM_SIZE;
+const COL_CHUNK_META_SIZE: usize = U64_SIZE * 4 + COMPRESSION_ENUM_SIZE;
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct ColChunkMeta {
     pub offset: u64,

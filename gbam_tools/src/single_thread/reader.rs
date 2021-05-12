@@ -2,7 +2,7 @@ use super::meta::{BlockMeta, FileInfo, FileMeta, FILE_INFO_SIZE};
 use super::writer::calc_crc_for_meta_bytes;
 use super::SIZE_LIMIT;
 use crate::{field_type, var_size_field_to_index, FieldType};
-use crate::{is_data_field, u32_size, Fields, DATA_FIELDS_NUM, FIELDS_NUM};
+use crate::{is_data_field, Fields, DATA_FIELDS_NUM, FIELDS_NUM, U32_SIZE};
 use bit_vec::BitVec;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use pyo3::prelude::*;
@@ -52,7 +52,7 @@ impl GbamRecord {
             Fields::RawCigar => {
                 self.cigar = Some(
                     bytes
-                        .chunks(u32_size)
+                        .chunks(U32_SIZE)
                         .map(|mut slice| slice.read_u32::<LittleEndian>().unwrap())
                         .collect(),
                 )

@@ -1,8 +1,8 @@
 use super::meta::{BlockMeta, FileInfo, FileMeta, FILE_INFO_SIZE};
 use super::SIZE_LIMIT;
 use crate::{
-    field_type, is_data_field, u32_size, u64_size, u8_size, var_size_field_to_index, FieldType,
-    Fields, RawRecord, FIELDS_NUM,
+    field_type, is_data_field, var_size_field_to_index, FieldType, Fields, RawRecord, FIELDS_NUM,
+    U32_SIZE, U64_SIZE, U8_SIZE,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use crc32fast::Hasher;
@@ -47,7 +47,7 @@ where
         }
     }
     pub fn push_record(&mut self, record: &RawRecord) {
-        let mut index_fields_buf: [u8; u32_size] = [0; u32_size];
+        let mut index_fields_buf: [u8; U32_SIZE] = [0; U32_SIZE];
         // Index fields are not written on their own. They hold index data for variable sized fields.
         for field in Fields::iterator().filter(|f| is_data_field(*f)) {
             let new_data = record.get_bytes(field);

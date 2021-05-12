@@ -1,6 +1,6 @@
 use super::GBAM_MAGIC;
 use super::SIZE_LIMIT;
-use crate::{field_item_size, field_type, u32_size, u64_size, u8_size, FieldType, Fields};
+use crate::{field_item_size, field_type, FieldType, Fields, U32_SIZE, U64_SIZE, U8_SIZE};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use serde::ser::{SerializeMap, SerializeSeq, Serializer};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -30,8 +30,8 @@ impl FileInfo {
     }
 }
 
-/// The GBAM magic size is 8 bytes (u64_size).
-pub const FILE_INFO_SIZE: usize = u64_size + u32_size * 2 + u64_size + u32_size;
+/// The GBAM magic size is 8 bytes (U64_SIZE).
+pub const FILE_INFO_SIZE: usize = U64_SIZE + U32_SIZE * 2 + U64_SIZE + U32_SIZE;
 
 impl From<&[u8]> for FileInfo {
     fn from(mut bytes: &[u8]) -> Self {
@@ -39,11 +39,11 @@ impl From<&[u8]> for FileInfo {
             bytes.len() == FILE_INFO_SIZE,
             "Not enough bytes to form file info struct.",
         );
-        assert_eq!(&bytes[..u64_size], &GBAM_MAGIC[..]);
-        let mut ver1 = &bytes[u64_size..];
-        let mut ver2 = &bytes[u64_size + u32_size..];
-        let mut seekpos = &bytes[u64_size + 2 * u32_size..];
-        let mut crc32 = &bytes[u64_size + 2 * u32_size + u64_size..];
+        assert_eq!(&bytes[..U64_SIZE], &GBAM_MAGIC[..]);
+        let mut ver1 = &bytes[U64_SIZE..];
+        let mut ver2 = &bytes[U64_SIZE + U32_SIZE..];
+        let mut seekpos = &bytes[U64_SIZE + 2 * U32_SIZE..];
+        let mut crc32 = &bytes[U64_SIZE + 2 * U32_SIZE + U64_SIZE..];
         FileInfo {
             gbam_version: [
                 ver1.read_u32::<LittleEndian>()

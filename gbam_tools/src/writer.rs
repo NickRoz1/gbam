@@ -2,11 +2,11 @@ use super::{RawRecord, FIELDS_NUM, GBAM_MAGIC};
 use crate::meta::RowGroupMeta;
 use crate::rowgroup::{CompressionDaemon, RowGroup};
 use byteorder::{LittleEndian, WriteBytesExt};
-use flate2::write::ZlibEncoder;
+// use flate2::write::ZlibEncoder;
 use std::io;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
-use zstd::stream::Encoder;
+// use zstd::stream::Encoder;
 
 /// A GBAM writer.
 pub struct Writer {

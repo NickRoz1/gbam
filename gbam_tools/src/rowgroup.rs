@@ -1,16 +1,16 @@
 // This structure splits records and fills column buffers, which later get
 // written into the output stream.
 
-use super::{mega_byte_size, ColChunkMeta, RowGroupMeta};
+use super::{ColChunkMeta, RowGroupMeta, MEGA_BYTE_SIZE};
 use super::{Compression, Fields, RawRecord, FIELDS_NUM};
 use crate::writer::WriterThread;
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{LittleEndian, WriteBytesExt};
 use flate2::write::ZlibEncoder;
 use flume;
 use std::convert::TryInto;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
-use zstd::Encoder;
+// use zstd::Encoder;
 
 pub struct RowGroup {
     offsets: Vec<u64>,
@@ -106,7 +106,7 @@ impl Default for RowGroup {
         RowGroup {
             offsets: vec![0; FIELDS_NUM],
             columns: vec![(Compression::default(), 0, Vec::new()); FIELDS_NUM],
-            max_uncompr_size: 16 * mega_byte_size as u64,
+            max_uncompr_size: 16 * MEGA_BYTE_SIZE as u64,
         }
     }
 }
