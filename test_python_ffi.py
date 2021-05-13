@@ -14,19 +14,21 @@ class Fields(IntEnum):
     FLAGS = 4
     NEXTREFID = 5
     NEXTPOS = 6
-    READNAME = 7
-    RAWCIGAR = 8
-    RAWSEQUENCE = 9
-    RAWQUAL = 10
-    RAWTAGS = 11
+    TLEN = 7
+    READNAME = 8
+    RAWCIGAR = 9
+    RAWSEQUENCE = 10
+    RAWQUAL = 11
+    RAWTAGS = 12
 
 
 
-FIELDS_NUM = 12
+FIELDS_NUM = 13
 
 def convert(bam_path, gbam_path):
     from gbam_tools import bam_to_gbam_python
     bam_to_gbam_python(bam_path, gbam_path)
+    print("Conversion completed.")
 
 
 def get_reader(path, parsing_tmplt):
@@ -36,20 +38,19 @@ def get_reader(path, parsing_tmplt):
 
 # Converts BAM file to GBAM file, performs tests, deletes GBAM file.
 def test(args):
-    # input_path = args.input_path
+    input_path = args.input_path
 
-    # output_file = NamedTemporaryFile()
-    # convert(input_path, output_file.name)
+    output_file = NamedTemporaryFile()
+    convert(input_path, output_file.name)
 
     # test_combinations = 0
 
     # for field_to_omit in list(map(int, Fields)):
-    print("Here")
-    bam_path = "../test_data/wgEncodeUwRepliSeqGm12878G1bAlnRep1.bam"
-    gbam_path = "../test_data/res.gbam"
-    check_if_equal(bam_path, gbam_path)
+    # bam_path = "../test_data/1.bam"
+    # gbam_path = "../test_data/res.gbam"
+    check_if_equal(input_path, output_file.name)
 
-    print("TESTS PASSED.")
+    print("Tests passed.")
 
 def get_parsing_tmpl(fields_to_parse):
     from gbam_tools import ParsingTemplate
@@ -76,43 +77,40 @@ def check_if_equal(bam_path, gbam_path, no_check_fields=[]):
     i = 0
     while True:
         cur_gbam = gbam_file.next_record()
-        # print(cur_gbam.to_str())
-        # print(cur_gbam.read_name)
         cur_bam = next(bam_file, None)
-
+        if i > 0 and i % 100000 == 0:
+            print('%d records are processed' % i)
         if cur_gbam == None or cur_bam == None:
             # Assert there is no records left
             assert(cur_gbam == cur_bam)
             break
         
         for field in fields_to_check:
-            # if field == Fields.RAWSEQUENCE:
-            #     assert(cur_bam.query_alignment_sequence ==  cur_gbam.seq)
-
             if field == Fields.REFID:
                 assert(cur_bam.reference_id == cur_gbam.refid)
-            if field == Fields.MAPQ:
-                assert(cur_bam.mapping_quality == cur_gbam.mapq)
             if field == Fields.POS:
                 assert(cur_bam.reference_start == cur_gbam.pos)
+            if field == Fields.MAPQ:
+                assert(cur_bam.mapping_quality == cur_gbam.mapq)
+            if field == Fields.BIN:
+                assert(cur_bam.bin == cur_gbam.bin)
+            if field == Fields.FLAGS:
+                assert(cur_bam.flag == cur_gbam.flag)
+            if field == Fields.NEXTREFID:
+                assert(cur_bam.next_reference_id == cur_gbam.next_ref_id)
+            if field == Fields.NEXTPOS:
+                assert(cur_bam.next_reference_start == cur_gbam.next_pos)
+            if field == Fields.TLEN:
+                assert(cur_bam.template_length == cur_gbam.tlen)
+            if field == Fields.READNAME:
+                assert(list(bytearray(cur_bam.query_name, 'utf8')) == cur_gbam.read_name[:-1])
+            if field == Fields.RAWCIGAR:
+                assert(cur_bam.cigarstring == cur_gbam.cigar)
+            if field == Fields.RAWSEQUENCE:
+                assert(cur_bam.query_sequence == cur_gbam.seq)
             if field == Fields.RAWQUAL:
                 assert(cur_bam.query_qualities == array('B', cur_gbam.qual))
-            # if field == Fields.RAWCIGAR:
-            #     assert(cur_bam.cigarstring == cur_gbam.cigar)
-            
-            if field == Fields.READNAME:
-                # print(list(bytearray(cur_bam.query_name, 'utf8')))
-                # print("|||||")
-                # print(cur_gbam.read_name[:-1])
-                assert(list(bytearray(cur_bam.query_name, 'utf8')) == cur_gbam.read_name[:-1])
-                
-            
-        # else:
-        #     assert(cur_gbam.mapq == None)
-        # if Fields.POS not in no_check_fields:
-            
-        # else:
-        #     assert(cur_gbam.pos == None)
+        i += 1
                 
 def is_valid_file(parser, arg):
     import os.path

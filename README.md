@@ -11,7 +11,7 @@ cd gbam_tools
 python3 -m venv env
 source env/bin/activate
 pip3 install maturin
-maturin develop
+maturin develop --release
 ```
 
 # Usage

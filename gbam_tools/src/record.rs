@@ -1,5 +1,5 @@
-use super::{Fields, U16_SIZE, U32_SIZE, U8_SIZE};
-use byteorder::{ByteOrder, LittleEndian};
+use super::{get_tag, Fields, U16_SIZE, U32_SIZE, U8_SIZE};
+use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use std::ops::{Deref, DerefMut};
 
 /// Provides convenient access to record bytes
@@ -90,11 +90,34 @@ impl RawRecord {
             Fields::NextPos => self.get_slice(24, U32_SIZE),
             Fields::TemplateLength => self.get_slice(28, U32_SIZE),
             Fields::ReadName => self.get_slice(32, self.get_var_field_len(field)),
-            Fields::RawCigar => self.get_slice(get_cigar_offset(), self.get_var_field_len(field)),
+            Fields::RawCigar => self.get_cigar(get_cigar_offset()),
             Fields::RawSequence => self.get_slice(get_seq_offset(), self.get_var_field_len(field)),
             Fields::RawQual => self.get_slice(get_qual_offset(), self.l_seq() as usize),
             Fields::RawTags => self.get_slice(get_tags_offset(), self.0.len() - get_tags_offset()),
             _ => panic!("This field is not supported: {} \n", *field as usize),
+        }
+    }
+
+    /// Extracts CIGAR from tags if it didn't fit into CIGAR field
+    fn get_cigar(&self, cigar_offset: usize) -> &[u8] {
+        let cigar_field_data =
+            self.get_slice(cigar_offset, self.get_var_field_len(&Fields::RawCigar));
+
+        let mut first_op_bytes = &cigar_field_data[..U32_SIZE];
+        let first_op = first_op_bytes.read_u32::<LittleEndian>().unwrap() as usize;
+        let mut n_cigar_bytes = self.get_bytes(&Fields::NCigar);
+        let n_cigar = n_cigar_bytes.read_u16::<LittleEndian>().unwrap() as usize;
+
+        if (first_op & 0xf) != 4
+            || (first_op >> 4) != self.get_var_field_len(&Fields::RawSequence)
+            || n_cigar != 2
+        {
+            return cigar_field_data;
+        }
+        let cigar_tag = &[b'C', b'G'];
+        match get_tag(self.get_bytes(&Fields::RawTags), cigar_tag) {
+            Some(cigar) => cigar,
+            None => cigar_field_data,
         }
     }
 }
@@ -137,4 +160,73 @@ impl DerefMut for RawRecord {
     fn deref_mut(&mut self) -> &mut [u8] {
         &mut self.0
     }
+}
+
+fn get_cig_op(val: u32) -> char {
+    match val {
+        0 => 'M',
+        1 => 'I',
+        2 => 'D',
+        3 => 'N',
+        4 => 'S',
+        5 => 'H',
+        6 => 'P',
+        7 => '=',
+        8 => 'X',
+        _ => panic!("Value <{}> is not supported.", val),
+    }
+}
+
+/// Decodes CIGAR bytes into a string
+pub fn decode_cigar(bytes: &[u8]) -> String {
+    let mut res = String::new();
+    res.reserve(3 * bytes.len());
+    for cig in bytes
+        .chunks(U32_SIZE)
+        .map(|mut slice| slice.read_u32::<LittleEndian>().unwrap())
+    {
+        let op = cig & 0xf;
+        let op_len = cig >> 4;
+        res.push_str(&op_len.to_string());
+        res.push(get_cig_op(op));
+    }
+    res
+}
+
+fn get_seq_base(val: u32) -> char {
+    match val {
+        0 => '=',
+        1 => 'A',
+        2 => 'C',
+        3 => 'M',
+        4 => 'G',
+        5 => 'R',
+        6 => 'S',
+        7 => 'V',
+        8 => 'T',
+        9 => 'W',
+        10 => 'Y',
+        11 => 'H',
+        12 => 'K',
+        13 => 'D',
+        14 => 'B',
+        15 => 'N',
+        _ => panic!("Value <{}> is not supported.", val),
+    }
+}
+
+/// Decodes sequence bytes into string
+pub fn decode_seq(bytes: &[u8]) -> String {
+    let mut res = String::new();
+    res.reserve(2 * bytes.len());
+    for byte in bytes {
+        let first = (byte >> 4) as u32;
+        let second = (byte & 0xf) as u32;
+        res.push(get_seq_base(first));
+        // TODO: Assumption that the last half will contain value or zero (it is not mandated.)
+        if second != 0 {
+            res.push(get_seq_base(second));
+        }
+    }
+    res
 }

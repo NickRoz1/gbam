@@ -17,6 +17,8 @@ pub mod meta;
 pub mod reader;
 /// BAM record module
 pub mod record;
+/// Module responsible for tags parsing
+mod tags;
 /// GBAM writer
 pub mod writer;
 
@@ -24,7 +26,8 @@ pub mod writer;
 pub use self::reader::{ParsingTemplate, Reader};
 use self::writer::Writer;
 pub use crate::bam_to_gbam::bam_to_gbam;
-pub use record::RawRecord;
+pub use record::{decode_cigar, decode_seq, RawRecord};
+use tags::get_tag;
 
 const U64_SIZE: usize = mem::size_of::<u64>();
 const U32_SIZE: usize = mem::size_of::<u32>();
@@ -37,7 +40,7 @@ static GBAM_MAGIC: &[u8] = b"geeBAM10";
 
 const FIELDS_NUM: usize = 18;
 /// Fields which contain data (not index fields).
-const DATA_FIELDS_NUM: usize = 12;
+const DATA_FIELDS_NUM: usize = 13;
 /// Types of fields contained in BAM file.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[allow(missing_docs)]
@@ -52,6 +55,7 @@ pub enum Fields {
     #[allow(clippy::upper_case_acronyms)]
     NextRefID,
     NextPos,
+    TemplateLength,
     ReadName,
     RawCigar,
     RawSequence,
@@ -61,7 +65,6 @@ pub enum Fields {
     LName,
     NCigar,
     SequenceLength,
-    TemplateLength,
     RawTagsLen, // Not in BAM spec, needed for index GBAM file
     RawSeqLen,  // Not in BAM spec, needed for index GBAM file
 }
@@ -78,6 +81,7 @@ impl Fields {
             Flags,
             NextRefID,
             NextPos,
+            TemplateLength,
             ReadName,
             RawCigar,
             RawSequence,
@@ -87,7 +91,6 @@ impl Fields {
             LName,
             NCigar,
             SequenceLength,
-            TemplateLength,
             RawSeqLen,
             RawTagsLen,
         ];
@@ -106,6 +109,7 @@ pub(crate) fn is_data_field(field: &Fields) -> bool {
             | Flags
             | NextRefID
             | NextPos
+            | TemplateLength
             | ReadName
             | RawCigar
             | RawSequence

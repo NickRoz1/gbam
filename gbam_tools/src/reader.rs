@@ -1,8 +1,8 @@
 use super::meta::{FileInfo, FileMeta, FILE_INFO_SIZE};
 use super::writer::calc_crc_for_meta_bytes;
 use super::SIZE_LIMIT;
-use crate::{field_type, var_size_field_to_index, FieldType};
-use crate::{is_data_field, Fields, DATA_FIELDS_NUM, FIELDS_NUM, U32_SIZE};
+use super::{decode_cigar, decode_seq, is_data_field, Fields, DATA_FIELDS_NUM, FIELDS_NUM};
+use super::{field_type, var_size_field_to_index, FieldType};
 use byteorder::{LittleEndian, ReadBytesExt};
 use pyo3::prelude::*;
 use std::io::{Read, Seek, SeekFrom};
@@ -28,19 +28,22 @@ pub struct GbamRecord {
     pub flag: Option<u16>,
     /// Ref-ID of the next segment
     #[pyo3(get)]
-    pub next_ref_id: Option<u32>,
+    pub next_ref_id: Option<i32>,
     /// 0-based leftmost pos of the next segmen
     #[pyo3(get)]
-    pub next_pos: Option<u32>,
+    pub next_pos: Option<i32>,
+    /// Template length
+    #[pyo3(get)]
+    pub tlen: Option<i32>,
     /// Read name
     #[pyo3(get)]
     pub read_name: Option<Vec<u8>>,
     /// CIGAR
     #[pyo3(get)]
-    pub cigar: Option<Vec<u32>>,
+    pub cigar: Option<String>,
     /// 4-bit  encoded  read
     #[pyo3(get)]
-    pub seq: Option<Vec<u8>>,
+    pub seq: Option<String>,
     /// Phred-scaled base qualities.
     #[pyo3(get)]
     pub qual: Option<Vec<u8>>,
@@ -48,7 +51,8 @@ pub struct GbamRecord {
     #[pyo3(get)]
     pub tags: Option<Vec<u8>>,
 }
-
+// TODO :: ADD TEMPLATE LENGTHS TO GBAM RECORD
+// TODO :: REMOVE CG TAG FROM ORIGINAL FILE
 impl GbamRecord {
     pub(crate) fn parse_from_bytes(&mut self, field: &Fields, mut bytes: &[u8]) {
         match field {
@@ -57,18 +61,20 @@ impl GbamRecord {
             Fields::Mapq => self.mapq = Some(bytes[0].to_owned()),
             Fields::Bin => self.bin = Some(bytes.read_u16::<LittleEndian>().unwrap()),
             Fields::Flags => self.flag = Some(bytes.read_u16::<LittleEndian>().unwrap()),
-            Fields::NextRefID => self.next_ref_id = Some(bytes.read_u32::<LittleEndian>().unwrap()),
-            Fields::NextPos => self.next_pos = Some(bytes.read_u32::<LittleEndian>().unwrap()),
+            Fields::NextRefID => self.next_ref_id = Some(bytes.read_i32::<LittleEndian>().unwrap()),
+            Fields::NextPos => self.next_pos = Some(bytes.read_i32::<LittleEndian>().unwrap()),
+            Fields::TemplateLength => self.tlen = Some(bytes.read_i32::<LittleEndian>().unwrap()),
             Fields::ReadName => self.read_name = Some(bytes.to_vec()),
             Fields::RawCigar => {
-                self.cigar = Some(
-                    bytes
-                        .chunks(U32_SIZE)
-                        .map(|mut slice| slice.read_u32::<LittleEndian>().unwrap())
-                        .collect(),
-                )
+                // self.cigar = Some(
+                //     bytes
+                //         .chunks(U32_SIZE)
+                //         .map(|mut slice| slice.read_u32::<LittleEndian>().unwrap())
+                //         .collect(),
+                // )
+                self.cigar = Some(decode_cigar(bytes))
             }
-            Fields::RawSequence => self.seq = Some(bytes.to_vec()),
+            Fields::RawSequence => self.seq = Some(decode_seq(bytes)),
             Fields::RawQual => self.qual = Some(bytes.to_vec()),
             Fields::RawTags => self.tags = Some(bytes.to_vec()),
             _ => panic!("Not yet covered type: {}", field.to_string()),
@@ -86,6 +92,7 @@ impl Default for GbamRecord {
             flag: None,
             next_ref_id: None,
             next_pos: None,
+            tlen: None,
             read_name: None,
             cigar: None,
             seq: None,
