@@ -1,9 +1,11 @@
-use super::meta::{FileInfo, FileMeta, FILE_INFO_SIZE};
+use super::meta::{Codecs, FileInfo, FileMeta, FILE_INFO_SIZE};
 use super::writer::calc_crc_for_meta_bytes;
 use super::SIZE_LIMIT;
 use super::{decode_cigar, decode_seq, is_data_field, Fields, DATA_FIELDS_NUM, FIELDS_NUM};
 use super::{field_type, var_size_field_to_index, FieldType};
 use byteorder::{LittleEndian, ReadBytesExt};
+use flate2::write::GzDecoder;
+use lz4::Decoder;
 use pyo3::prelude::*;
 use std::io::{Read, Seek, SeekFrom};
 
@@ -127,6 +129,8 @@ pub struct Reader {
     file_meta: FileMeta,
     parsing_template: ParsingTemplate,
     buffers: Vec<Vec<u8>>,
+    // Decompression buffer to avoid allocations
+    decompr_buf: Vec<u8>,
     /// Current active record
     pub cur_record: GbamRecord,
     cur_num: u64,
@@ -258,6 +262,7 @@ impl Reader {
             file_meta,
             parsing_template: parsing_tmplt,
             buffers: (0..FIELDS_NUM).map(|_| vec![0; SIZE_LIMIT]).collect(),
+            decompr_buf: Vec::<u8>::new(),
             cur_record: GbamRecord::default(),
             cur_num: 0,
             cur_block: vec![-1; FIELDS_NUM], // to preload first blocks
@@ -272,16 +277,7 @@ impl Reader {
 
     fn load_next_block(&mut self, field: &Fields) {
         let next_block_num = self.cur_block[*field as usize] + 1;
-        let block_size = match field_type(field) {
-            FieldType::VariableSized => {
-                self.file_meta.get_blocks_sizes(field)[next_block_num as usize]
-            }
-            FieldType::FixedSized => {
-                let item_size = self.file_meta.get_field_size(field).unwrap();
-                let next_block_meta = &self.file_meta.get_blocks(field)[next_block_num as usize];
-                next_block_meta.numitems * item_size
-            }
-        };
+        let block_size = self.file_meta.get_blocks_sizes(field)[next_block_num as usize];
 
         let seekpos = self.file_meta.get_blocks(field)[next_block_num as usize].seekpos;
         self.load_data(seekpos, field, block_size).unwrap();
@@ -293,9 +289,29 @@ impl Reader {
 
     fn load_data(&mut self, seekpos: u64, field: &Fields, block_size: u32) -> std::io::Result<()> {
         self.inner.seek(SeekFrom::Start(seekpos))?;
-        let buf = &mut self.buffers[*field as usize];
-        buf.resize(block_size as usize, 0);
-        self.inner.read_exact(buf)?;
+        self.decompr_buf.resize(block_size as usize, 0);
+        self.inner.read_exact(&mut self.decompr_buf)?;
+        Self::decompress_block(
+            &self.decompr_buf,
+            &mut self.buffers[*field as usize],
+            self.file_meta.get_field_codec(field),
+        )?;
+        Ok(())
+    }
+
+    fn decompress_block(source: &[u8], mut dest: &mut [u8], codec: &Codecs) -> std::io::Result<()> {
+        use std::io::Write;
+        match codec {
+            Codecs::Gzip => {
+                let mut decoder = GzDecoder::new(dest);
+                decoder.write_all(source)?;
+                decoder.try_finish()?;
+            }
+            Codecs::Lz4 => {
+                let mut decoder = Decoder::new(source)?;
+                std::io::copy(&mut decoder, &mut dest)?;
+            }
+        };
         Ok(())
     }
 

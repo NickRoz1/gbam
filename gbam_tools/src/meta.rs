@@ -1,6 +1,5 @@
 use super::GBAM_MAGIC;
-use super::SIZE_LIMIT;
-use crate::{field_item_size, field_type, FieldType, Fields, U32_SIZE, U64_SIZE};
+use crate::{field_item_size, Fields, U32_SIZE, U64_SIZE};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use serde::ser::{SerializeMap, Serializer};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -75,7 +74,7 @@ impl Into<Vec<u8>> for FileInfo {
 }
 
 /// Type of encoding used in GBAM writer
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub enum Codecs {
     /// Gzip encoding
     Gzip,
@@ -90,29 +89,21 @@ pub(crate) struct BlockMeta {
 
 #[derive(Serialize, Deserialize)]
 struct FieldMeta {
-    item_size: Option<u32>,         // NONE for variable sized fields
-    block_size: Option<u32>,        // NONE for variable sized fields
-    blocks_sizes: Option<Vec<u32>>, // NONE for fixed sized fields
-    codecs: Codecs,
+    item_size: Option<u32>, // NONE for variable sized fields
+    blocks_sizes: Vec<u32>, // NONE for fixed sized fields
+    codec: Codecs,
     blocks: Vec<BlockMeta>,
 }
 
 impl FieldMeta {
-    pub fn new(field: &Fields) -> Self {
+    pub fn new(field: &Fields, codec: Codecs) -> Self {
         FieldMeta {
             item_size: match field_item_size(field) {
                 Some(v) => Some(v as u32), // TODO.
                 None => None,
             },
-            block_size: match field_type(field) {
-                FieldType::FixedSized => Some(SIZE_LIMIT as u32),
-                FieldType::VariableSized => None,
-            },
-            blocks_sizes: match field_type(field) {
-                FieldType::FixedSized => None,
-                FieldType::VariableSized => Some(Vec::<u32>::new()),
-            },
-            codecs: Codecs::Gzip,
+            blocks_sizes: Vec::<u32>::new(),
+            codec,
             blocks: Vec::<BlockMeta>::new(),
         }
     }
@@ -185,10 +176,10 @@ impl<'de> Deserialize<'de> for FieldMetaMap {
 }
 
 impl FileMeta {
-    pub fn new() -> Self {
+    pub fn new(codec: Codecs) -> Self {
         let mut map = HashMap::<Fields, FieldMeta>::new();
         for field in Fields::iterator() {
-            map.insert(*field, FieldMeta::new(field));
+            map.insert(*field, FieldMeta::new(field, codec.clone()));
         }
         FileMeta { field_to_meta: map }
     }
@@ -207,13 +198,15 @@ impl FileMeta {
         &self.field_to_meta[field].item_size
     }
 
+    pub fn get_field_codec(&self, field: &Fields) -> &Codecs {
+        &self.field_to_meta[field].codec
+    }
     pub fn get_blocks_sizes(&mut self, field: &Fields) -> &mut Vec<u32> {
         self.field_to_meta
             .get_mut(field)
             .unwrap()
             .blocks_sizes
             .as_mut()
-            .unwrap()
     }
 
     pub fn push_block_size(&mut self, field: &Fields, size: usize) {
@@ -221,8 +214,6 @@ impl FileMeta {
             .get_mut(field)
             .unwrap()
             .blocks_sizes
-            .as_mut()
-            .unwrap()
             .push(size as u32);
     }
 }

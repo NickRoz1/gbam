@@ -25,9 +25,9 @@ class Fields(IntEnum):
 
 FIELDS_NUM = 13
 
-def convert(bam_path, gbam_path):
+def convert(bam_path, gbam_path, compression = 'gzip'):
     from gbam_tools import bam_to_gbam_python
-    bam_to_gbam_python(bam_path, gbam_path)
+    bam_to_gbam_python(bam_path, gbam_path, compression)
     print("Conversion completed.")
 
 
@@ -41,14 +41,15 @@ def test(args):
     input_path = args.input_path
 
     output_file = NamedTemporaryFile()
-    convert(input_path, output_file.name)
+    convert(input_path, output_file.name, 'lz4')
+    output_file_name = output_file.name
 
     # test_combinations = 0
 
     # for field_to_omit in list(map(int, Fields)):
-    # bam_path = "../test_data/1.bam"
-    # gbam_path = "../test_data/res.gbam"
-    check_if_equal(input_path, output_file.name)
+    # input_path = "../test_data/1.bam"
+    # output_file_name = "../test_data/res.gbam"
+    check_if_equal(input_path, output_file_name)
 
     print("Tests passed.")
 
@@ -138,7 +139,8 @@ if __name__ == "__main__":
                                 type=lambda x: is_valid_file(parser_convert, x), required=True)
     parser_convert.add_argument(
         "-o", "--output_file", type=str, help="GBAM file name to write out.", required=True)
-
+    parser_convert.add_argument(
+        "--lz4", action='store_true', help="Use lz4 for compression")
     # parser_read = subparsers.add_parser('read', help='Read GBAM file.')
     # parser_read.add_argument("-i", "--input_path", help="GBAM file to read.", dest="input_path",
     #                          type=lambda x: is_valid_file(parser_convert, x), required=True)
@@ -156,7 +158,10 @@ if __name__ == "__main__":
     args = parser.parse_args(sys.argv[1:])
 
     if args.command == 'conv':
-        convert(args.input_path, args.output_file)
+        compression = 'gzip'
+        if args.lz4:
+            compression = 'lz4'
+        convert(args.input_path, args.output_file, compression)
     # elif args.command == 'read':
     #     args = parser_read.parse_args(sys.argv[1:])
     #     read(args)

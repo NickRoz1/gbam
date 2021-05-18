@@ -26,6 +26,7 @@ pub mod writer;
 pub use self::reader::{ParsingTemplate, Reader};
 use self::writer::Writer;
 pub use crate::bam_to_gbam::bam_to_gbam;
+pub use meta::Codecs;
 pub use record::{decode_cigar, decode_seq, RawRecord};
 use tags::get_tag;
 
@@ -200,8 +201,13 @@ use pyo3::wrap_pyfunction;
 
 /// Workaround, since it seems wrap_pyfunction cant access another module namespace.
 #[pyfunction]
-pub fn bam_to_gbam_python(in_path: String, out_path: String) {
-    bam_to_gbam(in_path, out_path);
+pub fn bam_to_gbam_python(in_path: String, out_path: String, codec_str: String) {
+    let codec = match &codec_str[..] {
+        "gzip" => Codecs::Gzip,
+        "lz4" => Codecs::Lz4,
+        _ => panic!("Codec <{}> is not supported.", codec_str),
+    };
+    bam_to_gbam(in_path, out_path, codec);
 }
 
 #[pymodule]
