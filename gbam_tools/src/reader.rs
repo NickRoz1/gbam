@@ -1,58 +1,62 @@
 use super::meta::{Codecs, FileInfo, FileMeta, FILE_INFO_SIZE};
 use super::writer::calc_crc_for_meta_bytes;
+#[cfg(feature = "python-ffi")]
+use super::DATA_FIELDS_NUM;
 use super::SIZE_LIMIT;
-use super::{decode_cigar, decode_seq, is_data_field, Fields, DATA_FIELDS_NUM, FIELDS_NUM};
+use super::{decode_cigar, decode_seq, is_data_field, Fields, FIELDS_NUM};
 use super::{field_type, var_size_field_to_index, FieldType};
 use byteorder::{LittleEndian, ReadBytesExt};
 use flate2::write::GzDecoder;
 use lz4::Decoder;
+#[cfg(feature = "python-ffi")]
 use pyo3::prelude::*;
 use std::io::{Read, Seek, SeekFrom};
 
-#[pyclass]
+#[cfg_attr(feature = "python-ffi", pyclass)]
 #[derive(Clone, Debug)]
 /// Represents a GBAM record in which some fields may be omitted.
 pub struct GbamRecord {
     /// Reference sequence ID
-    #[pyo3(get)]
+    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub refid: Option<u32>,
     /// 0-based leftmost coordinate
-    #[pyo3(get)]
+    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub pos: Option<u32>,
     /// Mapping quality
-    #[pyo3(get)]
+    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub mapq: Option<u8>,
     /// BAI index bin,
-    #[pyo3(get)]
+    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub bin: Option<u16>,
     /// Bitwise flags
-    #[pyo3(get)]
+    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub flag: Option<u16>,
     /// Ref-ID of the next segment
-    #[pyo3(get)]
+    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub next_ref_id: Option<i32>,
     /// 0-based leftmost pos of the next segmen
-    #[pyo3(get)]
+    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub next_pos: Option<i32>,
     /// Template length
-    #[pyo3(get)]
+    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub tlen: Option<i32>,
     /// Read name
-    #[pyo3(get)]
+    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub read_name: Option<Vec<u8>>,
     /// CIGAR
-    #[pyo3(get)]
+    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub cigar: Option<String>,
     /// 4-bit  encoded  read
-    #[pyo3(get)]
+    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub seq: Option<String>,
     /// Phred-scaled base qualities.
-    #[pyo3(get)]
+    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub qual: Option<Vec<u8>>,
     /// List of auxiliary data
-    #[pyo3(get)]
+    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub tags: Option<Vec<u8>>,
 }
+
 // TODO :: ADD TEMPLATE LENGTHS TO GBAM RECORD
 // TODO :: REMOVE CG TAG FROM ORIGINAL FILE
 impl GbamRecord {
@@ -110,7 +114,7 @@ impl std::fmt::Display for GbamRecord {
     }
 }
 
-#[pymethods]
+#[cfg_attr(feature = "python-ffi", pymethods)]
 impl GbamRecord {
     /// Convert GBAM structure to string representation
     pub fn to_str(&self) -> String {
@@ -122,7 +126,7 @@ impl GbamRecord {
 pub trait ReadSeekSend: Read + Seek + Send {}
 
 impl<T> ReadSeekSend for T where T: Read + Seek + Send {}
-#[pyclass]
+#[cfg_attr(feature = "python-ffi", pyclass)]
 /// Reader for GBAM file format
 pub struct Reader {
     inner: Box<dyn ReadSeekSend>, // Box is necessary to use with PyO3 -  no generic parameters are allowed!
@@ -140,7 +144,7 @@ pub struct Reader {
     loaded_records_num: Vec<u64>,
 }
 
-#[pyclass]
+#[cfg_attr(feature = "python-ffi", pyclass)]
 #[derive(Clone, Debug)]
 /// This struct regulates what fields are getting parsed from GBAM file.
 pub struct ParsingTemplate {
@@ -221,6 +225,7 @@ impl Default for ParsingTemplate {
     }
 }
 
+#[cfg(feature = "python-ffi")]
 #[pymethods]
 impl ParsingTemplate {
     #[new]
@@ -273,6 +278,16 @@ impl Reader {
             reader.load_next_block(field);
         }
         Ok(reader)
+    }
+
+    /// Create new reader for file at path
+    pub fn new_for_file(path: &str, tmplt: ParsingTemplate) -> Self {
+        use std::fs::File;
+        use std::io::BufReader;
+
+        let file = File::open(path).unwrap();
+        let reader = BufReader::new(file);
+        Self::new(Box::new(reader), tmplt).unwrap()
     }
 
     fn load_next_block(&mut self, field: &Fields) {
@@ -432,7 +447,7 @@ impl Reader {
 }
 
 // // Methods to be called from Python.
-#[pymethods]
+#[cfg(feature = "python-ffi")]
 impl Reader {
     #[allow(clippy::unnecessary_wraps)]
     fn next_record(&mut self) -> PyResult<Option<GbamRecord>> {
@@ -440,14 +455,8 @@ impl Reader {
         Ok(next)
     }
 
-    #[new]
     /// Create new reader for file at path
-    pub fn new_for_file(path: &str, tmplt: ParsingTemplate) -> Self {
-        use std::fs::File;
-        use std::io::BufReader;
-
-        let file = File::open(path).unwrap();
-        let reader = BufReader::new(file);
-        Self::new(Box::new(reader), tmplt).unwrap()
+    pub fn new_reader(path: &str, tmplt: ParsingTemplate) -> Self {
+        Self::new_for_file(path, tmplt)
     }
 }

@@ -4,3 +4,7 @@ members = [
     "gbam_tools",
     "gbam_binary",
 ]
+
+
+[profile.release]
+debug = true

@@ -41,6 +41,7 @@ static GBAM_MAGIC: &[u8] = b"geeBAM10";
 
 const FIELDS_NUM: usize = 18;
 /// Fields which contain data (not index fields).
+#[allow(dead_code)]
 const DATA_FIELDS_NUM: usize = 13;
 /// Types of fields contained in BAM file.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -195,27 +196,33 @@ fn var_size_field_to_index(field: &Fields) -> Fields {
         _ => panic!("Unreachable"),
     }
 }
+#[cfg(feature = "python-ffi")]
+mod ffi {
+    use crate::bam_to_gbam;
+    use crate::reader;
+    use crate::Codecs;
 
-use pyo3::prelude::*;
-use pyo3::wrap_pyfunction;
+    use pyo3::prelude::*;
+    use pyo3::wrap_pyfunction;
 
-/// Workaround, since it seems wrap_pyfunction cant access another module namespace.
-#[pyfunction]
-pub fn bam_to_gbam_python(in_path: String, out_path: String, codec_str: String) {
-    let codec = match &codec_str[..] {
-        "gzip" => Codecs::Gzip,
-        "lz4" => Codecs::Lz4,
-        _ => panic!("Codec <{}> is not supported.", codec_str),
-    };
-    bam_to_gbam(in_path, out_path, codec);
-}
+    /// Workaround, since it seems wrap_pyfunction cant access another module namespace.
+    #[pyfunction]
+    pub fn bam_to_gbam_python(in_path: String, out_path: String, codec_str: String) {
+        let codec = match &codec_str[..] {
+            "gzip" => Codecs::Gzip,
+            "lz4" => Codecs::Lz4,
+            _ => panic!("Codec <{}> is not supported.", codec_str),
+        };
+        bam_to_gbam(&in_path, &out_path, codec);
+    }
 
-#[pymodule]
-fn gbam_tools(_: Python, m: &PyModule) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(bam_to_gbam_python, m)?)
-        .unwrap();
-    m.add_class::<reader::Reader>()?;
-    m.add_class::<reader::ParsingTemplate>()?;
-    m.add_class::<reader::GbamRecord>()?;
-    Ok(())
+    #[pymodule]
+    fn gbam_tools(_: Python, m: &PyModule) -> PyResult<()> {
+        m.add_function(wrap_pyfunction!(bam_to_gbam_python, m)?)
+            .unwrap();
+        m.add_class::<reader::Reader>()?;
+        m.add_class::<reader::ParsingTemplate>()?;
+        m.add_class::<reader::GbamRecord>()?;
+        Ok(())
+    }
 }

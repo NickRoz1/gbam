@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::Read;
 
 /// Converts BAM file to GBAM file
-pub fn bam_to_gbam(in_path: String, out_path: String, codec: Codecs) {
+pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
     // println!(
     //     "PYTHON FFI IS WORKING. INPUT PARAMETERS1 ARE: {} | {}",
     //     in_path, out_path

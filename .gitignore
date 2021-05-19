@@ -1,2 +1,3 @@
 /target
 /gbam_tools/env
+/gbam_tools/gbam_tools/*.so

@@ -1,22 +1,49 @@
 // use gbam_tools::bam_to_gbam;
-use gbam_tools::{Fields, ParsingTemplate, Reader};
-// use structopt::StructOpt;
+use gbam_tools::{bam_to_gbam, Codecs, Fields, ParsingTemplate, Reader};
+use std::path::PathBuf;
+use std::time::Instant;
+use structopt::StructOpt;
 
-// #[derive(StructOpt)]
-// struct Cli {
-//     /// The path to the BAM file to read
-//     in_path: String,
-// }
+#[derive(StructOpt)]
+struct Cli {
+    /// Determines whether conversion is requested
+    #[structopt(short, long)]
+    convert: bool,
+    /// Perform the test
+    #[structopt(short, long)]
+    test: bool,
+    /// The path to the BAM file to read
+    #[structopt(parse(from_os_str))]
+    in_path: PathBuf,
+    /// The path to write output GBAM file
+    #[structopt(parse(from_os_str))]
+    out_path: Option<PathBuf>,
+}
 
 fn main() {
-    // let args = Cli::from_args();
-    // bam_to_gbam(args.in_path, args.out_path);
-    let path = "1.bam";
-    let mut tmplt = ParsingTemplate::new();
-    tmplt.set(&Fields::RawSequence, true);
-    let mut reader = Reader::new_for_file(path, tmplt);
-    while let Some(rec) = reader.next_rec() {
-        println!("{:?}", rec);
+    let args = Cli::from_args();
+    if args.convert {
+        bam_to_gbam(
+            args.in_path.as_path().to_str().unwrap(),
+            args.out_path
+                .expect("Output path is mandatory for this operation.")
+                .as_path()
+                .to_str()
+                .unwrap(),
+            Codecs::Lz4,
+        );
+    } else if args.test {
+        let mut tmplt = ParsingTemplate::new();
+        tmplt.set(&Fields::Pos, true);
+        tmplt.set(&Fields::RawCigar, true);
+        let mut reader = Reader::new_for_file(args.in_path.as_path().to_str().unwrap(), tmplt);
+        let now = Instant::now();
+        #[allow(unused_variables)]
+        while let Some(rec) = reader.next_rec() {}
+        println!(
+            "GBAM. Time elapsed querying POS and RAWCIGAR field throughout whole file: {}ms",
+            now.elapsed().as_millis()
+        );
     }
 }
 
