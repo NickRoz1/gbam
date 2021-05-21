@@ -36,6 +36,7 @@ const U16_SIZE: usize = mem::size_of::<u16>();
 const U8_SIZE: usize = mem::size_of::<u8>();
 const MEGA_BYTE_SIZE: usize = 1_048_576;
 
+/// 16777216 bytes
 const SIZE_LIMIT: usize = 16 * MEGA_BYTE_SIZE;
 static GBAM_MAGIC: &[u8] = b"geeBAM10";
 

@@ -142,6 +142,12 @@ pub struct Reader {
     /// How many record have been loaded in memory already for each block. It's
     /// needed since the blocks sizes may be different.
     loaded_records_num: Vec<u64>,
+    /// When parsing variable sized record, two indexes are needed. However, the
+    /// indexes are splitted two, creating a situation when the previous index
+    /// was already flushed with it's block, but it's required required to parse
+    /// a variable sized field. To avoid that, last index field of each block is
+    /// saved.
+    prev_block_last_idx: Option<u32>,
 }
 
 #[cfg_attr(feature = "python-ffi", pyclass)]
@@ -239,6 +245,7 @@ impl ParsingTemplate {
         tmplt
     }
 }
+
 // Methods to be called from Rust.
 impl Reader {
     /// Create new reader
@@ -272,6 +279,7 @@ impl Reader {
             cur_num: 0,
             cur_block: vec![-1; FIELDS_NUM], // to preload first blocks
             loaded_records_num: vec![0; FIELDS_NUM],
+            prev_block_last_idx: None,
         };
 
         for field in reader.parsing_template.get_active_fields().iter() {
@@ -340,7 +348,12 @@ impl Reader {
                 } else {
                     let idx_field = &var_size_field_to_index(field);
                     let idx_field_rec_num = self.calc_rec_num_in_block(idx_field);
-                    self.get_idx_val(idx_field, idx_field_rec_num - 1) as u32
+                    if idx_field_rec_num == 0 {
+                        // We are on the split of blocks
+                        self.prev_block_last_idx.unwrap()
+                    } else {
+                        self.get_idx_val(idx_field, idx_field_rec_num - 1) as u32
+                    }
                 }
             }
             FieldType::FixedSized => {
@@ -371,7 +384,7 @@ impl Reader {
     fn get_idx_val(&self, field: &Fields, rec_num_in_block: u64) -> u32 {
         if is_data_field(field) {
             panic!("Only index fields allowed!")
-        }
+        };
         self.get_idx_field_bytes_for_rec(field, rec_num_in_block)
             .read_u32::<LittleEndian>()
             .unwrap()
@@ -406,15 +419,20 @@ impl Reader {
                 if rec_num_in_block == 0 {
                     self.get_idx_val(&idx_field, cur_idx_rec_num) as usize
                 } else {
-                    let item_size = self.get_idx_val(&idx_field, cur_idx_rec_num)
-                        - self.get_idx_val(&idx_field, cur_idx_rec_num - 1);
+                    let cur_end = self.get_idx_val(&idx_field, cur_idx_rec_num);
+                    let prev_end = match cur_idx_rec_num {
+                        // We are at the block split
+                        0 => self.prev_block_last_idx.unwrap(),
+                        _ => self.get_idx_val(&idx_field, cur_idx_rec_num - 1),
+                    };
+                    let item_size = cur_end - prev_end;
                     item_size as usize
                 }
             }
             FieldType::FixedSized => self.file_meta.get_field_size(field).unwrap() as usize,
         }
     }
-    fn block_exhausted(&self, field: &Fields) -> bool {
+    fn block_exhausted(&mut self, field: &Fields) -> bool {
         self.cur_num == self.loaded_records_num[*field as usize]
     }
 
@@ -426,6 +444,12 @@ impl Reader {
                 if (cur_block_num + 1) as usize == self.file_meta.get_blocks(&field).len() {
                     // No more records of this type in input
                     return None;
+                }
+                // Save last index for next calculations.
+                if is_data_field(&field) == false {
+                    // It's exhausted, so last rec num would be current - 1.
+                    let last_idx = self.calc_rec_num_in_block(&field) - 1;
+                    self.prev_block_last_idx = Some(self.get_idx_val(&field, last_idx));
                 }
                 self.load_next_block(&field);
             }
