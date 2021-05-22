@@ -24,3 +24,14 @@ python3 test_python_ffi.py conv -i test_data/input.bam -o test_data/output.gbam
 ```shell
 python3 test_python_ffi.py test -i test_data/input.bam
 ```
+
+# Development
+
+## virtualenv
+
+maturin can use python's virtualenv. See above instructions.
+
+## GNU Guix
+
+GNU Guix provides a full environment for development.  See
+[.guix-build](./.guix-build)
