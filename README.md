@@ -9,10 +9,21 @@ This package includes tools for creating and manipulating GBAM files. GBAM is a 
 ```shell
 git clone https://github.com/NickRoz1/gbam
 cd gbam
-cd gbam_bin
+cd gbam_binary
 cargo build
 cargo test
+../target/debug/gbam_binary --help
 ```
+
+You may need to set the C compiler with
+
+```shell
+env CC=gcc cargo build
+```
+
+To build the `libgbam_tools.so` library you can run cargo in the
+`gbam_tools` directory.
+
 
 ## With Python tools
 
