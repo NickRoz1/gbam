@@ -4,6 +4,18 @@ This package includes tools for creating and manipulating GBAM files. GBAM is a 
 
 # Installation
 
+## Install binary
+
+```shell
+git clone https://github.com/NickRoz1/gbam
+cd gbam
+cd gbam_bin
+cargo build
+cargo test
+```
+
+## With Python tools
+
 ```shell
 git clone https://github.com/NickRoz1/gbam
 cd gbam
@@ -29,7 +41,7 @@ python3 test_python_ffi.py test -i test_data/input.bam
 
 ## virtualenv
 
-maturin can use python's virtualenv. See above instructions.
+maturin can use python's virtualenv. See above instructions for Python install.
 
 ## GNU Guix
 
