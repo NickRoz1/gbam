@@ -1,5 +1,5 @@
 //! This crate contains tools for interacting with GBAM file format.
-#![deny(missing_docs)]
+#![allow(missing_docs)]
 
 use self::Fields::*;
 
@@ -9,26 +9,29 @@ use std::slice::Iter;
 
 use serde::{Deserialize, Serialize};
 
-/// BAM to GBAM converter
-pub mod bam_to_gbam;
+pub mod bam {
+  /// BAM to GBAM converter
+  pub mod bam_to_gbam;
+  /// BAM (raw) record module
+  pub mod bamrawrecord;
+}
+
 /// Meta information for GBAM file
 pub mod meta;
-/// GBAM reader
-pub mod reader;
-/// BAM record module
-pub mod record;
 /// Module responsible for tags parsing
 mod tags;
 /// GBAM writer
 pub mod writer;
+/// GBAM reader
+pub mod reader;
 
 // use self::writer::Writer;
 pub use self::reader::{ParsingTemplate, Reader};
 use self::writer::Writer;
-pub use crate::bam_to_gbam::bam_to_gbam;
+pub use crate::bam::bam_to_gbam::bam_to_gbam;
 pub use meta::Codecs;
-pub use record::{decode_cigar, decode_seq, RawRecord};
-use tags::get_tag;
+pub use crate::bam::bamrawrecord::{decode_cigar, decode_seq, BAMRawRecord};
+// use tags::get_tag;
 
 const U64_SIZE: usize = mem::size_of::<u64>();
 const U32_SIZE: usize = mem::size_of::<u32>();

@@ -1,4 +1,4 @@
-use crate::{Codecs, RawRecord, Writer};
+use crate::{Codecs, BAMRawRecord, Writer};
 use bam_parallel::ParallelReader;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::fs::File;
@@ -21,8 +21,8 @@ pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
     let mut reader = ParallelReader::new(buf_reader, 10);
     let mut writer = Writer::new(buf_writer, codec);
 
-    /// Check for BAM magic number
-    let mut buf = RawRecord::from(Vec::<u8>::new());
+    // Check for BAM magic number
+    let mut buf = BAMRawRecord::from(Vec::<u8>::new());
 
     let mut magic = [0; 4];
     reader.read_exact(&mut magic).expect("Failed to read.");
@@ -57,7 +57,7 @@ pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
             return;
         }
 
-        /// Fetch the BAM read and push to the GBAM writer
+        // Fetch the BAM read and push to the GBAM writer
         buf.resize(block_size);
         reader.read_exact(&mut buf).expect("FAILED TO READ.");
         // write!(writer, "{:?}", buf).expect("Output failed");
