@@ -14,12 +14,12 @@ pub mod bam {
   pub mod bam_to_gbam;
   /// BAM (raw) record module
   pub mod bamrawrecord;
+  /// Module responsible for tags parsing
+  mod tags;
 }
 
 /// Meta information for GBAM file
 pub mod meta;
-/// Module responsible for tags parsing
-mod tags;
 /// GBAM writer
 pub mod writer;
 /// GBAM reader

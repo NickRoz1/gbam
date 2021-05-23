@@ -1,4 +1,4 @@
-use crate::{tags::get_tag, Fields, U16_SIZE, U32_SIZE, U8_SIZE};
+use crate::{bam::tags::get_tag, Fields, U16_SIZE, U32_SIZE, U8_SIZE};
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use std::ops::{Deref, DerefMut};
 

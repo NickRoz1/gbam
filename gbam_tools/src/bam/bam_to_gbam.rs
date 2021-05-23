@@ -21,7 +21,7 @@ pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
     let mut reader = ParallelReader::new(buf_reader, 10);
     let mut writer = Writer::new(buf_writer, codec);
 
-    // Check for BAM magic number
+    // Check for BAM magic header
     let mut buf = BAMRawRecord::from(Vec::<u8>::new());
 
     let mut magic = [0; 4];
