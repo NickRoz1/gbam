@@ -2,11 +2,11 @@ use super::{get_tag, Fields, U16_SIZE, U32_SIZE, U8_SIZE};
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use std::ops::{Deref, DerefMut};
 
-/// Provides convenient access to record bytes
+/// Provides convenient access to BAM-style raw read (record bytes)
 #[derive(Clone, Eq, PartialEq, Debug)]
-pub struct RawRecord(pub Vec<u8>);
+pub struct BAMRawRecord(pub Vec<u8>);
 
-impl RawRecord {
+impl BAMRawRecord {
     /// Change size of record
     pub fn resize(&mut self, new_len: usize) {
         self.0.resize(new_len, Default::default());
@@ -122,14 +122,14 @@ impl RawRecord {
     }
 }
 
-impl From<Vec<u8>> for RawRecord {
+impl From<Vec<u8>> for BAMRawRecord {
     fn from(bytes: Vec<u8>) -> Self {
         Self(bytes)
     }
 }
 
 // Source: https://github.com/zaeleus/noodles/blob/316ec6f42960e4540bb2acc45b5653fb00b9970c/noodles-bam/src/record.rs#L324
-impl Default for RawRecord {
+impl Default for BAMRawRecord {
     fn default() -> Self {
         Self::from(vec![
             0xff, 0xff, 0xff, 0xff, // ref_id = -1
@@ -148,7 +148,7 @@ impl Default for RawRecord {
     }
 }
 
-impl Deref for RawRecord {
+impl Deref for BAMRawRecord {
     type Target = [u8];
 
     fn deref(&self) -> &[u8] {
@@ -156,7 +156,7 @@ impl Deref for RawRecord {
     }
 }
 
-impl DerefMut for RawRecord {
+impl DerefMut for BAMRawRecord {
     fn deref_mut(&mut self) -> &mut [u8] {
         &mut self.0
     }
