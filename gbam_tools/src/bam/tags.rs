@@ -1,6 +1,6 @@
 // https://github.com/pezmaster31/bamtools/blob/2391b1a1275816ad89c624586fa02b1a621924f5/src/api/internal/bam/BamReader_p.cpp
 
-use super::{U16_SIZE, U32_SIZE, U8_SIZE};
+use crate::{U16_SIZE, U32_SIZE, U8_SIZE};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 enum TagType {

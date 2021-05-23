@@ -1,7 +1,7 @@
 use super::meta::{BlockMeta, Codecs, FileInfo, FileMeta, FILE_INFO_SIZE};
 use super::SIZE_LIMIT;
 use crate::{
-    field_type, is_data_field, var_size_field_to_index, FieldType, Fields, RawRecord, FIELDS_NUM,
+    field_type, is_data_field, var_size_field_to_index, FieldType, Fields, BAMRawRecord, FIELDS_NUM,
     U32_SIZE,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
@@ -54,7 +54,7 @@ where
         }
     }
     /// Push BAM record into this writer
-    pub fn push_record(&mut self, record: &RawRecord) {
+    pub fn push_record(&mut self, record: &BAMRawRecord) {
         let mut index_fields_buf: [u8; U32_SIZE] = [0; U32_SIZE];
         // Index fields are not written on their own. They hold index data for variable sized fields.
         for field in Fields::iterator().filter(|f| is_data_field(*f)) {
@@ -192,7 +192,7 @@ mod tests {
     use std::io::Cursor;
     #[test]
     fn test_writer() {
-        let raw_records = vec![RawRecord::default(); 2];
+        let raw_records = vec![BAMRawRecord::default(); 2];
         let mut buf: Vec<u8> = vec![0; SIZE_LIMIT];
         let out = Cursor::new(&mut buf[..]);
         let mut writer = Writer::new(out, Codecs::Gzip);

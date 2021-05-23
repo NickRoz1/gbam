@@ -1,10 +1,11 @@
-use crate::{Codecs, RawRecord, Writer};
+use crate::{Codecs, BAMRawRecord, Writer};
 use bam_parallel::ParallelReader;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::fs::File;
 use std::io::Read;
 
-/// Converts BAM file to GBAM file
+/// Converts BAM file to GBAM file. This uses the `bam_parallel`
+/// reader.
 pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
     // println!(
     //     "PYTHON FFI IS WORKING. INPUT PARAMETERS1 ARE: {} | {}",
@@ -20,7 +21,8 @@ pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
     let mut reader = ParallelReader::new(buf_reader, 10);
     let mut writer = Writer::new(buf_writer, codec);
 
-    let mut buf = RawRecord::from(Vec::<u8>::new());
+    // Check for BAM magic header
+    let mut buf = BAMRawRecord::from(Vec::<u8>::new());
 
     let mut magic = [0; 4];
     reader.read_exact(&mut magic).expect("Failed to read.");
@@ -55,6 +57,7 @@ pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
             return;
         }
 
+        // Fetch the BAM read and push to the GBAM writer
         buf.resize(block_size);
         reader.read_exact(&mut buf).expect("FAILED TO READ.");
         // write!(writer, "{:?}", buf).expect("Output failed");

@@ -20,6 +20,8 @@ struct Cli {
     out_path: Option<PathBuf>,
 }
 
+/// Limited wrapper of `gbam_tools` converts BAM file to GBAM
+/// file. Also limited tests may be run.
 fn main() {
     let args = Cli::from_args();
     if args.convert {
