@@ -100,6 +100,17 @@ impl BAMRawRecord {
 
     /// Extracts CIGAR from tags if it didn't fit into CIGAR field
     fn get_cigar(&self, cigar_offset: usize) -> &[u8] {
+        let ref_id = self
+            .get_bytes(&Fields::RefID)
+            .read_i32::<LittleEndian>()
+            .unwrap();
+        let pos = self
+            .get_bytes(&Fields::Pos)
+            .read_i32::<LittleEndian>()
+            .unwrap();
+        if ref_id < 0 || pos < 0 || self.get_var_field_len(&Fields::RawCigar) == 0 {
+            return &[];
+        }
         let cigar_field_data =
             self.get_slice(cigar_offset, self.get_var_field_len(&Fields::RawCigar));
 
@@ -117,7 +128,7 @@ impl BAMRawRecord {
         let cigar_tag = &[b'C', b'G'];
         match get_tag(self.get_bytes(&Fields::RawTags), cigar_tag) {
             Some(cigar) => cigar,
-            None => cigar_field_data,
+            None => cigar_field_data, //panic!("CIGAR in tags not found!"),
         }
     }
 }

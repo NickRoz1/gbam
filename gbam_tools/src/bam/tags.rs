@@ -45,7 +45,7 @@ fn get_tag_type(c: &u8) -> TagType {
         'S' => TagType::S,
         's' => TagType::s,
         'Z' => TagType::Z,
-        _ => panic!("There is no tag type <{}>!\n", c),
+        _ => panic!("There is no tag type <{}>!\n", *c as char),
     }
 }
 
@@ -81,7 +81,7 @@ fn get_tag_data(data: &[u8]) -> (&[u8], usize) {
             while data[idx] != 0 {
                 idx += 1;
             }
-            (&data[U8_SIZE..idx], idx)
+            (&data[U8_SIZE..idx], idx + 1)
         }
         _ => {
             let item_size = tag_size(&tag_type).unwrap();
