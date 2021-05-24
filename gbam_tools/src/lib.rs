@@ -10,28 +10,31 @@ use std::slice::Iter;
 use serde::{Deserialize, Serialize};
 
 pub mod bam {
-  /// BAM to GBAM converter
-  pub mod bam_to_gbam;
-  /// BAM (raw) record module
-  pub mod bamrawrecord;
-  /// Module responsible for tags parsing
-  mod tags;
+    /// BAM to GBAM converter
+    pub mod bam_to_gbam;
+    /// BAM (raw) record module
+    pub mod bamrawrecord;
+    /// Module responsible for tags parsing
+    mod tags;
 }
 
 /// Meta information for GBAM file
 pub mod meta;
-/// GBAM writer
-pub mod writer;
+/// GBAM readahead
+pub mod readahead;
 /// GBAM reader
 pub mod reader;
+/// GBAM writer
+pub mod writer;
 
-// use self::writer::Writer;
-pub use self::reader::{ParsingTemplate, Reader};
-use self::writer::Writer;
+pub use self::reader::{ParsingTemplate, ReadSeekSendStatic, Reader};
 pub use crate::bam::bam_to_gbam::bam_to_gbam;
-pub use meta::Codecs;
 pub use crate::bam::bamrawrecord::{decode_cigar, decode_seq, BAMRawRecord};
-// use tags::get_tag;
+pub use meta::Codecs;
+
+use readahead::Readahead;
+use reader::decompress_block;
+use writer::Writer;
 
 const U64_SIZE: usize = mem::size_of::<u64>();
 const U32_SIZE: usize = mem::size_of::<u32>();

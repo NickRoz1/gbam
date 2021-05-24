@@ -5,6 +5,9 @@ use serde::ser::{SerializeMap, Serializer};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::marker::PhantomData;
 
+// use fasthash::city::Hash32;
+// use fasthash::RandomState;
+
 use serde::de::{MapAccess, Visitor};
 // use serde::de::{Deserialize, Deserializer};
 // use serde_json::Result;
@@ -177,6 +180,7 @@ impl<'de> Deserialize<'de> for FieldMetaMap {
 
 impl FileMeta {
     pub fn new(codec: Codecs) -> Self {
+        // let hasher = RandomState::<Hash32>::new();
         let mut map = HashMap::<Fields, FieldMeta>::new();
         for field in Fields::iterator() {
             map.insert(*field, FieldMeta::new(field, codec.clone()));

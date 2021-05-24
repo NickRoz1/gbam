@@ -1,5 +1,6 @@
 use super::meta::{Codecs, FileInfo, FileMeta, FILE_INFO_SIZE};
 use super::writer::calc_crc_for_meta_bytes;
+use super::Readahead;
 #[cfg(feature = "python-ffi")]
 use super::DATA_FIELDS_NUM;
 use super::SIZE_LIMIT;
@@ -123,13 +124,13 @@ impl GbamRecord {
 }
 
 /// These trait has to be implemented for any inner reader supplying data to GBAM reader
-pub trait ReadSeekSend: Read + Seek + Send {}
+pub trait ReadSeekSendStatic: Read + Seek + Send + 'static {}
 
-impl<T> ReadSeekSend for T where T: Read + Seek + Send {}
+impl<T> ReadSeekSendStatic for T where T: Read + Seek + Send + 'static {}
 #[cfg_attr(feature = "python-ffi", pyclass)]
 /// Reader for GBAM file format
 pub struct Reader {
-    inner: Box<dyn ReadSeekSend>, // Box is necessary to use with PyO3 -  no generic parameters are allowed!
+    inner: Readahead, // Box is necessary to use with PyO3 -  no generic parameters are allowed!
     file_meta: FileMeta,
     parsing_template: ParsingTemplate,
     buffers: Vec<Vec<u8>>,
@@ -246,11 +247,31 @@ impl ParsingTemplate {
     }
 }
 
+pub(crate) fn decompress_block(
+    source: &[u8],
+    mut dest: &mut [u8],
+    codec: &Codecs,
+) -> std::io::Result<()> {
+    use std::io::Write;
+    match codec {
+        Codecs::Gzip => {
+            let mut decoder = GzDecoder::new(dest);
+            decoder.write_all(source)?;
+            decoder.try_finish()?;
+        }
+        Codecs::Lz4 => {
+            let mut decoder = Decoder::new(source)?;
+            std::io::copy(&mut decoder, &mut dest)?;
+        }
+    };
+    Ok(())
+}
+
 // Methods to be called from Rust.
 impl Reader {
     /// Create new reader
     pub fn new(
-        mut inner: Box<dyn ReadSeekSend>,
+        mut inner: Box<dyn ReadSeekSendStatic>,
         parsing_tmplt: ParsingTemplate,
     ) -> std::io::Result<Self> {
         let mut file_info_bytes: [u8; FILE_INFO_SIZE] = [0; FILE_INFO_SIZE];
@@ -269,8 +290,9 @@ impl Reader {
         let file_meta_json_str = String::from_utf8(buf).unwrap();
         let file_meta =
             serde_json::from_str(&file_meta_json_str).expect("File meta json string was damaged.");
+        let readahead = Readahead::new(8, inner);
         let mut reader = Self {
-            inner,
+            inner: readahead,
             file_meta,
             parsing_template: parsing_tmplt,
             buffers: (0..FIELDS_NUM).map(|_| vec![0; SIZE_LIMIT]).collect(),
@@ -303,40 +325,26 @@ impl Reader {
         let block_size = self.file_meta.get_blocks_sizes(field)[next_block_num as usize];
 
         let seekpos = self.file_meta.get_blocks(field)[next_block_num as usize].seekpos;
-        self.load_data(seekpos, field, block_size).unwrap();
+        let codec = self.file_meta.get_field_codec(field).clone();
+        // self.load_data(seekpos, field, block_size).unwrap();
+        self.inner.create_task(seek_pos, block_size, buf, codec);
 
         self.cur_block[*field as usize] = next_block_num;
         self.loaded_records_num[*field as usize] +=
             self.file_meta.get_blocks(field)[next_block_num as usize].numitems as u64;
     }
 
-    fn load_data(&mut self, seekpos: u64, field: &Fields, block_size: u32) -> std::io::Result<()> {
-        self.inner.seek(SeekFrom::Start(seekpos))?;
-        self.decompr_buf.resize(block_size as usize, 0);
-        self.inner.read_exact(&mut self.decompr_buf)?;
-        Self::decompress_block(
-            &self.decompr_buf,
-            &mut self.buffers[*field as usize],
-            self.file_meta.get_field_codec(field),
-        )?;
-        Ok(())
-    }
-
-    fn decompress_block(source: &[u8], mut dest: &mut [u8], codec: &Codecs) -> std::io::Result<()> {
-        use std::io::Write;
-        match codec {
-            Codecs::Gzip => {
-                let mut decoder = GzDecoder::new(dest);
-                decoder.write_all(source)?;
-                decoder.try_finish()?;
-            }
-            Codecs::Lz4 => {
-                let mut decoder = Decoder::new(source)?;
-                std::io::copy(&mut decoder, &mut dest)?;
-            }
-        };
-        Ok(())
-    }
+    // fn load_data(&mut self, seekpos: u64, field: &Fields, block_size: u32) -> std::io::Result<()> {
+    //     self.inner.seek(SeekFrom::Start(seekpos))?;
+    //     self.decompr_buf.resize(block_size as usize, 0);
+    //     self.inner.read_exact(&mut self.decompr_buf)?;
+    //     decompress_block(
+    //         &self.decompr_buf,
+    //         &mut self.buffers[*field as usize],
+    //         self.file_meta.get_field_codec(field),
+    //     )?;
+    //     Ok(())
+    // }
 
     /// Calculates offset to the record inside the block.
     fn get_offset_into_block(&self, field: &Fields) -> u32 {

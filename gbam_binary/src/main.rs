@@ -1,5 +1,6 @@
 // use gbam_tools::bam_to_gbam;
 use gbam_tools::{bam_to_gbam, Codecs, Fields, ParsingTemplate, Reader};
+// use noodles::bgzf;
 use std::path::PathBuf;
 use std::time::Instant;
 use structopt::StructOpt;
@@ -20,11 +21,20 @@ struct Cli {
     out_path: Option<PathBuf>,
 }
 
+// fn parse_in_noodles(path: &str) {
+//     let src = path;
+
+//     let mut reader = std::fs::File::open(src).map(bgzf::Reader::new).unwrap();
+
+//     let mut stdout = std::io::sink();
+//     std::io::copy(&mut reader, &mut stdout).unwrap();
+// }
 /// Limited wrapper of `gbam_tools` converts BAM file to GBAM
 /// file. Also limited tests may be run.
 fn main() {
     let args = Cli::from_args();
     if args.convert {
+        // parse_in_noodles(args.in_path.as_path().to_str().unwrap());
         bam_to_gbam(
             args.in_path.as_path().to_str().unwrap(),
             args.out_path

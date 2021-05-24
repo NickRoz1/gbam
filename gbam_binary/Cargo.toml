@@ -10,3 +10,4 @@ edition = "2018"
 gbam_tools = { path = "../gbam_tools"}
 byteorder = "1.2.3"
 structopt = "0.3.21"
+# noodles = { git = "https://github.com/zaeleus/noodles.git", features = ["bgzf"] }
