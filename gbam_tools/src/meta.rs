@@ -3,7 +3,6 @@ use crate::{field_item_size, Fields, U32_SIZE, U64_SIZE, FIELDS_NUM};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use serde::ser::{SerializeMap, Serializer};
 use serde::{Deserialize, Deserializer, Serialize};
-use std::fs::File;
 use std::marker::PhantomData;
 
 use serde::de::{MapAccess, Visitor};
