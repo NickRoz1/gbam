@@ -1,8 +1,9 @@
 use super::GBAM_MAGIC;
-use crate::{field_item_size, Fields, U32_SIZE, U64_SIZE};
+use crate::{field_item_size, Fields, U32_SIZE, U64_SIZE, FIELDS_NUM};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use serde::ser::{SerializeMap, Serializer};
 use serde::{Deserialize, Deserializer, Serialize};
+use std::fs::File;
 use std::marker::PhantomData;
 
 use serde::de::{MapAccess, Visitor};
@@ -81,16 +82,16 @@ pub enum Codecs {
     /// LZ4 encoding
     Lz4,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct BlockMeta {
     pub seekpos: u64,
     pub numitems: u32,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 struct FieldMeta {
     item_size: Option<u32>, // NONE for variable sized fields
-    blocks_sizes: Vec<u32>, // NONE for fixed sized fields
+    blocks_sizes: Vec<u32>, 
     codec: Codecs,
     blocks: Vec<BlockMeta>,
 }
@@ -109,9 +110,54 @@ impl FieldMeta {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+impl Default for FieldMeta {
+    fn default() -> Self {
+        FieldMeta {
+            item_size: None, 
+            blocks_sizes: Vec::<u32>::new(),
+            codec: Codecs::Gzip,
+            blocks: Vec::<BlockMeta>::new(),
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize)]
 pub(crate) struct FileMeta {
-    field_to_meta: HashMap<Fields, FieldMeta>,
+    // Improvised hashmap for speed
+    #[serde(deserialize_with = "from_str", serialize_with = "serialize_field_to_meta")]
+    field_to_meta: [FieldMeta; FIELDS_NUM],
+}
+// HashMap<Fields, FieldMeta>
+
+// To make metadata easier to read, convert to json where fields are represented
+// as strings with their names, not numbers in enum.
+
+fn serialize_field_to_meta<S>(meta : &[FieldMeta; FIELDS_NUM], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut map = FieldMetaMap(HashMap::new());
+    for field in Fields::iterator() {
+        map.0.insert(*field, meta[*field as usize].clone());
+    }
+    map.serialize(serializer)
+}
+
+
+
+fn from_str<'de, D>(deserializer: D) -> Result<[FieldMeta; FIELDS_NUM], D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let mut map = FieldMetaMap::deserialize(deserializer)?;
+    let mut field_to_meta : [FieldMeta; FIELDS_NUM] = Default::default();
+    
+    
+    for field in Fields::iterator() {
+        field_to_meta[*field as usize] = map.0.remove(field).unwrap();
+    }
+
+    Ok(field_to_meta)
 }
 
 /// This is a wrapper struct. It is necessary to create custom serializer/deserializer in Serde.
@@ -177,9 +223,9 @@ impl<'de> Deserialize<'de> for FieldMetaMap {
 
 impl FileMeta {
     pub fn new(codec: Codecs) -> Self {
-        let mut map = HashMap::<Fields, FieldMeta>::new();
+        let mut map : [FieldMeta; FIELDS_NUM] = Default::default();
         for field in Fields::iterator() {
-            map.insert(*field, FieldMeta::new(field, codec.clone()));
+            map[*field as usize] = FieldMeta::new(field, codec.clone());
         }
         FileMeta { field_to_meta: map }
     }
@@ -187,32 +233,28 @@ impl FileMeta {
     /// Used to retrieve BlockMeta vector mutable borrow, to push new blocks
     /// directly into it, avoiding field matching.
     pub fn get_blocks(&mut self, field: &Fields) -> &mut Vec<BlockMeta> {
-        &mut self.field_to_meta.get_mut(field).unwrap().blocks
+        &mut self.field_to_meta[*field as usize].blocks
     }
 
     pub fn view_blocks(&self, field: &Fields) -> &Vec<BlockMeta> {
-        &self.field_to_meta[field].blocks
+        &self.field_to_meta[*field as usize].blocks
     }
 
     pub fn get_field_size(&self, field: &Fields) -> &Option<u32> {
-        &self.field_to_meta[field].item_size
+        &self.field_to_meta[*field as usize].item_size
     }
 
     pub fn get_field_codec(&self, field: &Fields) -> &Codecs {
-        &self.field_to_meta[field].codec
+        &self.field_to_meta[*field as usize].codec
     }
     pub fn get_blocks_sizes(&mut self, field: &Fields) -> &mut Vec<u32> {
-        self.field_to_meta
-            .get_mut(field)
-            .unwrap()
+        self.field_to_meta[*field as usize]
             .blocks_sizes
             .as_mut()
     }
 
     pub fn push_block_size(&mut self, field: &Fields, size: usize) {
-        self.field_to_meta
-            .get_mut(field)
-            .unwrap()
+        self.field_to_meta[*field as usize]
             .blocks_sizes
             .push(size as u32);
     }
