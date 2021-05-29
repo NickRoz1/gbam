@@ -38,17 +38,17 @@ def get_reader(path, parsing_tmplt):
 
 # Converts BAM file to GBAM file, performs tests, deletes GBAM file.
 def test(args):
-    # input_path = args.input_path
+    input_path = args.input_path
 
-    # output_file = NamedTemporaryFile()
-    # convert(input_path, output_file.name, 'lz4')
-    # output_file_name = output_file.name
+    output_file = NamedTemporaryFile()
+    convert(input_path, output_file.name, 'lz4')
+    output_file_name = output_file.name
 
     # test_combinations = 0
 
     # for field_to_omit in list(map(int, Fields)):
-    input_path = "../test_data/wgEncodeUwRepliSeqGm12878G1bAlnRep1.bam"
-    output_file_name = "../test_data/res.gbam"
+    # input_path = "../test_data/wgEncodeUwRepliSeqGm12878G1bAlnRep1.bam"
+    # output_file_name = "../test_data/res.gbam"
     check_if_equal(input_path, output_file_name)
 
     print("Tests passed.")
