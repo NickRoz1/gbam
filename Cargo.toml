@@ -5,6 +5,5 @@ members = [
     "gbam_binary",
 ]
 
-
 [profile.release]
 debug = true

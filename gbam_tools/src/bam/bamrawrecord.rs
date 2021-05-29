@@ -234,7 +234,7 @@ pub fn decode_seq(bytes: &[u8]) -> String {
         let first = (byte >> 4) as u32;
         let second = (byte & 0xf) as u32;
         res.push(get_seq_base(first));
-        // TODO: Assumption that the last half will contain value or zero (it is not mandated.)
+        // WARNING TODO: Assumption that the last half will contain value or zero (it is not mandated.)
         if second != 0 {
             res.push(get_seq_base(second));
         }

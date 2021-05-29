@@ -19,7 +19,7 @@ pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
     let buf_writer = std::io::BufWriter::new(fout);
 
     let mut reader = ParallelReader::new(buf_reader, 10);
-    let mut writer = Writer::new(buf_writer, codec);
+    let mut writer = Writer::new(buf_writer, codec, 8);
 
     // Check for BAM magic header
     let mut buf = BAMRawRecord::from(Vec::<u8>::new());

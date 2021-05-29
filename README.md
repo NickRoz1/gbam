@@ -21,8 +21,14 @@ You may need to set the C compiler with
 env CC=gcc cargo build
 ```
 
-To build the `libgbam_tools.so` library you can run cargo in the
-`gbam_tools` directory.
+## Build library
+
+To build the `libgbam_tools.so` library you can following command in the `gbam_tools` directory.
+
+```bash
+cargo build --release --features python-ffi
+```
+
 
 
 ## With Python tools
@@ -34,7 +40,13 @@ cd gbam_tools
 python3 -m venv env
 source env/bin/activate
 pip3 install maturin
-maturin develop --release
+maturin develop --release --cargo-extra-args="--features python-ffi"
+```
+
+You may need to install following packages:
+```shell
+sudo apt-get install liblzma-dev
+sudo apt-get install libbz2-dev
 ```
 
 # Usage

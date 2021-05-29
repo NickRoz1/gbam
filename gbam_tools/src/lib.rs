@@ -10,28 +10,30 @@ use std::slice::Iter;
 use serde::{Deserialize, Serialize};
 
 pub mod bam {
-  /// BAM to GBAM converter
-  pub mod bam_to_gbam;
-  /// BAM (raw) record module
-  pub mod bamrawrecord;
-  /// Module responsible for tags parsing
-  mod tags;
+    /// BAM to GBAM converter
+    pub mod bam_to_gbam;
+    /// BAM (raw) record module
+    pub mod bamrawrecord;
+    /// Module responsible for tags parsing
+    mod tags;
 }
 
 /// Meta information for GBAM file
 pub mod meta;
-/// GBAM writer
-pub mod writer;
 /// GBAM reader
 pub mod reader;
+/// GBAM writer
+pub mod writer;
+
+mod compressor;
 
 // use self::writer::Writer;
 pub use self::reader::{ParsingTemplate, Reader};
 use self::writer::Writer;
 pub use crate::bam::bam_to_gbam::bam_to_gbam;
-pub use meta::Codecs;
 pub use crate::bam::bamrawrecord::{decode_cigar, decode_seq, BAMRawRecord};
-// use tags::get_tag;
+use compressor::{CompressTask, Compressor};
+pub use meta::Codecs;
 
 const U64_SIZE: usize = mem::size_of::<u64>();
 const U32_SIZE: usize = mem::size_of::<u32>();
@@ -220,8 +222,12 @@ mod ffi {
         bam_to_gbam(&in_path, &out_path, codec);
     }
 
+    #[pyfunction]
+    pub fn test() {}
+
     #[pymodule]
     fn gbam_tools(_: Python, m: &PyModule) -> PyResult<()> {
+        m.add_function(wrap_pyfunction!(test, m)?).unwrap();
         m.add_function(wrap_pyfunction!(bam_to_gbam_python, m)?)
             .unwrap();
         m.add_class::<reader::Reader>()?;

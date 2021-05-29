@@ -1,5 +1,5 @@
 use super::GBAM_MAGIC;
-use crate::{field_item_size, Fields, U32_SIZE, U64_SIZE, FIELDS_NUM};
+use crate::{field_item_size, Fields, FIELDS_NUM, U32_SIZE, U64_SIZE};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use serde::ser::{SerializeMap, Serializer};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -29,7 +29,10 @@ impl FileInfo {
 }
 
 /// The GBAM magic size is 8 bytes (U64_SIZE).
+#[cfg(not(feature = "python-ffi"))]
 pub const FILE_INFO_SIZE: usize = U64_SIZE + U32_SIZE * 2 + U64_SIZE + U32_SIZE;
+#[cfg(feature = "python-ffi")]
+pub const FILE_INFO_SIZE: usize = 28;
 
 impl From<&[u8]> for FileInfo {
     fn from(bytes: &[u8]) -> Self {
@@ -74,14 +77,14 @@ impl Into<Vec<u8>> for FileInfo {
 }
 
 /// Type of encoding used in GBAM writer
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Copy)]
 pub enum Codecs {
     /// Gzip encoding
     Gzip,
     /// LZ4 encoding
     Lz4,
 }
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 pub(crate) struct BlockMeta {
     pub seekpos: u64,
     pub numitems: u32,
@@ -90,7 +93,7 @@ pub(crate) struct BlockMeta {
 #[derive(Serialize, Deserialize, Clone)]
 struct FieldMeta {
     item_size: Option<u32>, // NONE for variable sized fields
-    blocks_sizes: Vec<u32>, 
+    blocks_sizes: Vec<u32>,
     codec: Codecs,
     blocks: Vec<BlockMeta>,
 }
@@ -98,10 +101,7 @@ struct FieldMeta {
 impl FieldMeta {
     pub fn new(field: &Fields, codec: Codecs) -> Self {
         FieldMeta {
-            item_size: match field_item_size(field) {
-                Some(v) => Some(v as u32), // TODO.
-                None => None,
-            },
+            item_size: field_item_size(field).map(|v| v as u32), // TODO
             blocks_sizes: Vec::<u32>::new(),
             codec,
             blocks: Vec::<BlockMeta>::new(),
@@ -112,7 +112,7 @@ impl FieldMeta {
 impl Default for FieldMeta {
     fn default() -> Self {
         FieldMeta {
-            item_size: None, 
+            item_size: None,
             blocks_sizes: Vec::<u32>::new(),
             codec: Codecs::Gzip,
             blocks: Vec::<BlockMeta>::new(),
@@ -123,7 +123,10 @@ impl Default for FieldMeta {
 #[derive(Deserialize, Serialize)]
 pub(crate) struct FileMeta {
     // Improvised hashmap for speed
-    #[serde(deserialize_with = "from_str", serialize_with = "serialize_field_to_meta")]
+    #[serde(
+        deserialize_with = "from_str",
+        serialize_with = "serialize_field_to_meta"
+    )]
     field_to_meta: [FieldMeta; FIELDS_NUM],
 }
 // HashMap<Fields, FieldMeta>
@@ -131,7 +134,10 @@ pub(crate) struct FileMeta {
 // To make metadata easier to read, convert to json where fields are represented
 // as strings with their names, not numbers in enum.
 
-fn serialize_field_to_meta<S>(meta : &[FieldMeta; FIELDS_NUM], serializer: S) -> Result<S::Ok, S::Error>
+fn serialize_field_to_meta<S>(
+    meta: &[FieldMeta; FIELDS_NUM],
+    serializer: S,
+) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
@@ -142,16 +148,13 @@ where
     map.serialize(serializer)
 }
 
-
-
 fn from_str<'de, D>(deserializer: D) -> Result<[FieldMeta; FIELDS_NUM], D::Error>
 where
     D: Deserializer<'de>,
 {
     let mut map = FieldMetaMap::deserialize(deserializer)?;
-    let mut field_to_meta : [FieldMeta; FIELDS_NUM] = Default::default();
-    
-    
+    let mut field_to_meta: [FieldMeta; FIELDS_NUM] = Default::default();
+
     for field in Fields::iterator() {
         field_to_meta[*field as usize] = map.0.remove(field).unwrap();
     }
@@ -222,9 +225,9 @@ impl<'de> Deserialize<'de> for FieldMetaMap {
 
 impl FileMeta {
     pub fn new(codec: Codecs) -> Self {
-        let mut map : [FieldMeta; FIELDS_NUM] = Default::default();
+        let mut map: [FieldMeta; FIELDS_NUM] = Default::default();
         for field in Fields::iterator() {
-            map[*field as usize] = FieldMeta::new(field, codec.clone());
+            map[*field as usize] = FieldMeta::new(field, codec);
         }
         FileMeta { field_to_meta: map }
     }
@@ -247,14 +250,6 @@ impl FileMeta {
         &self.field_to_meta[*field as usize].codec
     }
     pub fn get_blocks_sizes(&mut self, field: &Fields) -> &mut Vec<u32> {
-        self.field_to_meta[*field as usize]
-            .blocks_sizes
-            .as_mut()
-    }
-
-    pub fn push_block_size(&mut self, field: &Fields, size: usize) {
-        self.field_to_meta[*field as usize]
-            .blocks_sizes
-            .push(size as u32);
+        self.field_to_meta[*field as usize].blocks_sizes.as_mut()
     }
 }

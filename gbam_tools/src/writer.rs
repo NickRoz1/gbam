@@ -1,14 +1,10 @@
 use super::meta::{BlockMeta, Codecs, FileInfo, FileMeta, FILE_INFO_SIZE};
-use super::SIZE_LIMIT;
 use crate::{
-    field_type, is_data_field, var_size_field_to_index, FieldType, Fields, BAMRawRecord, FIELDS_NUM,
-    U32_SIZE,
+    field_type, is_data_field, var_size_field_to_index, BAMRawRecord, CompressTask, Compressor,
+    FieldType, Fields, FIELDS_NUM, SIZE_LIMIT, U32_SIZE,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use crc32fast::Hasher;
-use flate2::write::GzEncoder;
-use flate2::Compression;
-use lz4::EncoderBuilder;
 use std::io::{Seek, SeekFrom, Write};
 
 /// The data is held in blocks.
@@ -29,9 +25,12 @@ where
     offsets: [usize; FIELDS_NUM],
     num_items: [u32; FIELDS_NUM],
     // Compression buffer to avoid allocations
-    compr_buf: Option<Vec<u8>>,
+    compressor: Compressor,
     file_meta: FileMeta,
     inner: W,
+    // Used to order meta information, since multithreaded compressor may
+    // compress latter block first, and disturb order.
+    blocks_nums: Vec<usize>,
 }
 
 impl<W> Writer<W>
@@ -39,7 +38,7 @@ where
     W: Write + Seek,
 {
     /// Create new writer
-    pub fn new(mut inner: W, codec: Codecs) -> Self {
+    pub fn new(mut inner: W, codec: Codecs, thread_num: usize) -> Self {
         // Make space for the FileInfo to be written into.
         inner
             .seek(SeekFrom::Start((FILE_INFO_SIZE) as u64))
@@ -48,9 +47,10 @@ where
             chunks: vec![vec![0; SIZE_LIMIT]; FIELDS_NUM],
             offsets: [0; FIELDS_NUM],
             num_items: [0; FIELDS_NUM],
-            compr_buf: Some(Vec::<u8>::new()),
             file_meta: FileMeta::new(codec),
+            compressor: Compressor::new(thread_num),
             inner,
+            blocks_nums: vec![0; FIELDS_NUM],
         }
     }
     /// Push BAM record into this writer
@@ -89,6 +89,9 @@ where
         }
 
         let cur_chunk = &mut self.chunks[*field as usize];
+        if cur_chunk.len() < SIZE_LIMIT {
+            cur_chunk.resize(std::cmp::max(new_data.len(), SIZE_LIMIT), 0);
+        }
         let item_counter = &mut self.num_items[*field as usize];
 
         cur_chunk[offset_into_chunk..offset_into_chunk + new_data.len()].clone_from_slice(new_data);
@@ -98,60 +101,63 @@ where
         *item_counter += 1;
     }
 
+    /// This method only schedules field for compression, it doesn't immediately
+    /// flush it to writer.
     fn flush(&mut self, field: &Fields) {
         // Already empty
         if self.num_items[*field as usize] == 0 {
             return;
         }
-        let meta = self.generate_meta(field);
-        let data_size = self.offsets[*field as usize];
-        // Write the data
-        let compressed_size = self.write_block(field, data_size).unwrap();
-        self.file_meta.push_block_size(field, compressed_size);
-        let field_meta = self.file_meta.get_blocks(field);
-        field_meta.push(meta);
+
+        // Flush already compressed data
+        let compress_task = self.compressor.get_compr_block();
+
+        // Skips prefilled blocks in the beginning of program execution
+        if compress_task.uncompr_size != 0 {
+            self.write_data_and_update_meta(&compress_task);
+        }
+
+        let mut buf = compress_task.buf;
+        std::mem::swap(&mut buf, &mut self.chunks[*field as usize]);
+        let uncompr_size = self.offsets[*field as usize];
+        let codec = self.file_meta.get_field_codec(field);
+
+        self.compressor.compress_block(
+            self.blocks_nums[*field as usize],
+            *field,
+            self.num_items[*field as usize],
+            uncompr_size,
+            buf,
+            *codec,
+        );
+        self.blocks_nums[*field as usize] += 1;
 
         self.offsets[*field as usize] = 0;
         self.num_items[*field as usize] = 0;
     }
 
-    fn write_block(&mut self, field: &Fields, data_size: usize) -> std::io::Result<usize> {
-        let compr_type = self.file_meta.get_field_codec(field);
-        let mut data = &self.chunks[*field as usize][0..data_size];
-        self.compr_buf.as_mut().unwrap().clear();
-        let compressed_bytes = match compr_type {
-            Codecs::Gzip => {
-                let mut encoder =
-                    GzEncoder::new(self.compr_buf.take().unwrap(), Compression::default());
-                encoder.write_all(data)?;
-                encoder.finish()
-            }
-            Codecs::Lz4 => {
-                let default_compression: u32 = 4;
-                let mut encoder = EncoderBuilder::new()
-                    .level(default_compression)
-                    .build(self.compr_buf.take().unwrap())?;
-                std::io::copy(&mut data, &mut encoder)?;
-                let (_output, result) = encoder.finish();
-                match result {
-                    Ok(()) => Ok(_output),
-                    Err(error) => Err(error),
-                }
-            }
-        };
-        let compressed_data = compressed_bytes.unwrap();
-        let compressed_size = compressed_data.len();
-        self.inner.write_all(&compressed_data)?;
-        self.compr_buf = Some(compressed_data);
-        Ok(compressed_size)
+    fn write_data_and_update_meta(&mut self, task: &CompressTask) {
+        let meta = self.generate_meta(task.num_items);
+        let compressed_size = task.buf.len();
+        self.inner.write_all(&task.buf[..compressed_size]).unwrap();
+
+        let block_sizes = self.file_meta.get_blocks_sizes(&task.field);
+        if block_sizes.len() <= task.ordering_key {
+            block_sizes.resize(task.ordering_key + 1, 0);
+        }
+        block_sizes[task.ordering_key] = compressed_size as u32;
+
+        // Order as came in
+        let field_meta = self.file_meta.get_blocks(&task.field);
+        if field_meta.len() <= task.ordering_key {
+            field_meta.resize(task.ordering_key + 1, BlockMeta::default());
+        }
+        field_meta[task.ordering_key] = meta;
     }
 
-    fn generate_meta(&mut self, field: &Fields) -> BlockMeta {
-        let seek_pos = self.inner.seek(SeekFrom::Current(0)).unwrap();
-        BlockMeta {
-            seekpos: seek_pos,
-            numitems: self.num_items[*field as usize],
-        }
+    fn generate_meta(&mut self, numitems: u32) -> BlockMeta {
+        let seekpos = self.inner.seek(SeekFrom::Current(0)).unwrap();
+        BlockMeta { seekpos, numitems }
     }
 
     /// Terminates the writer. Always call after writting all the data. Returns
@@ -161,6 +167,11 @@ where
         for field in Fields::iterator() {
             self.flush(field);
         }
+
+        for task in self.compressor.finish() {
+            self.write_data_and_update_meta(&task);
+        }
+
         let meta_start_pos = self.inner.seek(SeekFrom::Current(0))?;
         // Write meta
         let main_meta = serde_json::to_string(&self.file_meta).unwrap();
@@ -177,6 +188,13 @@ where
         Ok(total_bytes_written)
     }
 }
+
+// impl<W> Drop for Writer<W>
+// where W: Write + Seek {
+//     fn drop(&mut self) {
+//         self.finish().unwrap();
+//     }
+// }
 
 pub(crate) fn calc_crc_for_meta_bytes(bytes: &[u8]) -> u32 {
     let mut hasher = Hasher::new();
@@ -195,7 +213,7 @@ mod tests {
         let raw_records = vec![BAMRawRecord::default(); 2];
         let mut buf: Vec<u8> = vec![0; SIZE_LIMIT];
         let out = Cursor::new(&mut buf[..]);
-        let mut writer = Writer::new(out, Codecs::Gzip);
+        let mut writer = Writer::new(out, Codecs::Gzip, 8);
         for rec in raw_records.iter() {
             writer.push_record(rec);
         }

@@ -12,48 +12,82 @@ use lz4::Decoder;
 use pyo3::prelude::*;
 use std::io::{Read, Seek, SeekFrom};
 
-#[cfg_attr(feature = "python-ffi", pyclass)]
+#[cfg(not(feature = "python-ffi"))]
 #[derive(Clone, Debug)]
 /// Represents a GBAM record in which some fields may be omitted.
 pub struct GbamRecord {
     /// Reference sequence ID
-    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub refid: Option<u32>,
     /// 0-based leftmost coordinate
-    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub pos: Option<u32>,
     /// Mapping quality
-    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub mapq: Option<u8>,
     /// BAI index bin,
-    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub bin: Option<u16>,
     /// Bitwise flags
-    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub flag: Option<u16>,
     /// Ref-ID of the next segment
-    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub next_ref_id: Option<i32>,
     /// 0-based leftmost pos of the next segmen
-    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub next_pos: Option<i32>,
     /// Template length
-    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub tlen: Option<i32>,
     /// Read name
-    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub read_name: Option<Vec<u8>>,
     /// CIGAR
-    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub cigar: Option<String>,
     /// 4-bit  encoded  read
-    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub seq: Option<String>,
     /// Phred-scaled base qualities.
-    #[cfg_attr(feature = "python-ffi", pyo3(get))]
     pub qual: Option<Vec<u8>>,
     /// List of auxiliary data
-    #[cfg_attr(feature = "python-ffi", pyo3(get))]
+    pub tags: Option<Vec<u8>>,
+}
+
+/// cfg_attribute currently doesn't work with pyo3(get)
+#[cfg(feature = "python-ffi")]
+#[pyclass]
+#[derive(Clone, Debug)]
+/// Represents a GBAM record in which some fields may be omitted.
+pub struct GbamRecord {
+    /// Reference sequence ID
+    #[pyo3(get)]
+    pub refid: Option<u32>,
+    /// 0-based leftmost coordinate
+    #[pyo3(get)]
+    pub pos: Option<u32>,
+    /// Mapping quality
+    #[pyo3(get)]
+    pub mapq: Option<u8>,
+    /// BAI index bin,
+    #[pyo3(get)]
+    pub bin: Option<u16>,
+    /// Bitwise flags
+    #[pyo3(get)]
+    pub flag: Option<u16>,
+    /// Ref-ID of the next segment
+    #[pyo3(get)]
+    pub next_ref_id: Option<i32>,
+    /// 0-based leftmost pos of the next segmen
+    #[pyo3(get)]
+    pub next_pos: Option<i32>,
+    /// Template length
+    #[pyo3(get)]
+    pub tlen: Option<i32>,
+    /// Read name
+    #[pyo3(get)]
+    pub read_name: Option<Vec<u8>>,
+    /// CIGAR
+    #[pyo3(get)]
+    pub cigar: Option<String>,
+    /// 4-bit  encoded  read
+    #[pyo3(get)]
+    pub seq: Option<String>,
+    /// Phred-scaled base qualities.
+    #[pyo3(get)]
+    pub qual: Option<Vec<u8>>,
+    /// List of auxiliary data
+    #[pyo3(get)]
     pub tags: Option<Vec<u8>>,
 }
 
@@ -126,8 +160,8 @@ impl GbamRecord {
 pub trait ReadSeekSend: Read + Seek + Send {}
 
 impl<T> ReadSeekSend for T where T: Read + Seek + Send {}
-#[cfg_attr(feature = "python-ffi", pyclass)]
 /// Reader for GBAM file format
+#[cfg_attr(feature = "python-ffi", pyclass)]
 pub struct Reader {
     inner: Box<dyn ReadSeekSend>, // Box is necessary to use with PyO3 -  no generic parameters are allowed!
     file_meta: FileMeta,
@@ -142,6 +176,7 @@ pub struct Reader {
     /// How many record have been loaded in memory already for each block. It's
     /// needed since the blocks sizes may be different.
     loaded_records_num: Vec<u64>,
+    loaded_before_this_block: Vec<u64>,
     /// When parsing variable sized record, two indexes are needed. However, the
     /// indexes are splitted two, creating a situation when the previous index
     /// was already flushed with it's block, but it's required required to parse
@@ -151,8 +186,9 @@ pub struct Reader {
 }
 
 #[cfg_attr(feature = "python-ffi", pyclass)]
-#[derive(Clone, Debug)]
 /// This struct regulates what fields are getting parsed from GBAM file.
+
+#[derive(Clone, Debug)]
 pub struct ParsingTemplate {
     inner: Vec<Option<Fields>>,
 }
@@ -279,6 +315,7 @@ impl Reader {
             cur_num: 0,
             cur_block: vec![-1; FIELDS_NUM], // to preload first blocks
             loaded_records_num: vec![0; FIELDS_NUM],
+            loaded_before_this_block: vec![0; FIELDS_NUM],
             prev_block_last_idx: None,
         };
 
@@ -306,6 +343,8 @@ impl Reader {
         self.load_data(seekpos, field, block_size).unwrap();
 
         self.cur_block[*field as usize] = next_block_num;
+
+        self.loaded_before_this_block[*field as usize] = self.loaded_records_num[*field as usize];
         self.loaded_records_num[*field as usize] +=
             self.file_meta.get_blocks(field)[next_block_num as usize].numitems as u64;
     }
@@ -364,12 +403,12 @@ impl Reader {
 
     fn calc_rec_num_in_block(&self, field: &Fields) -> u64 {
         assert!(self.cur_block[*field as usize] > -1);
-        let block_meta =
-            &self.file_meta.view_blocks(field)[self.cur_block[*field as usize] as usize];
+        // let block_meta =
+        // &self.file_meta.view_blocks(field)[self.cur_block[*field as usize] as usize];
         // self.cur_num is universal, but amount of items in buffer is not
-        let dist_from_back_of_block = self.loaded_records_num[*field as usize] - self.cur_num;
-
-        block_meta.numitems as u64 - dist_from_back_of_block
+        // let dist_from_back_of_block = self.loaded_records_num[*field as usize] - self.cur_num;
+        self.cur_num - self.loaded_before_this_block[*field as usize]
+        // block_meta.numitems as u64 - dist_from_back_of_block
     }
 
     #[allow(dead_code)]
@@ -439,13 +478,14 @@ impl Reader {
     /// Get next GBAM record
     pub fn next_rec(&mut self) -> Option<&GbamRecord> {
         for field in self.parsing_template.get_active_fields() {
-            let cur_block_num = self.cur_block[field as usize];
             if self.block_exhausted(&field) {
+                let cur_block_num = self.cur_block[field as usize];
                 if (cur_block_num + 1) as usize == self.file_meta.get_blocks(&field).len() {
                     // No more records of this type in input
                     return None;
                 }
                 // Save last index for next calculations.
+                #[allow(clippy::bool_comparison)]
                 if is_data_field(&field) == false {
                     // It's exhausted, so last rec num would be current - 1.
                     let last_idx = self.calc_rec_num_in_block(&field) - 1;
@@ -470,8 +510,9 @@ impl Reader {
     }
 }
 
-// // Methods to be called from Python.
+// Methods to be called from Python.
 #[cfg(feature = "python-ffi")]
+#[pymethods]
 impl Reader {
     #[allow(clippy::unnecessary_wraps)]
     fn next_record(&mut self) -> PyResult<Option<GbamRecord>> {
@@ -480,6 +521,7 @@ impl Reader {
     }
 
     /// Create new reader for file at path
+    #[new]
     pub fn new_reader(path: &str, tmplt: ParsingTemplate) -> Self {
         Self::new_for_file(path, tmplt)
     }
