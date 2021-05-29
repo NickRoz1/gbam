@@ -23,7 +23,7 @@ env CC=gcc cargo build
 
 ## Build library
 
-To build the `libgbam_tools.so` library you can following command in the `gbam_tools` directory.
+To build the `libgbam_tools.so` library you can run following command in the `gbam_tools` directory.
 
 ```bash
 cargo build --release --features python-ffi
