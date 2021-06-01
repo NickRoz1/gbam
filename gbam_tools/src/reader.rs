@@ -182,7 +182,7 @@ pub struct Reader {
     /// was already flushed with it's block, but it's required required to parse
     /// a variable sized field. To avoid that, last index field of each block is
     /// saved.
-    prev_block_last_idx: Option<u32>,
+    prev_block_last_idx: Vec<Option<u32>>,
 }
 
 #[cfg_attr(feature = "python-ffi", pyclass)]
@@ -316,7 +316,7 @@ impl Reader {
             cur_block: vec![-1; FIELDS_NUM], // to preload first blocks
             loaded_records_num: vec![0; FIELDS_NUM],
             loaded_before_this_block: vec![0; FIELDS_NUM],
-            prev_block_last_idx: None,
+            prev_block_last_idx: vec![None; FIELDS_NUM],
         };
 
         for field in reader.parsing_template.get_active_fields().iter() {
@@ -387,9 +387,10 @@ impl Reader {
                 } else {
                     let idx_field = &var_size_field_to_index(field);
                     let idx_field_rec_num = self.calc_rec_num_in_block(idx_field);
+
                     if idx_field_rec_num == 0 {
                         // We are on the split of blocks
-                        self.prev_block_last_idx.unwrap()
+                        self.prev_block_last_idx[*idx_field as usize].unwrap()
                     } else {
                         self.get_idx_val(idx_field, idx_field_rec_num - 1) as u32
                     }
@@ -459,12 +460,14 @@ impl Reader {
                     self.get_idx_val(&idx_field, cur_idx_rec_num) as usize
                 } else {
                     let cur_end = self.get_idx_val(&idx_field, cur_idx_rec_num);
+
                     let prev_end = match cur_idx_rec_num {
                         // We are at the block split
-                        0 => self.prev_block_last_idx.unwrap(),
+                        0 => self.prev_block_last_idx[idx_field as usize].unwrap(),
                         _ => self.get_idx_val(&idx_field, cur_idx_rec_num - 1),
                     };
-                    let item_size = cur_end - prev_end;
+
+                    let item_size = cur_end.checked_sub(prev_end).expect("Overflow.");
                     item_size as usize
                 }
             }
@@ -489,7 +492,8 @@ impl Reader {
                 if is_data_field(&field) == false {
                     // It's exhausted, so last rec num would be current - 1.
                     let last_idx = self.calc_rec_num_in_block(&field) - 1;
-                    self.prev_block_last_idx = Some(self.get_idx_val(&field, last_idx));
+                    self.prev_block_last_idx[field as usize] =
+                        Some(self.get_idx_val(&field, last_idx));
                 }
                 self.load_next_block(&field);
             }
