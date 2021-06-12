@@ -1,15 +1,16 @@
 use crate::{bam::tags::get_tag, Fields, U16_SIZE, U32_SIZE, U8_SIZE};
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
+use std::borrow::Cow;
 use std::ops::{Deref, DerefMut};
-
 /// Provides convenient access to BAM-style raw read (record bytes)
+/// Cow is used so BAMRawRecord can either own or borrow underlying data (if it won't be mutated).
 #[derive(Clone, Eq, PartialEq, Debug)]
-pub struct BAMRawRecord(pub Vec<u8>);
+pub struct BAMRawRecord<'a>(pub Cow<'a, [u8]>);
 
-impl BAMRawRecord {
+impl<'a> BAMRawRecord<'a> {
     /// Change size of record
     pub fn resize(&mut self, new_len: usize) {
-        self.0.resize(new_len, Default::default());
+        self.0.to_mut().resize(new_len, Default::default());
     }
 
     fn get_slice(&self, offset: usize, len: usize) -> &[u8] {
@@ -133,14 +134,14 @@ impl BAMRawRecord {
     }
 }
 
-impl From<Vec<u8>> for BAMRawRecord {
+impl<'a> From<Vec<u8>> for BAMRawRecord<'a> {
     fn from(bytes: Vec<u8>) -> Self {
-        Self(bytes)
+        Self(Cow::Owned(bytes))
     }
 }
 
 // Source: https://github.com/zaeleus/noodles/blob/316ec6f42960e4540bb2acc45b5653fb00b9970c/noodles-bam/src/record.rs#L324
-impl Default for BAMRawRecord {
+impl<'a> Default for BAMRawRecord<'a> {
     fn default() -> Self {
         Self::from(vec![
             0xff, 0xff, 0xff, 0xff, // ref_id = -1
@@ -159,7 +160,7 @@ impl Default for BAMRawRecord {
     }
 }
 
-impl Deref for BAMRawRecord {
+impl<'a> Deref for BAMRawRecord<'a> {
     type Target = [u8];
 
     fn deref(&self) -> &[u8] {
@@ -167,9 +168,9 @@ impl Deref for BAMRawRecord {
     }
 }
 
-impl DerefMut for BAMRawRecord {
+impl<'a> DerefMut for BAMRawRecord<'a> {
     fn deref_mut(&mut self) -> &mut [u8] {
-        &mut self.0
+        self.0.to_mut()
     }
 }
 
