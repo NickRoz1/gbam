@@ -230,7 +230,7 @@ mod tests {
             let orig_map_q = rec_orig.get_bytes(&Fields::Mapq)[0];
             let orig_pos = rec_orig
                 .get_bytes(&Fields::Pos)
-                .read_u32::<LittleEndian>()
+                .read_i32::<LittleEndian>()
                 .unwrap();
             assert_eq!(rec.pos.unwrap(), orig_pos);
             assert_eq!(rec.mapq.unwrap(), orig_map_q);

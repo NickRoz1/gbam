@@ -17,9 +17,9 @@ use std::io::{Read, Seek, SeekFrom};
 /// Represents a GBAM record in which some fields may be omitted.
 pub struct GbamRecord {
     /// Reference sequence ID
-    pub refid: Option<u32>,
+    pub refid: Option<i32>,
     /// 0-based leftmost coordinate
-    pub pos: Option<u32>,
+    pub pos: Option<i32>,
     /// Mapping quality
     pub mapq: Option<u8>,
     /// BAI index bin,
@@ -96,8 +96,8 @@ pub struct GbamRecord {
 impl GbamRecord {
     pub(crate) fn parse_from_bytes(&mut self, field: &Fields, mut bytes: &[u8]) {
         match field {
-            Fields::RefID => self.refid = Some(bytes.read_u32::<LittleEndian>().unwrap()),
-            Fields::Pos => self.pos = Some(bytes.read_u32::<LittleEndian>().unwrap()),
+            Fields::RefID => self.refid = Some(bytes.read_i32::<LittleEndian>().unwrap()),
+            Fields::Pos => self.pos = Some(bytes.read_i32::<LittleEndian>().unwrap()),
             Fields::Mapq => self.mapq = Some(bytes[0].to_owned()),
             Fields::Bin => self.bin = Some(bytes.read_u16::<LittleEndian>().unwrap()),
             Fields::Flags => self.flag = Some(bytes.read_u16::<LittleEndian>().unwrap()),
