@@ -132,6 +132,10 @@ impl<'a> BAMRawRecord<'a> {
             None => cigar_field_data, //panic!("CIGAR in tags not found!"),
         }
     }
+
+    pub fn get_tag(&self, tag: &[u8; 2]) -> Option<&[u8]> {
+        get_tag(self.get_bytes(&Fields::RawTags), tag)
+    }
 }
 
 impl<'a> From<Vec<u8>> for BAMRawRecord<'a> {

@@ -90,7 +90,7 @@ fn get_tag_data(data: &[u8]) -> (&[u8], usize) {
     }
 }
 
-pub(crate) fn get_tag<'a>(data: &'a [u8], tag: &[u8]) -> Option<&'a [u8]> {
+pub(crate) fn get_tag<'a>(data: &'a [u8], tag: &[u8; 2]) -> Option<&'a [u8]> {
     let mut idx: usize = 0;
     while idx < data.len() {
         if &data[idx..idx + U16_SIZE] == tag {
