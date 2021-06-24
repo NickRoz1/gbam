@@ -8,9 +8,13 @@ use super::{field_type, var_size_field_to_index, FieldType};
 use byteorder::{LittleEndian, ReadBytesExt};
 use flate2::write::GzDecoder;
 use lz4::Decoder;
+use memmap::Mmap;
 #[cfg(feature = "python-ffi")]
 use pyo3::prelude::*;
+use std::borrow::Borrow;
+use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
+use std::rc::Rc;
 
 #[cfg(not(feature = "python-ffi"))]
 #[derive(Clone, Debug)]
@@ -163,7 +167,8 @@ impl<T> ReadSeekSend for T where T: Read + Seek + Send {}
 /// Reader for GBAM file format
 #[cfg_attr(feature = "python-ffi", pyclass)]
 pub struct Reader {
-    inner: Box<dyn ReadSeekSend>, // Box is necessary to use with PyO3 -  no generic parameters are allowed!
+    source: Box<File>,
+    inner: Mmap, // Box is necessary to use with PyO3 -  no generic parameters are allowed!
     file_meta: FileMeta,
     parsing_template: ParsingTemplate,
     buffers: Vec<Vec<u8>>,
@@ -285,28 +290,25 @@ impl ParsingTemplate {
 // Methods to be called from Rust.
 impl Reader {
     /// Create new reader
-    pub fn new(
-        mut inner: Box<dyn ReadSeekSend>,
-        parsing_tmplt: ParsingTemplate,
-    ) -> std::io::Result<Self> {
-        let mut file_info_bytes: [u8; FILE_INFO_SIZE] = [0; FILE_INFO_SIZE];
-        inner.read_exact(&mut file_info_bytes[..])?;
+    pub fn new(inner: File, parsing_tmplt: ParsingTemplate) -> std::io::Result<Self> {
+        let source = Box::new(inner);
+        let mmap = unsafe { Mmap::map(source.borrow())? };
+        let file_info_bytes = &mmap[0..FILE_INFO_SIZE];
         let file_info = FileInfo::from(&file_info_bytes[..]);
         // Read file meta
-        inner.seek(SeekFrom::Start(file_info.seekpos))?;
-        let mut buf = Vec::<u8>::new();
-        inner.read_to_end(&mut buf)?;
+        let buf = &mmap[file_info.seekpos as usize..];
         if calc_crc_for_meta_bytes(&buf[..]) != file_info.crc32 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "Metadata JSON was damaged.",
             ));
         }
-        let file_meta_json_str = String::from_utf8(buf).unwrap();
+        let file_meta_json_str = String::from_utf8(buf.to_owned()).unwrap();
         let file_meta =
             serde_json::from_str(&file_meta_json_str).expect("File meta json string was damaged.");
         let mut reader = Self {
-            inner,
+            source,
+            inner: mmap,
             file_meta,
             parsing_template: parsing_tmplt,
             buffers: (0..FIELDS_NUM).map(|_| vec![0; SIZE_LIMIT]).collect(),
@@ -331,8 +333,8 @@ impl Reader {
         use std::io::BufReader;
 
         let file = File::open(path).unwrap();
-        let reader = BufReader::new(file);
-        Self::new(Box::new(reader), tmplt).unwrap()
+        // let reader = BufReader::new(file);
+        Self::new(file, tmplt).unwrap()
     }
 
     fn load_next_block(&mut self, field: &Fields) {
@@ -350,11 +352,12 @@ impl Reader {
     }
 
     fn load_data(&mut self, seekpos: u64, field: &Fields, block_size: u32) -> std::io::Result<()> {
-        self.inner.seek(SeekFrom::Start(seekpos))?;
-        self.decompr_buf.resize(block_size as usize, 0);
-        self.inner.read_exact(&mut self.decompr_buf)?;
+        // self.inner.seek(SeekFrom::Start(seekpos))?;
+        // self.decompr_buf.resize(block_size as usize, 0);
+        // self.inner.read_exact(&mut self.decompr_buf)?;
+        // println!("Test.");
         Self::decompress_block(
-            &self.decompr_buf,
+            &self.inner[seekpos as usize..(seekpos + block_size as u64) as usize],
             &mut self.buffers[*field as usize],
             self.file_meta.get_field_codec(field),
         )?;

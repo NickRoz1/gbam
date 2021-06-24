@@ -38,6 +38,9 @@ fn main() {
         let mut tmplt = ParsingTemplate::new();
         tmplt.set(&Fields::Pos, true);
         tmplt.set(&Fields::RawCigar, true);
+        tmplt.set(&Fields::RawSeqLen, true);
+        tmplt.set(&Fields::RawTags, true);
+        tmplt.set(&Fields::RawQual, true);
         let mut reader = Reader::new_for_file(args.in_path.as_path().to_str().unwrap(), tmplt);
         let now = Instant::now();
         #[allow(unused_variables)]
