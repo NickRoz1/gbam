@@ -1,5 +1,5 @@
-use crate::{Codecs, BAMRawRecord, Writer};
-use bam_parallel::ParallelReader;
+use crate::{BAMRawRecord, Codecs, Writer};
+use bam_tools::Reader;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::fs::File;
 use std::io::Read;
@@ -12,13 +12,14 @@ pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
     //     in_path, out_path
     // );
     // return ();
+
     let fin = File::open(in_path).expect("failed");
     let fout = File::create(out_path).expect("failed");
 
     let buf_reader = std::io::BufReader::new(fin);
     let buf_writer = std::io::BufWriter::new(fout);
 
-    let mut reader = ParallelReader::new(buf_reader, 10);
+    let mut reader = Reader::new(buf_reader, 10);
     let mut writer = Writer::new(buf_writer, codec, 8);
 
     // Check for BAM magic header

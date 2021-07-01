@@ -10,7 +10,7 @@ edition = "2018"
 zstd = "0.5"
 flate2 = "1.0.1"
 byteorder = "1.2.3"
-bam_parallel = { git = "https://github.com/NickRoz1/bam_parallel" }
+bam_tools = {  git = "https://github.com/NickRoz1/bam_parallel" }
 libc = "0.2.93"
 serde_json = "1.0"
 serde = {version = "1.0.125", features = ["derive"]}
