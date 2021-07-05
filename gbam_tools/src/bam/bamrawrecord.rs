@@ -2,6 +2,8 @@ use crate::{bam::tags::get_tag, Fields, U16_SIZE, U32_SIZE, U8_SIZE};
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use std::borrow::Cow;
 use std::ops::{Deref, DerefMut};
+
+use super::tags::get_hit_count;
 /// Provides convenient access to BAM-style raw read (record bytes)
 /// Cow is used so BAMRawRecord can either own or borrow underlying data (if it won't be mutated).
 #[derive(Clone, Eq, PartialEq, Debug)]
@@ -127,14 +129,18 @@ impl<'a> BAMRawRecord<'a> {
             return cigar_field_data;
         }
         let cigar_tag = &[b'C', b'G'];
-        match get_tag(self.get_bytes(&Fields::RawTags), cigar_tag) {
+        match self.get_tag(cigar_tag) {
             Some(cigar) => cigar,
             None => cigar_field_data, //panic!("CIGAR in tags not found!"),
         }
     }
 
-    pub fn get_tag(&self, tag: &[u8; 2]) -> Option<&[u8]> {
-        get_tag(self.get_bytes(&Fields::RawTags), tag)
+    pub(crate) fn get_tag(&self, tag: &[u8; 2]) -> Option<&[u8]> {
+        get_tag(self.get_bytes(&Fields::RawTags), tag).and_then(|tag_val| Some(tag_val.0))
+    }
+
+    pub fn get_hit_count(&self) -> Option<i32> {
+        get_hit_count(self.get_bytes(&Fields::RawTags))
     }
 }
 
