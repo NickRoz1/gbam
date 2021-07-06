@@ -1,5 +1,6 @@
 // use gbam_tools::bam_to_gbam;
-use gbam_tools::{bam_to_gbam, Codecs, Fields, ParsingTemplate, Reader};
+use bam_tools::record::fields::Fields;
+use gbam_tools::{bam_to_gbam, Codecs, ParsingTemplate, Reader};
 use std::path::PathBuf;
 use std::time::Instant;
 use structopt::StructOpt;

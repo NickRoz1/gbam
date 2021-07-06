@@ -1,7 +1,8 @@
 use super::meta::{BlockMeta, Codecs, FileInfo, FileMeta, FILE_INFO_SIZE};
-use crate::{
-    field_type, is_data_field, var_size_field_to_index, BAMRawRecord, CompressTask, Compressor,
-    FieldType, Fields, FIELDS_NUM, SIZE_LIMIT, U32_SIZE,
+use crate::{CompressTask, Compressor, SIZE_LIMIT, U32_SIZE};
+use bam_tools::record::bamrawrecord::BAMRawRecord;
+use bam_tools::record::fields::{
+    field_type, is_data_field, var_size_field_to_index, FieldType, Fields, FIELDS_NUM,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use crc32fast::Hasher;

@@ -1,10 +1,12 @@
 use super::meta::{Codecs, FileInfo, FileMeta, FILE_INFO_SIZE};
 use super::writer::calc_crc_for_meta_bytes;
-#[cfg(feature = "python-ffi")]
-use super::DATA_FIELDS_NUM;
 use super::SIZE_LIMIT;
-use super::{decode_cigar, decode_seq, is_data_field, Fields, FIELDS_NUM};
-use super::{field_type, var_size_field_to_index, FieldType};
+use bam_tools::record::bamrawrecord::{decode_cigar, decode_seq};
+#[cfg(feature = "python-ffi")]
+use bam_tools::record::fields::DATA_FIELDS_NUM;
+use bam_tools::record::fields::{
+    field_type, is_data_field, var_size_field_to_index, FieldType, Fields, FIELDS_NUM,
+};
 use byteorder::{LittleEndian, ReadBytesExt};
 use flate2::write::GzDecoder;
 use lz4::Decoder;
@@ -52,10 +54,10 @@ pub struct GbamRecord {
 pub struct GbamRecord {
     /// Reference sequence ID
     #[pyo3(get)]
-    pub refid: Option<u32>,
+    pub refid: Option<i32>,
     /// 0-based leftmost coordinate
     #[pyo3(get)]
-    pub pos: Option<u32>,
+    pub pos: Option<i32>,
     /// Mapping quality
     #[pyo3(get)]
     pub mapq: Option<u8>,

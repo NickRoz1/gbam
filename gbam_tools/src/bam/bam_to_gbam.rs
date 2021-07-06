@@ -1,4 +1,5 @@
-use crate::{BAMRawRecord, Codecs, Writer};
+use crate::{Codecs, Writer};
+use bam_tools::record::bamrawrecord::BAMRawRecord;
 use bam_tools::Reader;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::fs::File;

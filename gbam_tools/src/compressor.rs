@@ -2,7 +2,8 @@ use crate::SIZE_LIMIT;
 use flume::{Receiver, Sender};
 use rayon::ThreadPool;
 
-use super::{Codecs, Fields};
+use super::Codecs;
+use bam_tools::record::fields::Fields;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use lz4::EncoderBuilder;

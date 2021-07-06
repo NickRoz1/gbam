@@ -1,5 +1,6 @@
 use super::GBAM_MAGIC;
-use crate::{field_item_size, Fields, FIELDS_NUM, U32_SIZE, U64_SIZE};
+use crate::{U32_SIZE, U64_SIZE};
+use bam_tools::record::fields::{field_item_size, Fields, FIELDS_NUM};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use serde::ser::{SerializeMap, Serializer};
 use serde::{Deserialize, Deserializer, Serialize};
