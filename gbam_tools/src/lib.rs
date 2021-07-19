@@ -20,7 +20,7 @@ mod compressor;
 // use self::writer::Writer;
 pub use self::reader::{ParsingTemplate, Reader};
 use self::writer::Writer;
-pub use crate::bam::bam_to_gbam::bam_to_gbam;
+pub use bam::bam_to_gbam::{bam_sort_to_gbam, bam_to_gbam};
 use compressor::{CompressTask, Compressor};
 pub use meta::Codecs;
 
@@ -36,22 +36,26 @@ static GBAM_MAGIC: &[u8] = b"geeBAM10";
 
 #[cfg(feature = "python-ffi")]
 mod ffi {
-    use crate::bam_to_gbam;
     use crate::reader;
     use crate::Codecs;
+    use crate::{bam_sort_to_gbam, bam_to_gbam};
 
     use pyo3::prelude::*;
     use pyo3::wrap_pyfunction;
 
     /// Workaround, since it seems wrap_pyfunction cant access another module namespace.
     #[pyfunction]
-    pub fn bam_to_gbam_python(in_path: String, out_path: String, codec_str: String) {
+    pub fn bam_to_gbam_python(in_path: String, out_path: String, codec_str: String, sort: bool) {
         let codec = match &codec_str[..] {
             "gzip" => Codecs::Gzip,
             "lz4" => Codecs::Lz4,
             _ => panic!("Codec <{}> is not supported.", codec_str),
         };
-        bam_to_gbam(&in_path, &out_path, codec);
+        if sort {
+            bam_sort_to_gbam(&in_path, &out_path, codec);
+        } else {
+            bam_to_gbam(&in_path, &out_path, codec);
+        }
     }
 
     #[pyfunction]

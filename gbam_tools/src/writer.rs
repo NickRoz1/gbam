@@ -6,6 +6,7 @@ use bam_tools::record::fields::{
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use crc32fast::Hasher;
+use std::borrow::Cow;
 use std::io::{Seek, SeekFrom, Write};
 
 /// The data is held in blocks.
@@ -190,8 +191,30 @@ where
     }
 }
 
+impl<W> Write for Writer<W>
+where
+    W: Write + Seek,
+{
+    /// WARNING: ENSURE THAT BUF CONTAINS A ONE FULL RECORD.
+    /// Write trait implementation is made to allow passing Write trait objects to sort function in BAM parallel.
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        assert!(buf.len() > 0);
+        // println!("Current record size is: {}", buf.len());
+        let wrapper = BAMRawRecord(Cow::Borrowed(buf));
+        self.push_record(&wrapper);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+// TODO: Its commented out because test doesnt compile otherwise.
 // impl<W> Drop for Writer<W>
-// where W: Write + Seek {
+// where
+//     W: Write + Seek,
+// {
 //     fn drop(&mut self) {
 //         self.finish().unwrap();
 //     }

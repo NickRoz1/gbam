@@ -53,11 +53,15 @@ sudo apt-get install libbz2-dev
 
 ### To convert BAM file to GBAM file
 ```shell
-python3 test_python_ffi.py conv -i test_data/input.bam -o test_data/output.gbam
+# Simply convert
+time ./target/release/gbam_binary -c test_data/wgEncodeUwRepliSeqGm12878G1bAlnRep1.bam test_data/res.gbam
+
+#Sort before writing (sort by Name and match mates)
+time ./target/release/gbam_binary -c -s test_data/wgEncodeUwRepliSeqGm12878G1bAlnRep1.bam test_data/res.gbam
 ```
 ### To test whether the GBAM file contains correct info and whether it iterates properly
 ```shell
-python3 test_python_ffi.py test -i test_data/input.bam
+python3 test_python_ffi.py test_data/input.bam test_data/input.sorted.bam
 ```
 
 # Development

@@ -1,68 +1,71 @@
+use crate::MEGA_BYTE_SIZE;
 use crate::{Codecs, Writer};
 use bam_tools::record::bamrawrecord::BAMRawRecord;
+use bam_tools::sorting::sort;
 use bam_tools::Reader;
-use byteorder::{LittleEndian, ReadBytesExt};
+use std::borrow::Cow;
 use std::fs::File;
-use std::io::Read;
+use std::io::{BufReader, BufWriter};
+
+const MEM_LIMIT: usize = 2000 * MEGA_BYTE_SIZE;
 
 /// Converts BAM file to GBAM file. This uses the `bam_parallel`
 /// reader.
 pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
-    // println!(
-    //     "PYTHON FFI IS WORKING. INPUT PARAMETERS1 ARE: {} | {}",
-    //     in_path, out_path
-    // );
-    // return ();
+    let (mut bgzf_reader, mut writer) = get_bam_reader_gbam_writer(in_path, out_path, codec);
 
+    bgzf_reader.read_header().unwrap();
+    bgzf_reader.consume_reference_sequences().unwrap();
+
+    let mut records = bgzf_reader.records();
+    while let Some(Ok(rec)) = records.next_rec() {
+        let wrapper = BAMRawRecord(Cow::Borrowed(rec));
+        writer.push_record(&wrapper);
+    }
+
+    writer.finish().unwrap();
+}
+
+pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
     let fin = File::open(in_path).expect("failed");
     let fout = File::create(out_path).expect("failed");
 
-    let buf_reader = std::io::BufReader::new(fin);
-    let buf_writer = std::io::BufWriter::new(fout);
+    let buf_reader = BufReader::new(fin);
+    let buf_writer = BufWriter::new(fout);
 
-    let mut reader = Reader::new(buf_reader, 10);
     let mut writer = Writer::new(buf_writer, codec, 8);
 
-    // Check for BAM magic header
-    let mut buf = BAMRawRecord::from(Vec::<u8>::new());
+    let tmp_dir_path = std::env::temp_dir();
 
-    let mut magic = [0; 4];
-    reader.read_exact(&mut magic).expect("Failed to read.");
+    sort::sort_bam(
+        MEM_LIMIT,
+        buf_reader,
+        &mut writer,
+        tmp_dir_path,
+        0,
+        20,
+        20,
+        false,
+        sort::SortBy::NameAndMatchMates,
+    )
+    .unwrap();
 
-    if &magic[..] != b"BAM\x01" {
-        panic!("invalid BAM header");
-    }
+    writer.finish().unwrap();
+}
 
-    let l_text = reader.read_u32::<LittleEndian>().expect("Failed to read.");
-    let mut c_text = vec![0; l_text as usize];
-    reader.read_exact(&mut c_text).expect("Failed to read.");
+fn get_bam_reader_gbam_writer(
+    in_path: &str,
+    out_path: &str,
+    codec: Codecs,
+) -> (Reader, Writer<BufWriter<File>>) {
+    let fin = File::open(in_path).expect("failed");
+    let fout = File::create(out_path).expect("failed");
 
-    let n_ref = reader.read_u32::<LittleEndian>().expect("Failed to read.");
-    // eprintln!("{}", n_ref);
+    let buf_reader = BufReader::new(fin);
+    let buf_writer = BufWriter::new(fout);
 
-    for _ in 0..n_ref {
-        let l_name = reader.read_u32::<LittleEndian>().expect("Failed to read.");
-        let mut c_name = vec![0; l_name as usize];
-        reader.read_exact(&mut c_name).expect("Failed to read.");
-        reader.read_u32::<LittleEndian>().expect("Failed to read.");
-    }
+    let bgzf_reader = Reader::new(buf_reader, 20);
+    let writer = Writer::new(buf_writer, codec, 8);
 
-    loop {
-        let block_size = match reader.read_u32::<LittleEndian>() {
-            Ok(bs) => bs as usize,
-            Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof => 0,
-            Err(e) => panic!("{}", e),
-        };
-        if block_size == 0 {
-            // EOF
-            writer.finish().unwrap();
-            return;
-        }
-
-        // Fetch the BAM read and push to the GBAM writer
-        buf.resize(block_size);
-        reader.read_exact(&mut buf).expect("FAILED TO READ.");
-        // write!(writer, "{:?}", buf).expect("Output failed");
-        writer.push_record(&buf);
-    }
+    (bgzf_reader, writer)
 }
