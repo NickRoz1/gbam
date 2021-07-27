@@ -8,17 +8,20 @@ pub mod bam {
     pub mod bam_to_gbam;
 }
 
+pub mod reader {
+    mod column;
+    /// GBAM reader
+    pub mod reader;
+}
 /// Meta information for GBAM file
 pub mod meta;
-/// GBAM reader
-pub mod reader;
 /// GBAM writer
 pub mod writer;
 
 mod compressor;
 
 // use self::writer::Writer;
-pub use self::reader::{ParsingTemplate, Reader};
+// pub use {ParsingTemplate, Reader};
 use self::writer::Writer;
 pub use bam::bam_to_gbam::{bam_sort_to_gbam, bam_to_gbam};
 use compressor::{CompressTask, Compressor};

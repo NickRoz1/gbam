@@ -1,6 +1,6 @@
-use super::meta::{Codecs, FileInfo, FileMeta, FILE_INFO_SIZE};
-use super::writer::calc_crc_for_meta_bytes;
-use super::SIZE_LIMIT;
+use crate::meta::{Codecs, FileInfo, FileMeta, FILE_INFO_SIZE};
+use crate::writer::calc_crc_for_meta_bytes;
+use crate::SIZE_LIMIT;
 use bam_tools::record::bamrawrecord::{decode_cigar, decode_seq};
 #[cfg(feature = "python-ffi")]
 use bam_tools::record::fields::DATA_FIELDS_NUM;

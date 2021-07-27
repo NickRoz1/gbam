@@ -229,7 +229,7 @@ pub(crate) fn calc_crc_for_meta_bytes(bytes: &[u8]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::reader::*;
+    use crate::reader::reader::*;
     use byteorder::ReadBytesExt;
     use std::io::Cursor;
     #[test]

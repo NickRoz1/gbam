@@ -253,4 +253,7 @@ impl FileMeta {
     pub fn get_blocks_sizes(&mut self, field: &Fields) -> &mut Vec<u32> {
         self.field_to_meta[*field as usize].blocks_sizes.as_mut()
     }
+    pub fn view_blocks_sizes(&self, field: &Fields) -> &Vec<u32> {
+        &self.field_to_meta[*field as usize].blocks_sizes
+    }
 }
