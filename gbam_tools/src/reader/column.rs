@@ -1,113 +1,183 @@
 use std::{
     borrow::Borrow,
     cell::RefCell,
-    io::{Read, Result, Seek},
-    ops::{Deref, DerefMut},
-    sync::{Arc, Mutex},
+    collections::{BTreeMap, BTreeSet},
+    io::Result,
+    rc::Rc,
 };
 
-use super::reader::{GbamRecord, ReadSeekSend};
+use super::record::GbamRecord;
 
 use bam_tools::record::fields::Fields;
-use lz4::block;
+use byteorder::{LittleEndian, ReadBytesExt};
+use flate2::write::GzDecoder;
+use lz4::Decoder;
 use memmap::Mmap;
 
-use crate::meta::FileMeta;
-
-// MAKE A TRAIT COLUMN AND THEN TWO SPECIALZIATIONS FOR FIXED SIZE FIELDS AND
-// VARIABLE SIZED FIELDS (THE LATTER ONE REQUIRES OTHER INDEX FIELDS TO BE
-// LOADED SIMULTANEOUSLY).
+use crate::{meta::FileMeta, Codecs};
 
 // Contains fields needed both for fixed sized fields and variable sized fields.
-struct Inner<'a> {
-    meta: &'a FileMeta,
+pub struct Inner {
+    meta: Rc<FileMeta>,
     range_begin: usize,
     range_end: usize,
     field: Fields,
-    block_num: usize,
     buffer: Vec<u8>,
-    reader: RefCell<Mmap>,
+    reader: Rc<Mmap>,
 }
+
+impl Inner {
+    pub(crate) fn new(meta: Rc<FileMeta>, field: Fields, reader: Rc<Mmap>) -> Self {
+        Inner {
+            meta,
+            range_begin: 0,
+            range_end: 0,
+            field,
+            buffer: Vec::<u8>::new(),
+            reader,
+        }
+    }
+}
+
 /// Defines how columns will operate. It is needed since variable sized fields
 /// columns also require parsing of additional fixed sized fields columns.
-trait Column {
+pub trait Column {
     // Fills GbamRecord field with data from corresponding BAM record.
     fn fill_record_field(&mut self, item_num: usize, rec: &mut GbamRecord) -> ();
 }
+
 /// GBAM file column. Responsible for fetching data.
-struct FixedColumn<'a>(Inner<'a>);
+pub struct FixedColumn(Inner);
 
-impl<'a> Deref for FixedColumn<'a> {
-    type Target = Inner<'a>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<'a> DerefMut for FixedColumn<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl<'a> Column for FixedColumn<'a> {
+impl Column for FixedColumn {
+    /// Fetches data into provider record buffer. If item is located outside of
+    /// currently loaded data block, the new block will be loaded and
+    /// decompressed.
     fn fill_record_field(&mut self, item_num: usize, rec: &mut GbamRecord) -> () {
-        if let Some(block_num) = self.find_block(item_num) {
-            fetch_block(&mut self.0, block_num);
-            let block_len = self.meta.view_blocks_sizes(&self.field)[0] as usize;
-            self.range_begin = block_num * block_len;
-            self.range_end = self.range_begin + block_len;
-        }
-        rec.parse_from_bytes(&self.field, self.get_item(item_num));
+        rec.parse_from_bytes(&self.0.field.clone(), self.get_item(item_num));
     }
 }
 
-impl<'a> FixedColumn<'a> {
+impl FixedColumn {
+    pub fn new(inner: Inner) -> Self {
+        Self(inner)
+    }
+    fn get_item(&mut self, item_num: usize) -> &[u8] {
+        if let Some(block_num) = self.find_block(item_num) {
+            update_ranges(&mut self.0, block_num);
+        }
+        let item_size = self.0.meta.get_field_size(&self.0.field).unwrap() as usize;
+        let offset = item_num * item_size;
+        &self.0.buffer[offset..offset + item_size]
+    }
     // Finds blocks where record is located. None is returned if block is already loaded.
     fn find_block(&self, item_num: usize) -> Option<usize> {
-        if item_num >= self.range_begin && item_num < self.range_end {
+        if item_num >= self.0.range_begin && item_num < self.0.range_end {
             return None;
         }
         // All blocks sizes are equal except maybe last one (since it's a fixed sized column).
-        let block_len = self.meta.view_blocks_sizes(&self.field)[0];
+        let block_len = self.0.meta.view_blocks_sizes(&self.0.field)[0];
         Some(item_num / block_len as usize)
     }
-
-    fn get_item(&self, item_num: usize) -> &[u8] {
-        let item_size = self.meta.get_field_size(&self.field).unwrap() as usize;
-        let offset = item_num * item_size;
-        &self.buffer[offset..offset + item_size]
-    }
 }
 
-/// Column managing access to variable sized data. Utilized another column (for fixed sized fields) to index data.
-struct VariableColumn<'a>(Inner<'a>, FixedColumn<'a>);
+/// Column managing access to variable sized data. Utilizes another column (for fixed sized fields) to index data.
+pub struct VariableColumn {
+    inner: Inner,
+    index: FixedColumn,
+    // Used to quickly determine what block record belongs to.
+    blocks: BTreeMap<usize, usize>,
+}
 
-impl<'a> Column for VariableColumn<'a> {
+impl Column for VariableColumn {
     fn fill_record_field(&mut self, item_num: usize, rec: &mut GbamRecord) -> () {
-        if let Some(block_num) = self.find_block(item_num) {
-            fetch_block(block_num);
-            let block_len = self.meta.view_blocks_sizes(&self.field)[0] as usize;
-            self.range_begin = block_num * block_len;
-            self.range_end = self.range_begin + block_len;
-        }
-        rec.parse_from_bytes(&self.field, self.get_item(item_num));
+        rec.parse_from_bytes(&self.inner.field.clone(), self.get_item(item_num));
     }
 }
 
+impl VariableColumn {
+    pub fn new(inner: Inner, index: FixedColumn) -> Self {
+        Self {
+            blocks: inner
+                .meta
+                .view_blocks_sizes(&inner.field)
+                .iter()
+                .enumerate()
+                // Prefix sum.
+                .scan(0, |acc, (count, &x)| {
+                    *acc = *acc + x;
+                    Some((*acc as usize, count))
+                })
+                .collect(),
+            inner,
+            index,
+        }
+    }
+
+    fn get_item(&mut self, item_num: usize) -> &[u8] {
+        if let Some(block_num) = self.find_block(item_num) {
+            update_ranges(&mut self.inner, block_num);
+        }
+        let mut read_offset =
+            |n| self.index.get_item(n).read_u32::<LittleEndian>().unwrap() as usize;
+        let start = match item_num {
+            0 => 0,
+            _ => read_offset(item_num - 1),
+        };
+        let end = read_offset(item_num);
+        &self.inner.buffer[start..end]
+    }
+    // Finds blocks where record is located. None is returned if block is already loaded.
+    fn find_block(&self, item_num: usize) -> Option<usize> {
+        if item_num >= self.inner.range_begin && item_num < self.inner.range_end {
+            return None;
+        }
+        // To determine what block record N is in, count elements smaller than N in the BTree.
+        Some(
+            self.blocks
+                .range(..item_num)
+                .next_back()
+                .map_or(0, |(_, &val)| val),
+        )
+    }
+}
+
+fn update_ranges(inner: &mut Inner, block_num: usize) {
+    fetch_block(inner, block_num).unwrap();
+    let block_len = inner.meta.view_blocks_sizes(&inner.field)[0] as usize;
+    inner.range_begin = block_num * block_len;
+    inner.range_end = inner.range_begin + block_len;
+}
+
+/// Fetch and decompress a data block.
 fn fetch_block(inner_column: &mut Inner, block_num: usize) -> Result<()> {
     let field = &inner_column.field;
     let block_meta = inner_column.meta.view_blocks(field).get(block_num).unwrap();
-    let reader = inner_column.reader.borrow_mut();
+    let reader = &inner_column.reader;
     let block_size = inner_column.meta.view_blocks_sizes(field)[block_num as usize];
 
-    inner_column.buffer.clear();
-    let mut data =
+    let data =
         &reader[(block_meta.seekpos as usize)..(block_meta.seekpos + block_size as u64) as usize];
 
-    data.read_to_end(&mut inner_column.buffer)?;
-    inner_column.block_num = block_num;
+    inner_column.buffer.clear();
+    let codec = inner_column.meta.get_field_codec(field);
+    decompress_block(data, &mut inner_column.buffer, codec).expect("Decompression failed.");
 
+    Ok(())
+}
+
+fn decompress_block(source: &[u8], mut dest: &mut [u8], codec: &Codecs) -> std::io::Result<()> {
+    use std::io::Write;
+    match codec {
+        Codecs::Gzip => {
+            let mut decoder = GzDecoder::new(dest);
+            decoder.write_all(source)?;
+            decoder.try_finish()?;
+        }
+        Codecs::Lz4 => {
+            let mut decoder = Decoder::new(source)?;
+            std::io::copy(&mut decoder, &mut dest)?;
+        }
+    };
     Ok(())
 }

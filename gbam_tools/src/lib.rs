@@ -10,8 +10,11 @@ pub mod bam {
 
 pub mod reader {
     mod column;
+    mod parse_tmplt;
     /// GBAM reader
     pub mod reader;
+    mod record;
+    mod records;
 }
 /// Meta information for GBAM file
 pub mod meta;
