@@ -1,3 +1,6 @@
+#[cfg(feature = "python-ffi")]
+use pyo3::prelude::*;
+
 use bam_tools::record::{
     bamrawrecord::{decode_cigar, decode_seq},
     fields::Fields,

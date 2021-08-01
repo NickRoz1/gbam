@@ -4,6 +4,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     io::Result,
     rc::Rc,
+    sync::Arc,
 };
 
 use super::record::GbamRecord;
@@ -12,22 +13,28 @@ use bam_tools::record::fields::Fields;
 use byteorder::{LittleEndian, ReadBytesExt};
 use flate2::write::GzDecoder;
 use lz4::Decoder;
-use memmap::Mmap;
+use memmap2::Mmap;
 
 use crate::{meta::FileMeta, Codecs};
 
 // Contains fields needed both for fixed sized fields and variable sized fields.
 pub struct Inner {
-    meta: Rc<FileMeta>,
+    /// Arc is needed since this struct should work with PyO3 which sends struct between threads.
+    meta: Arc<FileMeta>,
     range_begin: usize,
     range_end: usize,
     field: Fields,
     buffer: Vec<u8>,
-    reader: Rc<Mmap>,
+    reader: Arc<Mmap>,
 }
 
 impl Inner {
-    pub(crate) fn new(meta: Rc<FileMeta>, field: Fields, reader: Rc<Mmap>) -> Self {
+    pub(crate) fn new(meta: Arc<FileMeta>, field: Fields, reader: Arc<Mmap>) -> Self {
+        println!(
+            "Field: {:?} block_num: {}",
+            field,
+            meta.view_blocks_sizes(&field)[0]
+        );
         Inner {
             meta,
             range_begin: 0,
@@ -64,7 +71,7 @@ impl FixedColumn {
     }
     fn get_item(&mut self, item_num: usize) -> &[u8] {
         if let Some(block_num) = self.find_block(item_num) {
-            update_ranges(&mut self.0, block_num);
+            update_buffer(&mut self.0, block_num);
         }
         let item_size = self.0.meta.get_field_size(&self.0.field).unwrap() as usize;
         let offset = item_num * item_size;
@@ -76,7 +83,15 @@ impl FixedColumn {
             return None;
         }
         // All blocks sizes are equal except maybe last one (since it's a fixed sized column).
-        let block_len = self.0.meta.view_blocks_sizes(&self.0.field)[0];
+        let block_len = self.0.meta.view_blocks(&self.0.field)[0].numitems;
+        // println!(
+        //     "Field {:?} Item_num {}, divisor {}, result {}, len {}",
+        //     self.0.field,
+        //     item_num,
+        //     block_len,
+        //     item_num / block_len as usize,
+        //     self.0.meta.view_blocks_sizes(&self.0.field).len()
+        // );
         Some(item_num / block_len as usize)
     }
 }
@@ -100,12 +115,12 @@ impl VariableColumn {
         Self {
             blocks: inner
                 .meta
-                .view_blocks_sizes(&inner.field)
+                .view_blocks(&inner.field)
                 .iter()
                 .enumerate()
                 // Prefix sum.
-                .scan(0, |acc, (count, &x)| {
-                    *acc = *acc + x;
+                .scan(0, |acc, (count, x)| {
+                    *acc = *acc + x.numitems;
                     Some((*acc as usize, count))
                 })
                 .collect(),
@@ -116,7 +131,7 @@ impl VariableColumn {
 
     fn get_item(&mut self, item_num: usize) -> &[u8] {
         if let Some(block_num) = self.find_block(item_num) {
-            update_ranges(&mut self.inner, block_num);
+            update_buffer(&mut self.inner, block_num);
         }
         let mut read_offset =
             |n| self.index.get_item(n).read_u32::<LittleEndian>().unwrap() as usize;
@@ -127,6 +142,7 @@ impl VariableColumn {
         let end = read_offset(item_num);
         &self.inner.buffer[start..end]
     }
+
     // Finds blocks where record is located. None is returned if block is already loaded.
     fn find_block(&self, item_num: usize) -> Option<usize> {
         if item_num >= self.inner.range_begin && item_num < self.inner.range_end {
@@ -142,9 +158,11 @@ impl VariableColumn {
     }
 }
 
-fn update_ranges(inner: &mut Inner, block_num: usize) {
+fn update_buffer(inner: &mut Inner, block_num: usize) {
+    println!("Doing heavy work");
     fetch_block(inner, block_num).unwrap();
-    let block_len = inner.meta.view_blocks_sizes(&inner.field)[0] as usize;
+    let block_len = inner.meta.view_blocks(&inner.field)[block_num].numitems;
+    /// FIX HERE
     inner.range_begin = block_num * block_len;
     inner.range_end = inner.range_begin + block_len;
 }
@@ -161,22 +179,22 @@ fn fetch_block(inner_column: &mut Inner, block_num: usize) -> Result<()> {
 
     inner_column.buffer.clear();
     let codec = inner_column.meta.get_field_codec(field);
-    decompress_block(data, &mut inner_column.buffer, codec).expect("Decompression failed.");
 
+    decompress_block(data, &mut inner_column.buffer, codec).expect("Decompression failed.");
     Ok(())
 }
 
-fn decompress_block(source: &[u8], mut dest: &mut [u8], codec: &Codecs) -> std::io::Result<()> {
+fn decompress_block(source: &[u8], dest: &mut Vec<u8>, codec: &Codecs) -> std::io::Result<()> {
     use std::io::Write;
     match codec {
         Codecs::Gzip => {
             let mut decoder = GzDecoder::new(dest);
-            decoder.write_all(source)?;
-            decoder.try_finish()?;
+            decoder.write_all(source).unwrap();
+            decoder.try_finish().unwrap();
         }
         Codecs::Lz4 => {
             let mut decoder = Decoder::new(source)?;
-            std::io::copy(&mut decoder, &mut dest)?;
+            std::io::copy(&mut decoder, dest).unwrap();
         }
     };
     Ok(())

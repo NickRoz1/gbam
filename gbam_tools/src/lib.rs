@@ -10,11 +10,11 @@ pub mod bam {
 
 pub mod reader {
     mod column;
-    mod parse_tmplt;
+    pub mod parse_tmplt;
     /// GBAM reader
     pub mod reader;
-    mod record;
-    mod records;
+    pub mod record;
+    pub mod records;
 }
 /// Meta information for GBAM file
 pub mod meta;
@@ -42,9 +42,11 @@ static GBAM_MAGIC: &[u8] = b"geeBAM10";
 
 #[cfg(feature = "python-ffi")]
 mod ffi {
-    use crate::reader;
-    use crate::Codecs;
-    use crate::{bam_sort_to_gbam, bam_to_gbam};
+    use crate::{
+        Codecs, {bam_sort_to_gbam, bam_to_gbam},
+    };
+
+    use crate::reader::{parse_tmplt, record, records};
 
     use pyo3::prelude::*;
     use pyo3::wrap_pyfunction;
@@ -72,9 +74,9 @@ mod ffi {
         m.add_function(wrap_pyfunction!(test, m)?).unwrap();
         m.add_function(wrap_pyfunction!(bam_to_gbam_python, m)?)
             .unwrap();
-        m.add_class::<reader::Reader>()?;
-        m.add_class::<reader::ParsingTemplate>()?;
-        m.add_class::<reader::GbamRecord>()?;
+        m.add_class::<records::PyRecords>()?;
+        m.add_class::<parse_tmplt::ParsingTemplate>()?;
+        m.add_class::<record::GbamRecord>()?;
         Ok(())
     }
 }

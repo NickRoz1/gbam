@@ -1,10 +1,13 @@
+#[cfg(feature = "python-ffi")]
+use pyo3::prelude::*;
+
 use bam_tools::record::fields::{
-    field_type, is_data_field, var_size_field_to_index, FieldType, Fields, FIELDS_NUM,
+    field_type, is_data_field, var_size_field_to_index, FieldType, Fields, DATA_FIELDS_NUM,
+    FIELDS_NUM,
 };
 
-#[cfg_attr(feature = "python-ffi", pyclass)]
 /// This struct regulates what fields are getting parsed from GBAM file.
-
+#[cfg_attr(feature = "python-ffi", pyclass)]
 #[derive(Clone, Debug)]
 pub struct ParsingTemplate {
     inner: Vec<Option<Fields>>,

@@ -1,11 +1,10 @@
-use std::borrow::Borrow;
-use std::fs::File;
-use std::rc::Rc;
+use std::sync::Arc;
+use std::{borrow::Borrow, fs::File, rc::Rc};
 
 use bam_tools::record::fields::{
     field_type, var_size_field_to_index, FieldType, Fields, FIELDS_NUM,
 };
-use memmap::Mmap;
+use memmap2::Mmap;
 
 use crate::meta::{FileInfo, FileMeta, FILE_INFO_SIZE};
 use crate::writer::calc_crc_for_meta_bytes;
@@ -19,31 +18,29 @@ use super::{
 
 pub struct Reader {
     // Instead of hashmap. Empty columns will contain None.
-    pub columns: Vec<Option<Box<dyn Column>>>,
-    mmap: Rc<Mmap>,
+    pub columns: Vec<Option<Box<dyn Column + Send>>>,
     pub parsing_template: ParsingTemplate,
-    rec_num: usize,
+    pub rec_num: usize,
 }
 
 impl Reader {
-    fn new(inner: File, parsing_template: ParsingTemplate) -> std::io::Result<Self> {
+    pub fn new(inner: File, parsing_template: ParsingTemplate) -> std::io::Result<Self> {
         let source = Box::new(inner);
-        let mmap = Rc::new(unsafe { Mmap::map(source.borrow())? });
-        let file_meta = Rc::new(verify_and_parse_meta(&mmap)?);
+        let mmap = Arc::new(unsafe { Mmap::map(source.borrow())? });
+        let file_meta = Arc::new(verify_and_parse_meta(&mmap)?);
         let rec_num = file_meta
-            .view_blocks_sizes(&Fields::RefID)
+            .view_blocks(&Fields::RefID)
             .iter()
-            .fold(0, |acc, &x| acc + x) as usize;
+            .fold(0, |acc, x| acc + x.numitems) as usize;
         Ok(Self {
             columns: init_columns(&mmap, &parsing_template, &file_meta),
-            mmap,
             parsing_template,
             rec_num,
         })
     }
 
-    fn fill_record(&mut self, rec_num: usize, rec: &mut GbamRecord) {
-        for &field in self.parsing_template.get_active_fields_iter() {
+    pub fn fill_record(&mut self, rec_num: usize, rec: &mut GbamRecord) {
+        for &field in self.parsing_template.get_active_data_fields_iter() {
             self.columns[field as usize]
                 .as_mut()
                 .unwrap()
@@ -53,29 +50,24 @@ impl Reader {
 
     /// Get iterator over all GBAM records (according to parsing template).
     pub fn records(&mut self) -> Records {
-        Records::new(self, 0, self.rec_num, GbamRecord::default())
+        Records::new(self)
     }
 }
 
 fn init_columns(
-    mmap: &Rc<Mmap>,
+    mmap: &Arc<Mmap>,
     parse_template: &ParsingTemplate,
-    meta: &Rc<FileMeta>,
-) -> Vec<Option<Box<dyn Column>>> {
+    meta: &Arc<FileMeta>,
+) -> Vec<Option<Box<dyn Column + Send>>> {
     let mut res = Vec::new();
     (0..FIELDS_NUM).for_each(|_| res.push(None));
     for &field in parse_template.get_active_fields_iter() {
-        res[field as usize] = Some(init_col(field, mmap, parse_template, meta));
+        res[field as usize] = Some(init_col(field, mmap, meta));
     }
     res
 }
 
-fn init_col(
-    field: Fields,
-    mmap: &Rc<Mmap>,
-    parse_template: &ParsingTemplate,
-    meta: &Rc<FileMeta>,
-) -> Box<dyn Column> {
+fn init_col(field: Fields, mmap: &Arc<Mmap>, meta: &Arc<FileMeta>) -> Box<dyn Column + Send> {
     let inner = Inner::new(meta.clone(), field, mmap.clone());
     match field_type(&field) {
         FieldType::FixedSized => Box::new(FixedColumn::new(inner)),

@@ -29,16 +29,22 @@ def convert(bam_path, gbam_path, sort, compression = 'gzip'):
     print("Conversion completed.")
 
 def get_reader(path, parsing_tmplt):
-    from gbam_tools import Reader, ParsingTemplate
-    return Reader(path, parsing_tmplt)
+    from gbam_tools import PyRecords
+    return PyRecords(path, parsing_tmplt)
 
 # Converts BAM file to GBAM file, performs tests, deletes GBAM file.
 def test_converter(input_path, input_sorted_path):
     output_file = NamedTemporaryFile()
     convert(input_path, output_file.name, True, 'lz4')
-    output_file_name = output_file.name
-    check_if_equal(input_sorted_path, output_file_name)
+    check_if_equal(input_sorted_path, output_file.name)
     print("BAM sort to GBAM test passed.")
+
+def test_new_bam_reader(input_path):
+    # output_file = NamedTemporaryFile()
+    # convert(input_path, "/home/nickr/Development/Rust/GBAM/test_data/res.gbam", False)
+    check_if_equal(input_path, "/home/nickr/Development/Rust/GBAM/test_data/res.gbam")
+    print("New BAM reader test passed.")
+
 
 def get_parsing_tmpl(fields_to_parse):
     from gbam_tools import ParsingTemplate
@@ -64,6 +70,7 @@ def check_if_equal(bam_path, gbam_path, no_check_fields=[]):
 
     i = 0
     while True:
+        print(i)
         cur_gbam = gbam_file.next_record()
         cur_bam = next(bam_file, None)
         if i > 0 and i % 100000 == 0:
@@ -107,18 +114,19 @@ def is_valid_file(path):
     import os.path
 
     if not os.path.exists(path):
-        print("The file %s does not exist!" % arg)
+        print("The file %s does not exist!" % path)
         return None
     else:
         return path
 
 
 if __name__ == "__main__":
-    print("Provide BAM file and sorted version of it.")
+    # print("Provide BAM file and sorted version of it.")
     bam_file_path = is_valid_file(sys.argv[1])
-    bam_sorted_file_path = is_valid_file(sys.argv[2])
-    assert(bam_file_path)
-    assert(bam_sorted_file_path)
-    test_converter(bam_file_path, bam_sorted_file_path)
+    # bam_sorted_file_path = is_valid_file(sys.argv[2])
+    # assert(bam_file_path)
+    # assert(bam_sorted_file_path)
+    # test_converter(bam_file_path, bam_sorted_file_path)
+    test_new_bam_reader(bam_file_path)
     
 
