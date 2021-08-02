@@ -91,6 +91,15 @@ impl ParsingTemplate {
             .for_each(|e| *e = None);
         self.set_active();
     }
+
+    pub fn check_if_active(&self, fields: &[Fields]) -> bool {
+        for &field in &[Fields::RefID, Fields::Pos, Fields::RawSeqLen] {
+            if self.inner[field as usize].is_none() {
+                return false;
+            }
+        }
+        true
+    }
 }
 
 impl Default for ParsingTemplate {

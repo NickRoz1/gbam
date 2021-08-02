@@ -16,6 +16,10 @@ pub mod reader {
     pub mod record;
     pub mod records;
 }
+
+pub mod query {
+    pub mod depth;
+}
 /// Meta information for GBAM file
 pub mod meta;
 /// GBAM writer
