@@ -30,11 +30,6 @@ pub struct Inner {
 
 impl Inner {
     pub(crate) fn new(meta: Arc<FileMeta>, field: Fields, reader: Arc<Mmap>) -> Self {
-        println!(
-            "Field: {:?} block_num: {}",
-            field,
-            meta.view_blocks_sizes(&field)[0]
-        );
         Inner {
             meta,
             range_begin: 0,
@@ -71,7 +66,7 @@ impl FixedColumn {
     }
     fn get_item(&mut self, item_num: usize) -> &[u8] {
         if let Some(block_num) = self.find_block(item_num) {
-            update_buffer(&mut self.0, block_num);
+            Self::update_buffer(&mut self.0, block_num);
         }
         let item_size = self.0.meta.get_field_size(&self.0.field).unwrap() as usize;
         let offset = item_num * item_size;
@@ -84,15 +79,14 @@ impl FixedColumn {
         }
         // All blocks sizes are equal except maybe last one (since it's a fixed sized column).
         let block_len = self.0.meta.view_blocks(&self.0.field)[0].numitems;
-        // println!(
-        //     "Field {:?} Item_num {}, divisor {}, result {}, len {}",
-        //     self.0.field,
-        //     item_num,
-        //     block_len,
-        //     item_num / block_len as usize,
-        //     self.0.meta.view_blocks_sizes(&self.0.field).len()
-        // );
         Some(item_num / block_len as usize)
+    }
+
+    fn update_buffer(inner: &mut Inner, block_num: usize) {
+        fetch_block(inner, block_num).unwrap();
+        let block_len = inner.meta.view_blocks(&inner.field)[0].numitems as usize;
+        inner.range_begin = block_num * block_len;
+        inner.range_end = inner.range_begin + block_len;
     }
 }
 
@@ -120,8 +114,9 @@ impl VariableColumn {
                 .enumerate()
                 // Prefix sum.
                 .scan(0, |acc, (count, x)| {
+                    let current_chunk = Some((*acc as usize, count));
                     *acc = *acc + x.numitems;
-                    Some((*acc as usize, count))
+                    current_chunk
                 })
                 .collect(),
             inner,
@@ -130,12 +125,13 @@ impl VariableColumn {
     }
 
     fn get_item(&mut self, item_num: usize) -> &[u8] {
-        if let Some(block_num) = self.find_block(item_num) {
-            update_buffer(&mut self.inner, block_num);
+        if let Some((range_begin, block_num)) = self.find_block(item_num) {
+            Self::update_buffer(&mut self.inner, block_num, range_begin);
         }
+        let rec_num_in_block = item_num - self.inner.range_begin;
         let mut read_offset =
             |n| self.index.get_item(n).read_u32::<LittleEndian>().unwrap() as usize;
-        let start = match item_num {
+        let start = match rec_num_in_block {
             0 => 0,
             _ => read_offset(item_num - 1),
         };
@@ -144,27 +140,28 @@ impl VariableColumn {
     }
 
     // Finds blocks where record is located. None is returned if block is already loaded.
-    fn find_block(&self, item_num: usize) -> Option<usize> {
+    fn find_block(&self, item_num: usize) -> Option<(usize, usize)> {
         if item_num >= self.inner.range_begin && item_num < self.inner.range_end {
             return None;
         }
-        // To determine what block record N is in, count elements smaller than N in the BTree.
+        // To determine what block record N is in.
         Some(
             self.blocks
-                .range(..item_num)
+                // Inclusive range.
+                .range(..=item_num)
                 .next_back()
-                .map_or(0, |(_, &val)| val),
+                .map_or((0, 0), |(&range_begin, &block_num)| {
+                    (range_begin, block_num)
+                }),
         )
     }
-}
 
-fn update_buffer(inner: &mut Inner, block_num: usize) {
-    println!("Doing heavy work");
-    fetch_block(inner, block_num).unwrap();
-    let block_len = inner.meta.view_blocks(&inner.field)[block_num].numitems;
-    /// FIX HERE
-    inner.range_begin = block_num * block_len;
-    inner.range_end = inner.range_begin + block_len;
+    fn update_buffer(inner: &mut Inner, block_num: usize, range_begin: usize) {
+        fetch_block(inner, block_num).unwrap();
+        let block_len = inner.meta.view_blocks(&inner.field)[block_num].numitems as usize;
+        inner.range_begin = range_begin;
+        inner.range_end = inner.range_begin + block_len;
+    }
 }
 
 /// Fetch and decompress a data block.
