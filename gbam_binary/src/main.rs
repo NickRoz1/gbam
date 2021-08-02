@@ -65,7 +65,6 @@ fn test(args: Cli) {
     let mut u = 1;
     #[allow(unused_variables)]
     while let Some(rec) = records.next_rec() {
-        println!("{}", u);
         u += 1;
     }
     println!(
