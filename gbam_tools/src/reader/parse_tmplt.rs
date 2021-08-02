@@ -11,6 +11,8 @@ use bam_tools::record::fields::{
 #[derive(Clone, Debug)]
 pub struct ParsingTemplate {
     inner: Vec<Option<Fields>>,
+    // Cache.
+    active_data_fields: Vec<Fields>,
 }
 
 impl ParsingTemplate {
@@ -18,6 +20,7 @@ impl ParsingTemplate {
     pub fn new() -> Self {
         Self {
             inner: ((0..FIELDS_NUM).map(|_| None).collect()),
+            active_data_fields: Vec::new(),
         }
     }
     /// Set field value
@@ -31,7 +34,8 @@ impl ParsingTemplate {
                 self.inner[var_size_field_to_index(field) as usize] =
                     Self::bool_to_val(&var_size_field_to_index(field), val);
             }
-        }
+        };
+        self.set_active();
     }
 
     fn bool_to_val(field: &Fields, val: bool) -> Option<Fields> {
@@ -52,10 +56,16 @@ impl ParsingTemplate {
     /// Get iterator over data fields (no index fields) currently requested for parsing
     #[allow(clippy::needless_lifetimes)]
     pub fn get_active_data_fields_iter<'a>(&'a self) -> impl Iterator<Item = &'a Fields> {
-        self.inner
+        self.active_data_fields.iter()
+    }
+
+    fn set_active(&mut self) {
+        self.active_data_fields = self
+            .inner
             .iter()
             .filter(|x| x.is_some() && is_data_field(&x.unwrap()))
-            .map(|x| x.as_ref().unwrap())
+            .map(|x| x.unwrap())
+            .collect();
     }
 
     /// Get fields currently requested for parsing
@@ -71,6 +81,7 @@ impl ParsingTemplate {
                 *val = Some(*field);
             }
         }
+        self.set_active();
     }
     /// Set all fields to disabled state
     pub fn clear(&mut self) {
@@ -78,6 +89,7 @@ impl ParsingTemplate {
             .iter_mut()
             .filter(|x| x.is_some())
             .for_each(|e| *e = None);
+        self.set_active();
     }
 }
 

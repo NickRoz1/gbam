@@ -21,12 +21,14 @@ pub struct Reader {
     pub columns: Vec<Option<Box<dyn Column + Send>>>,
     pub parsing_template: ParsingTemplate,
     pub rec_num: usize,
+    // Kept so File won't drop while used by mmap.
+    inner: Box<File>,
 }
 
 impl Reader {
     pub fn new(inner: File, parsing_template: ParsingTemplate) -> std::io::Result<Self> {
-        let source = Box::new(inner);
-        let mmap = Arc::new(unsafe { Mmap::map(source.borrow())? });
+        let inner = Box::new(inner);
+        let mmap = Arc::new(unsafe { Mmap::map(inner.borrow())? });
         let file_meta = Arc::new(verify_and_parse_meta(&mmap)?);
         let rec_num = file_meta
             .view_blocks(&Fields::RefID)
@@ -36,6 +38,7 @@ impl Reader {
             columns: init_columns(&mmap, &parsing_template, &file_meta),
             parsing_template,
             rec_num,
+            inner,
         })
     }
 

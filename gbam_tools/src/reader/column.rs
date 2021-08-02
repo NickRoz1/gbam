@@ -19,7 +19,7 @@ use crate::{meta::FileMeta, Codecs};
 
 // Contains fields needed both for fixed sized fields and variable sized fields.
 pub struct Inner {
-    /// Arc is needed since this struct should work with PyO3 which sends struct between threads.
+    /// Arc is needed since this struct should work with PyO3 which sends struct between threads (Send trait is required).
     meta: Arc<FileMeta>,
     range_begin: usize,
     range_end: usize,
@@ -68,8 +68,9 @@ impl FixedColumn {
         if let Some(block_num) = self.find_block(item_num) {
             Self::update_buffer(&mut self.0, block_num);
         }
+        let rec_num_in_block = item_num - self.0.range_begin;
         let item_size = self.0.meta.get_field_size(&self.0.field).unwrap() as usize;
-        let offset = item_num * item_size;
+        let offset = rec_num_in_block * item_size;
         &self.0.buffer[offset..offset + item_size]
     }
     // Finds blocks where record is located. None is returned if block is already loaded.
@@ -77,7 +78,7 @@ impl FixedColumn {
         if item_num >= self.0.range_begin && item_num < self.0.range_end {
             return None;
         }
-        // All blocks sizes are equal except maybe last one (since it's a fixed sized column).
+        // All blocks sizes are equal except maybe the last one since it's a fixed sized column and block size limit is constant.
         let block_len = self.0.meta.view_blocks(&self.0.field)[0].numitems;
         Some(item_num / block_len as usize)
     }
@@ -85,8 +86,9 @@ impl FixedColumn {
     fn update_buffer(inner: &mut Inner, block_num: usize) {
         fetch_block(inner, block_num).unwrap();
         let block_len = inner.meta.view_blocks(&inner.field)[0].numitems as usize;
+        let cur_block_len = inner.meta.view_blocks(&inner.field)[block_num].numitems as usize;
         inner.range_begin = block_num * block_len;
-        inner.range_end = inner.range_begin + block_len;
+        inner.range_end = inner.range_begin + cur_block_len;
     }
 }
 

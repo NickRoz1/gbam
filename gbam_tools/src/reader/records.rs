@@ -1,10 +1,5 @@
 use super::{parse_tmplt::ParsingTemplate, reader::Reader, record::GbamRecord};
-use std::{
-    borrow::{Borrow, BorrowMut},
-    cell::RefCell,
-    fs::File,
-    ops::Deref,
-};
+use std::fs::File;
 
 #[cfg(feature = "python-ffi")]
 use pyo3::prelude::*;
@@ -23,7 +18,6 @@ impl<'a> Records<'a> {
             rec_amount: reader.rec_num,
             reader,
             cur_rec: 0,
-
             buf: GbamRecord::default(),
         }
     }

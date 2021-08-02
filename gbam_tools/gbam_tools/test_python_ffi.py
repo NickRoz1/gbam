@@ -70,7 +70,6 @@ def check_if_equal(bam_path, gbam_path, no_check_fields=[]):
 
     i = 0
     while True:
-        print(i)
         cur_gbam = gbam_file.next_record()
         cur_bam = next(bam_file, None)
         if i > 0 and i % 100000 == 0:
