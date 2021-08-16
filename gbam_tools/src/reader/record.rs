@@ -7,8 +7,10 @@ use bam_tools::record::{
 };
 use byteorder::{LittleEndian, ReadBytesExt};
 
+use crate::query::cigar::Cigar;
+
 #[cfg(not(feature = "python-ffi"))]
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 /// Represents a GBAM record in which some fields may be omitted.
 pub struct GbamRecord {
     /// Reference sequence ID
@@ -30,7 +32,7 @@ pub struct GbamRecord {
     /// Read name
     pub read_name: Option<Vec<u8>>,
     /// CIGAR
-    pub cigar: Option<String>,
+    pub cigar: Option<Cigar>,
     /// 4-bit  encoded  read
     pub seq: Option<String>,
     /// Phred-scaled base qualities.
@@ -86,6 +88,15 @@ pub struct GbamRecord {
     pub tags: Option<Vec<u8>>,
 }
 
+/// cfg_attribute currently doesn't work with pyo3(get)
+#[cfg(feature = "python-ffi")]
+pub fn parse_cigar(bytes: &[u8]) -> String {
+    decode_cigar(bytes)
+}
+
+/// This version is for Rust.
+pub fn parse_cigar(bytes: &[u8]) -> Cigar {}
+
 // TODO :: ADD TEMPLATE LENGTHS TO GBAM RECORD
 // TODO :: REMOVE CG TAG FROM ORIGINAL FILE
 impl GbamRecord {
@@ -100,15 +111,7 @@ impl GbamRecord {
             Fields::NextPos => self.next_pos = Some(bytes.read_i32::<LittleEndian>().unwrap()),
             Fields::TemplateLength => self.tlen = Some(bytes.read_i32::<LittleEndian>().unwrap()),
             Fields::ReadName => self.read_name = Some(bytes.to_vec()),
-            Fields::RawCigar => {
-                // self.cigar = Some(
-                //     bytes
-                //         .chunks(U32_SIZE)
-                //         .map(|mut slice| slice.read_u32::<LittleEndian>().unwrap())
-                //         .collect(),
-                // )
-                self.cigar = Some(decode_cigar(bytes))
-            }
+            Fields::RawCigar => self.cigar = Some(parse_cigar(bytes)),
             Fields::RawSequence => self.seq = Some(decode_seq(bytes)),
             Fields::RawQual => self.qual = Some(bytes.to_vec()),
             Fields::RawTags => self.tags = Some(bytes.to_vec()),

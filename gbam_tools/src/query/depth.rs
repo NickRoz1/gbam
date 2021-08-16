@@ -16,10 +16,13 @@ pub fn get_depth(reader: &mut Reader, chr_num: usize, pos: usize) -> Option<usiz
     }
 }
 
-fn find_refid(reader: &mut Reader, chr_num: usize, buf: &mut GbamRecord) -> Option<usize> {
+//         https://github.com/biod/sambamba/blob/3eff9a2d8bb3097b92c72752be3c6b42dd1c59b7/BioD/bio/std/hts/bam/read.d#L902
+
+fn find_refid(reader: &mut Reader, chr: String, buf: &mut GbamRecord) -> Option<usize> {
     let mut l = 0;
     let mut r = reader.rec_num;
 
+    let chr_num = 
     while l <= r {
         let mid = (l + r) / 2;
         reader.fill_record(mid, buf);
@@ -35,3 +38,10 @@ fn find_refid(reader: &mut Reader, chr_num: usize, buf: &mut GbamRecord) -> Opti
         false => None,
     }
 }
+
+
+/// Implement custom is_consuming_reference cigar parser. No need to do
+/// LittleEndian read, when the only thing we need is 1 bytes (4 bits to be
+/// precise). 
+/// Then, I guess the stuff from sambamba should do the trick for the rest.
+pub fn l() {}

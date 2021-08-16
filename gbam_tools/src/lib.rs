@@ -18,8 +18,10 @@ pub mod reader {
 }
 
 pub mod query {
+    pub mod cigar;
     pub mod depth;
 }
+
 /// Meta information for GBAM file
 pub mod meta;
 /// GBAM writer

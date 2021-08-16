@@ -56,17 +56,19 @@ fn convert(args: Cli) {
 
 fn test(args: Cli) {
     let mut tmplt = ParsingTemplate::new();
+    tmplt.set(&Fields::RefID, true);
     tmplt.set(&Fields::Pos, true);
     tmplt.set(&Fields::RawCigar, true);
     let file = File::open(args.in_path.as_path().to_str().unwrap()).unwrap();
     let mut reader = Reader::new(file, tmplt).unwrap();
     let mut records = reader.records();
     let now = Instant::now();
-    let mut u = 1;
+    let mut u = 0;
     #[allow(unused_variables)]
     while let Some(rec) = records.next_rec() {
-        u += 1;
+        // u += rec.cigar.as_ref().unwrap().as_bytes().len();
     }
+    println!("Record count {}", u);
     println!(
         "GBAM. Time elapsed querying POS and RAWCIGAR field throughout whole file: {}ms",
         now.elapsed().as_millis()
