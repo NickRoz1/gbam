@@ -21,6 +21,7 @@ pub struct Reader {
     pub columns: Vec<Option<Box<dyn Column + Send>>>,
     pub parsing_template: ParsingTemplate,
     pub rec_num: usize,
+    pub file_meta: Arc<FileMeta>,
     // Kept so File won't drop while used by mmap.
     inner: Box<File>,
 }
@@ -37,6 +38,7 @@ impl Reader {
         Ok(Self {
             columns: init_columns(&mmap, &parsing_template, &file_meta),
             parsing_template,
+            file_meta,
             rec_num,
             inner,
         })

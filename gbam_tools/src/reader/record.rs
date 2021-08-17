@@ -7,7 +7,7 @@ use bam_tools::record::{
 };
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use crate::query::cigar::Cigar;
+use crate::{query::cigar::Cigar, query::cigar::Op, U32_SIZE};
 
 #[cfg(not(feature = "python-ffi"))]
 #[derive(Debug)]
@@ -95,7 +95,14 @@ pub fn parse_cigar(bytes: &[u8]) -> String {
 }
 
 /// This version is for Rust.
-pub fn parse_cigar(bytes: &[u8]) -> Cigar {}
+pub fn parse_cigar(bytes: &[u8]) -> Cigar {
+    Cigar::new(
+        bytes
+            .chunks(U32_SIZE)
+            .map(|mut slice| Op::new(slice.read_u32::<LittleEndian>().unwrap()))
+            .collect(),
+    )
+}
 
 // TODO :: ADD TEMPLATE LENGTHS TO GBAM RECORD
 // TODO :: REMOVE CG TAG FROM ORIGINAL FILE

@@ -129,6 +129,7 @@ pub(crate) struct FileMeta {
         serialize_with = "serialize_field_to_meta"
     )]
     field_to_meta: [FieldMeta; FIELDS_NUM],
+    name_to_ref_id: HashMap<String, i32>,
 }
 // HashMap<Fields, FieldMeta>
 
@@ -225,12 +226,24 @@ impl<'de> Deserialize<'de> for FieldMetaMap {
 }
 
 impl FileMeta {
-    pub fn new(codec: Codecs) -> Self {
+    pub fn new(codec: Codecs, ref_seqs: Vec<(String, i32)>) -> Self {
         let mut map: [FieldMeta; FIELDS_NUM] = Default::default();
         for field in Fields::iterator() {
             map[*field as usize] = FieldMeta::new(field, codec);
         }
-        FileMeta { field_to_meta: map }
+        let name_to_ref_id = HashMap::<String, i32>::new();
+        ref_seqs
+            .into_iter()
+            .enumerate()
+            .map(|(i, (name, _))| name_to_ref_id.insert(name, i as i32));
+        FileMeta {
+            field_to_meta: map,
+            name_to_ref_id,
+        }
+    }
+
+    pub fn get_ref_id(&self, chr: String) -> Option<i32> {
+        self.name_to_ref_id.get(&chr).cloned()
     }
 
     /// Used to retrieve BlockMeta vector mutable borrow, to push new blocks

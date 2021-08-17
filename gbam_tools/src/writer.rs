@@ -40,7 +40,12 @@ where
     W: Write + Seek,
 {
     /// Create new writer
-    pub fn new(mut inner: W, codec: Codecs, thread_num: usize) -> Self {
+    pub fn new(
+        mut inner: W,
+        codec: Codecs,
+        thread_num: usize,
+        ref_seqs: Vec<(String, i32)>,
+    ) -> Self {
         // Make space for the FileInfo to be written into.
         inner
             .seek(SeekFrom::Start((FILE_INFO_SIZE) as u64))
@@ -49,7 +54,7 @@ where
             chunks: vec![vec![0; SIZE_LIMIT]; FIELDS_NUM],
             offsets: [0; FIELDS_NUM],
             num_items: [0; FIELDS_NUM],
-            file_meta: FileMeta::new(codec),
+            file_meta: FileMeta::new(codec, ref_seqs),
             compressor: Compressor::new(thread_num),
             inner,
             blocks_nums: vec![0; FIELDS_NUM],
@@ -236,19 +241,19 @@ mod tests {
     use std::io::Cursor;
     #[test]
     fn test_writer() {
-        let raw_records = vec![BAMRawRecord::default(); 2];
-        let mut buf: Vec<u8> = vec![0; SIZE_LIMIT];
-        let out = Cursor::new(&mut buf[..]);
-        let mut writer = Writer::new(out, Codecs::Gzip, 8);
-        for rec in raw_records.iter() {
-            writer.push_record(rec);
-        }
-        let total_bytes_written = writer.finish().unwrap();
-        buf.resize(total_bytes_written as usize, 0);
+        // let raw_records = vec![BAMRawRecord::default(); 2];
+        // let mut buf: Vec<u8> = vec![0; SIZE_LIMIT];
+        // let out = Cursor::new(&mut buf[..]);
+        // let mut writer = Writer::new(out, Codecs::Gzip, 8);
+        // for rec in raw_records.iter() {
+        //     writer.push_record(rec);
+        // }
+        // let total_bytes_written = writer.finish().unwrap();
+        // buf.resize(total_bytes_written as usize, 0);
 
-        let in_cursor = Box::new(Cursor::new(buf));
-        let mut parsing_template = ParsingTemplate::new();
-        parsing_template.set_all();
+        // let in_cursor = Box::new(Cursor::new(buf));
+        // let mut parsing_template = ParsingTemplate::new();
+        // parsing_template.set_all();
         // let mut reader = Reader::new(in_cursor, parsing_template).unwrap();
         // let mut records = reader.records();
         // let mut it = raw_records.iter();

@@ -14,9 +14,6 @@ const MEM_LIMIT: usize = 2000 * MEGA_BYTE_SIZE;
 pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
     let (mut bgzf_reader, mut writer) = get_bam_reader_gbam_writer(in_path, out_path, codec);
 
-    bgzf_reader.read_header().unwrap();
-    bgzf_reader.consume_reference_sequences().unwrap();
-
     let mut records = bgzf_reader.records();
     while let Some(Ok(rec)) = records.next_rec() {
         let wrapper = BAMRawRecord(Cow::Borrowed(rec));
@@ -33,7 +30,7 @@ pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
     let buf_reader = BufReader::new(fin);
     let buf_writer = BufWriter::new(fout);
 
-    let mut writer = Writer::new(buf_writer, codec, 8);
+    let mut writer = Writer::new(buf_writer, codec, 8, extract_ref_seqs(&buf_reader));
 
     let tmp_dir_path = std::env::temp_dir();
 
@@ -53,6 +50,12 @@ pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
     writer.finish().unwrap();
 }
 
+fn extract_ref_seqs(reader: &BufReader<File>) -> Vec<(String, i32)> {
+    let mut parallel_reader = Reader::new(*reader, 1);
+    parallel_reader.read_header().unwrap();
+    parallel_reader.parse_reference_sequences().unwrap()
+}
+
 fn get_bam_reader_gbam_writer(
     in_path: &str,
     out_path: &str,
@@ -65,7 +68,15 @@ fn get_bam_reader_gbam_writer(
     let buf_writer = BufWriter::new(fout);
 
     let bgzf_reader = Reader::new(buf_reader, 20);
-    let writer = Writer::new(buf_writer, codec, 8);
+
+    bgzf_reader.read_header().unwrap();
+
+    let writer = Writer::new(
+        buf_writer,
+        codec,
+        8,
+        bgzf_reader.parse_reference_sequences().unwrap(),
+    );
 
     (bgzf_reader, writer)
 }
