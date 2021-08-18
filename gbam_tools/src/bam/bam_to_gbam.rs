@@ -24,13 +24,16 @@ pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
 }
 
 pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
+    let fin_for_ref_seqs = File::open(in_path).expect("failed");
+    let ref_seqs = extract_ref_seqs(BufReader::new(fin_for_ref_seqs));
+
     let fin = File::open(in_path).expect("failed");
     let fout = File::create(out_path).expect("failed");
 
     let buf_reader = BufReader::new(fin);
     let buf_writer = BufWriter::new(fout);
 
-    let mut writer = Writer::new(buf_writer, codec, 8, extract_ref_seqs(&buf_reader));
+    let mut writer = Writer::new(buf_writer, codec, 8, ref_seqs);
 
     let tmp_dir_path = std::env::temp_dir();
 
@@ -50,8 +53,8 @@ pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
     writer.finish().unwrap();
 }
 
-fn extract_ref_seqs(reader: &BufReader<File>) -> Vec<(String, i32)> {
-    let mut parallel_reader = Reader::new(*reader, 1);
+fn extract_ref_seqs(reader: BufReader<File>) -> Vec<(String, i32)> {
+    let mut parallel_reader = Reader::new(reader, 1);
     parallel_reader.read_header().unwrap();
     parallel_reader.parse_reference_sequences().unwrap()
 }
@@ -67,7 +70,7 @@ fn get_bam_reader_gbam_writer(
     let buf_reader = BufReader::new(fin);
     let buf_writer = BufWriter::new(fout);
 
-    let bgzf_reader = Reader::new(buf_reader, 20);
+    let mut bgzf_reader = Reader::new(buf_reader, 20);
 
     bgzf_reader.read_header().unwrap();
 

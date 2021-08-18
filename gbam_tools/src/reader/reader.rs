@@ -21,7 +21,7 @@ pub struct Reader {
     pub columns: Vec<Option<Box<dyn Column + Send>>>,
     pub parsing_template: ParsingTemplate,
     pub rec_num: usize,
-    pub file_meta: Arc<FileMeta>,
+    pub(crate) file_meta: Arc<FileMeta>,
     // Kept so File won't drop while used by mmap.
     inner: Box<File>,
 }

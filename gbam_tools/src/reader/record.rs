@@ -96,6 +96,9 @@ pub fn parse_cigar(bytes: &[u8]) -> String {
 
 /// This version is for Rust.
 pub fn parse_cigar(bytes: &[u8]) -> Cigar {
+    // let mut v = Vec::new();
+    // v.push(Op::new(1));
+    // Cigar::new(v)
     Cigar::new(
         bytes
             .chunks(U32_SIZE)

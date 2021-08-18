@@ -231,11 +231,10 @@ impl FileMeta {
         for field in Fields::iterator() {
             map[*field as usize] = FieldMeta::new(field, codec);
         }
-        let name_to_ref_id = HashMap::<String, i32>::new();
-        ref_seqs
-            .into_iter()
-            .enumerate()
-            .map(|(i, (name, _))| name_to_ref_id.insert(name, i as i32));
+        let mut name_to_ref_id = HashMap::<String, i32>::new();
+        ref_seqs.into_iter().enumerate().for_each(|(i, (name, _))| {
+            name_to_ref_id.insert(name, i as i32);
+        });
         FileMeta {
             field_to_meta: map,
             name_to_ref_id,

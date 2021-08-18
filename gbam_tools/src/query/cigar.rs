@@ -28,7 +28,7 @@ impl Cigar {
     }
 
     pub fn base_coverage(&self) -> usize {
-        let count = 0;
+        let mut count = 0;
         for op in self.ops() {
             if op.is_consuming_reference() {
                 count += 1;
