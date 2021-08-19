@@ -93,7 +93,7 @@ impl ParsingTemplate {
     }
 
     pub fn check_if_active(&self, fields: &[Fields]) -> bool {
-        for &field in &[Fields::RefID, Fields::Pos, Fields::RawSeqLen] {
+        for &field in fields.iter() {
             if self.inner[field as usize].is_none() {
                 return false;
             }

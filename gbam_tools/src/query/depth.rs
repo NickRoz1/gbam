@@ -24,7 +24,7 @@ pub fn get_depth(reader: &mut Reader, chr: String, pos: i32) -> Option<usize> {
 
 fn find_refid(reader: &mut Reader, chr: String) -> Option<usize> {
     let mut l = 0;
-    let mut r = reader.rec_num;
+    let mut r = reader.amount;
 
     let mut buf = GbamRecord::default();
 
@@ -33,16 +33,18 @@ fn find_refid(reader: &mut Reader, chr: String) -> Option<usize> {
         Some(num) => num,
         None => return None,
     };
-    while l <= r {
+    while l < r {
         let mid = (l + r) / 2;
+        println!("Mid - {:?}", mid);
         reader.fill_record(mid, &mut buf);
         if buf.refid.unwrap() < chr_num {
             l = mid + 1;
         } else {
-            r = mid - 1;
+            r = mid;
         }
     }
-
+    // reader.fill_record(0, &mut buf);
+    println!("Hey {} - {}", chr_num, buf.refid.unwrap());
     match buf.refid.unwrap() == chr_num {
         true => Some(l),
         false => None,
@@ -54,7 +56,7 @@ pub fn calc_depth_at_pos(reader: &mut Reader, mut region_start: usize, pos: i32)
     let mut depth = 0;
 
     loop {
-        if region_start >= reader.rec_num {
+        if region_start >= reader.amount {
             break;
         }
         reader.fill_record(region_start, &mut buf);
@@ -62,10 +64,21 @@ pub fn calc_depth_at_pos(reader: &mut Reader, mut region_start: usize, pos: i32)
 
         let read_pos = buf.pos.unwrap();
         let base_cov = buf.cigar.as_ref().unwrap().base_coverage();
+
+        // println!(
+        //     "REF_ID: {}\nPOS: {}\nbase_cov: {}\ncigar_len: {}\nsearch pos: {}\n",
+        //     buf.refid.unwrap(),
+        //     read_pos,
+        //     base_cov,
+        //     buf.cigar.as_ref().unwrap().0.len(),
+        //     pos
+        // );
+
         if read_pos > pos {
             return Some(depth);
         }
 
+        // https://github.com/biod/sambamba/blob/c795656721b3608ffe7765b6ab98502426d14131/BioD/bio/std/hts/bam/randomaccessmanager.d#L448
         if read_pos + i32::try_from(base_cov).unwrap() > pos {
             depth += 1;
         }

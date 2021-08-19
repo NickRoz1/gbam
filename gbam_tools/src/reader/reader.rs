@@ -20,7 +20,7 @@ pub struct Reader {
     // Instead of hashmap. Empty columns will contain None.
     pub columns: Vec<Option<Box<dyn Column + Send>>>,
     pub parsing_template: ParsingTemplate,
-    pub rec_num: usize,
+    pub amount: usize,
     pub(crate) file_meta: Arc<FileMeta>,
     // Kept so File won't drop while used by mmap.
     inner: Box<File>,
@@ -31,7 +31,7 @@ impl Reader {
         let inner = Box::new(inner);
         let mmap = Arc::new(unsafe { Mmap::map(inner.borrow())? });
         let file_meta = Arc::new(verify_and_parse_meta(&mmap)?);
-        let rec_num = file_meta
+        let amount = file_meta
             .view_blocks(&Fields::RefID)
             .iter()
             .fold(0, |acc, x| acc + x.numitems) as usize;
@@ -39,12 +39,13 @@ impl Reader {
             columns: init_columns(&mmap, &parsing_template, &file_meta),
             parsing_template,
             file_meta,
-            rec_num,
+            amount,
             inner,
         })
     }
 
     pub fn fill_record(&mut self, rec_num: usize, rec: &mut GbamRecord) {
+        assert!(rec_num < self.amount);
         for &field in self.parsing_template.get_active_data_fields_iter() {
             self.columns[field as usize]
                 .as_mut()

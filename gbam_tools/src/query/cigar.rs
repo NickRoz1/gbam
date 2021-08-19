@@ -17,21 +17,25 @@ impl Op {
             _ => false,
         }
     }
+    /// Length of operator
+    pub fn length(&self) -> u32 {
+        return self.0 >> 4;
+    }
 }
 
 #[derive(Debug)]
-pub struct Cigar(Vec<Op>);
+pub struct Cigar(pub Vec<Op>);
 
 impl Cigar {
     pub fn new(ops: Vec<Op>) -> Cigar {
         Cigar(ops)
     }
 
-    pub fn base_coverage(&self) -> usize {
+    pub fn base_coverage(&self) -> u32 {
         let mut count = 0;
         for op in self.ops() {
             if op.is_consuming_reference() {
-                count += 1;
+                count += op.length();
             }
         }
         count
