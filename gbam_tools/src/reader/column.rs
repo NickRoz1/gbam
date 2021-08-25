@@ -1,12 +1,6 @@
-use std::{
-    borrow::Borrow,
-    cell::RefCell,
-    collections::{BTreeMap, BTreeSet},
-    io::Result,
-    rc::Rc,
-    sync::Arc,
-};
+use std::{collections::BTreeMap, io::Result, sync::Arc};
 
+use super::reader::generate_block_treemap;
 use super::record::GbamRecord;
 
 use bam_tools::record::fields::Fields;
@@ -109,18 +103,7 @@ impl Column for VariableColumn {
 impl VariableColumn {
     pub fn new(inner: Inner, index: FixedColumn) -> Self {
         Self {
-            blocks: inner
-                .meta
-                .view_blocks(&inner.field)
-                .iter()
-                .enumerate()
-                // Prefix sum.
-                .scan(0, |acc, (count, x)| {
-                    let current_chunk = Some((*acc as usize, count));
-                    *acc = *acc + x.numitems;
-                    current_chunk
-                })
-                .collect(),
+            blocks: generate_block_treemap(&inner.meta, &inner.field),
             inner,
             index,
         }

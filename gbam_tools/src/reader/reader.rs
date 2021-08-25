@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::{borrow::Borrow, fs::File, rc::Rc};
 
@@ -99,4 +100,18 @@ fn verify_and_parse_meta(mmap: &Mmap) -> std::io::Result<FileMeta> {
     }
     let file_meta_json_str = String::from_utf8(buf.to_owned()).unwrap();
     Ok(serde_json::from_str(&file_meta_json_str).expect("File meta json string was damaged."))
+}
+
+// The tree map will be used to quickly determine which block record belong to.
+pub(crate) fn generate_block_treemap(meta: &FileMeta, field: &Fields) -> BTreeMap<usize, usize> {
+    meta.view_blocks(field)
+        .iter()
+        .enumerate()
+        // Prefix sum.
+        .scan(0, |acc, (count, x)| {
+            let current_chunk = Some((*acc as usize, count));
+            *acc = *acc + x.numitems;
+            current_chunk
+        })
+        .collect()
 }

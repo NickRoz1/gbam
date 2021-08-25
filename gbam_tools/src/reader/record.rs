@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 #[cfg(feature = "python-ffi")]
 use pyo3::prelude::*;
 
@@ -94,17 +96,23 @@ pub fn parse_cigar(bytes: &[u8]) -> String {
     decode_cigar(bytes)
 }
 
+pub static mut copying: Duration = Duration::from_nanos(0);
 /// This version is for Rust.
 pub fn parse_cigar(bytes: &[u8]) -> Cigar {
     // let mut v = Vec::new();
     // v.push(Op::new(1));
     // Cigar::new(v)
-    Cigar::new(
+    let now = Instant::now();
+    let res = Cigar::new(
         bytes
             .chunks(U32_SIZE)
             .map(|mut slice| Op::new(slice.read_u32::<LittleEndian>().unwrap()))
             .collect(),
-    )
+    );
+    unsafe {
+        copying += now.elapsed();
+    }
+    res
 }
 
 // TODO :: ADD TEMPLATE LENGTHS TO GBAM RECORD
