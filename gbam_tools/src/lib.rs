@@ -22,12 +22,14 @@ pub mod query {
     pub mod depth;
 }
 
+/// Manages parallel compression
+mod compressor;
 /// Meta information for GBAM file
 pub mod meta;
+/// Manages stats collection
+mod stats;
 /// GBAM writer
 pub mod writer;
-
-mod compressor;
 
 // use self::writer::Writer;
 // pub use {ParsingTemplate, Reader};

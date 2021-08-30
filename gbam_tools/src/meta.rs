@@ -89,6 +89,9 @@ pub enum Codecs {
 pub(crate) struct BlockMeta {
     pub seekpos: u64,
     pub numitems: u32,
+    // Interpretation is up to the reader.
+    pub max_value: Option<Vec<u8>>,
+    pub min_value: Option<Vec<u8>>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
