@@ -89,15 +89,15 @@ pub enum Codecs {
 pub(crate) struct BlockMeta {
     pub seekpos: u64,
     pub numitems: u32,
+    pub block_size: u32,
     // Interpretation is up to the reader.
     pub max_value: Option<Vec<u8>>,
     pub min_value: Option<Vec<u8>>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-struct FieldMeta {
+pub(crate) struct FieldMeta {
     item_size: Option<u32>, // NONE for variable sized fields
-    blocks_sizes: Vec<u32>,
     codec: Codecs,
     blocks: Vec<BlockMeta>,
 }
@@ -106,7 +106,6 @@ impl FieldMeta {
     pub fn new(field: &Fields, codec: Codecs) -> Self {
         FieldMeta {
             item_size: field_item_size(field).map(|v| v as u32), // TODO
-            blocks_sizes: Vec::<u32>::new(),
             codec,
             blocks: Vec::<BlockMeta>::new(),
         }
@@ -117,7 +116,6 @@ impl Default for FieldMeta {
     fn default() -> Self {
         FieldMeta {
             item_size: None,
-            blocks_sizes: Vec::<u32>::new(),
             codec: Codecs::Gzip,
             blocks: Vec::<BlockMeta>::new(),
         }
@@ -264,11 +262,5 @@ impl FileMeta {
 
     pub fn get_field_codec(&self, field: &Fields) -> &Codecs {
         &self.field_to_meta[*field as usize].codec
-    }
-    pub fn get_blocks_sizes(&mut self, field: &Fields) -> &mut Vec<u32> {
-        self.field_to_meta[*field as usize].blocks_sizes.as_mut()
-    }
-    pub fn view_blocks_sizes(&self, field: &Fields) -> &Vec<u32> {
-        &self.field_to_meta[*field as usize].blocks_sizes
     }
 }

@@ -4,7 +4,7 @@ use bam_tools::record::{bamrawrecord::BAMRawRecord, fields::Fields};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
-pub(crate) struct StatsCollector<T>
+struct StatsCollector<T>
 where
     T: Clone,
 {
@@ -17,10 +17,8 @@ where
 impl<T> StatsCollector<T>
 where
     T: Clone,
-    StatsCollector<T>: CheckCorrectness<T>,
 {
     pub fn new(max_value: Option<T>, min_value: Option<T>, field: Fields) -> Self {
-        Self::check(&field);
         Self {
             field,
             max_value,
@@ -43,42 +41,27 @@ where
     }
 }
 
-pub(crate) trait CheckCorrectness<T> {
-    fn check(field: &Fields);
+pub(crate) trait CollectStats<T> {
+    fn collect_stats(&mut self, rec: &mut BAMRawRecord);
 }
 
-macro_rules! check_type {
-    ($name:ty, $( $pattern:pat )|+) => {
-        impl CheckCorrectness<$name> for StatsCollector<$name> {
-            fn check(field: &Fields) {
-                // This field has another type or doesnt support stats collection.
-                assert!(matches!(field, $( $pattern )|+));
-            }
-        }
-    };
+impl<T> CollectStats<T> for StatsCollector<T>
+where
+    T: Clone,
+    StatsCollector<T>: ConvertFromBytes<T>,
+{
+    fn collect_stats(&mut self, rec: &mut BAMRawRecord) {
+        self.update_with_rec(&rec);
+    }
 }
-
-check_type!(
-    i32,
-    Fields::RefID | Fields::Pos | Fields::NextRefID | Fields::NextPos
-);
-check_type!(u16, Fields::Flags | Fields::Bin);
-check_type!(u8, Fields::Mapq);
-
-// Signals that statistics collection is available for this type
-pub(crate) trait SupportedType<T>: ConvertFromBytes<T> + ConvertToBytes<T> {}
-
-impl SupportedType<i32> for StatsCollector<i32> {}
-impl SupportedType<u16> for StatsCollector<u16> {}
-impl SupportedType<u8> for StatsCollector<u8> {}
 
 impl<T> StatsCollector<T>
 where
     T: Clone,
     StatsCollector<T>: ConvertFromBytes<T>,
 {
-    pub fn extract_field(&self, rec: &BAMRawRecord) -> T {
-        Self::from_bytes(rec.get_bytes(&self.field))
+    pub fn update_with_rec(&mut self, rec: &BAMRawRecord) {
+        self.update(&Self::from_bytes(rec.get_bytes(&self.field)))
     }
 }
 

@@ -154,7 +154,7 @@ fn fetch_block(inner_column: &mut Inner, block_num: usize) -> Result<()> {
     let field = &inner_column.field;
     let block_meta = inner_column.meta.view_blocks(field).get(block_num).unwrap();
     let reader = &inner_column.reader;
-    let block_size = inner_column.meta.view_blocks_sizes(field)[block_num as usize];
+    let block_size = block_meta.block_size;
 
     let data =
         &reader[(block_meta.seekpos as usize)..(block_meta.seekpos + block_size as u64) as usize];

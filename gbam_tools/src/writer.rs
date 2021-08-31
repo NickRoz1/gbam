@@ -1,5 +1,5 @@
-use super::meta::{BlockMeta, Codecs, FileInfo, FileMeta, FILE_INFO_SIZE};
-use crate::stats::{CheckCorrectness, StatsCollector, SupportedType};
+use super::meta::{BlockMeta, Codecs, FieldMeta, FileInfo, FileMeta, FILE_INFO_SIZE};
+use crate::stats::CollectStats;
 use crate::{CompressTask, Compressor, SIZE_LIMIT, U32_SIZE};
 use bam_tools::record::bamrawrecord::BAMRawRecord;
 use bam_tools::record::fields::{
@@ -7,46 +7,79 @@ use bam_tools::record::fields::{
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use crc32fast::Hasher;
-use std::borrow::Cow;
+use std::borrow::{Borrow, Cow};
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::io::{Seek, SeekFrom, Write};
-use std::rc::Rc;
 
-pub(crate) struct Inner<W, T>
+struct BlockInfo {
+    pub numitems: u32,
+    pub block_size: u32,
+    // Interpretation is up to the reader.
+    pub max_value: Option<Vec<u8>>,
+    pub min_value: Option<Vec<u8>>,
+}
+
+struct BlockSink<W>
 where
-    W: Write,
-    T: Clone,
+    W: Write + Seek,
 {
-    stats_collector: StatsCollector<T>,
-    block_meta: BlockMeta,
-    writer: Rc<W>,
+    writer: W,
+    compressor: Compressor,
+}
+
+impl<W> BlockSink<W>
+where
+    W: Write + Seek,
+{
+    /// Send new data for compression. Retrieve old data
+    pub fn compress_and_write_block(&mut self, bytes: Vec<u8>, block_info: BlockInfo) -> Vec<u8> {
+        // Flush already compressed data
+        let compress_task = self.compressor.get_compr_block();
+    }
+
+    fn write_block_and_update_meta(&mut self, bytes: Vec<u8>) {
+        let seek_pos = self.writer.seek(SeekFrom::Current(0)).unwrap();
+        self.writer.write_all(bytes).unwrap();
+
+        seek_pos
+    }
+}
+
+struct Inner<W, T>
+where
+    W: Write + Seek,
+{
+    stats_collector: Option<Box<dyn CollectStats<T>>>,
+    sink: RefCell<Sink<W>>,
     buffer: Vec<u8>,
     offset: usize,
     field: Fields,
     rec_count: u32,
 }
 
-trait CollectStats<W> {
-    fn collect_stats(&mut self, rec: &BAMRawRecord);
-}
-
-impl<W, T> CollectStats<W> for Inner<W, T>
+impl<W, T> Inner<W, T>
 where
-    W: Write,
-    T: Clone,
-    StatsCollector<T>: SupportedType<T> + CheckCorrectness<T>,
+    W: Write + Seek,
 {
-    fn collect_stats(&mut self, rec: &BAMRawRecord) {
-        self.stats_collector
-            .update(&self.stats_collector.extract_field(rec));
+    pub fn write_data(&mut self, data: &[u8]) {
+        if self.offset > 0 && self.offset + data.len() > SIZE_LIMIT {
+            self.flush();
+            self.offset = 0;
+        }
+
+        self.buffer[self.offset..self.offset + data.len()].clone_from_slice(data);
+        self.offset += data.len();
+
+        self.rec_count += 1;
     }
-}
 
-impl<W> CollectStats<W> for Inner<W, Vec<u8>>
-where
-    W: Write,
-{
-    fn collect_stats(&mut self, _rec: &BAMRawRecord) {
-        // Plug function. Stats for Vec<u8> are not currently supported.
+    fn flush(&mut self) {
+        if self.rec_count == 0 {
+            return;
+        }
+
+        self.sink.borrow_mut().write()
     }
 }
 
@@ -58,37 +91,22 @@ trait Column {
 /// Column containing fixed sized fields.
 struct FixedColumn<W, T>(Inner<W, T>)
 where
-    W: Write,
-    T: Clone,
-    Inner<W, T>: CollectStats<T>;
+    W: Write + Seek,
+    T: Clone;
 
 impl<W, T> Column for FixedColumn<W, T>
 where
     W: Write,
     T: Clone,
-    Inner<W, T>: CollectStats<T>,
 {
     fn write_record_field(&mut self, rec: &mut BAMRawRecord) -> () {
         let data = rec.get_bytes(&self.0.field);
         // At least one record will be written in even if it exceeds SIZE_LIMIT (for variable sized fields).
-        if self.0.offset > 0 && self.0.offset + data.len() > SIZE_LIMIT {
-            self.flush();
-            self.0.offset = 0;
+
+        if let Some(ref mut stats) = self.0.stats_collector {
+            stats.collect_stats(rec);
         }
-
-        self.0.collect_stats(rec);
-
-        self.0.rec_count += 1;
     }
-}
-
-impl<W, T> FixedColumn<W, T>
-where
-    W: Write,
-    T: Clone,
-    Inner<W, T>: CollectStats<T>,
-{
-    fn flush(&mut self) {}
 }
 
 /// Column containing variable sized fields.
