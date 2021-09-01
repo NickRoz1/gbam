@@ -8,14 +8,18 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 use lz4::EncoderBuilder;
 use std::io::Write;
-// use std::sync::{Arc, RwLock};
+
+use crate::writer::BlockInfo;
+
+enum OrderingKey {
+    Key(u32),
+    UnusedBlock,
+}
 
 /// Accompanies compressed buffer to generate meta when written out
 pub(crate) struct CompressTask {
-    pub ordering_key: usize,
-    pub field: Fields,
-    pub num_items: u32,
-    pub uncompr_size: usize,
+    pub ordering_key: OrderingKey,
+    pub block_info: BlockInfo,
     pub buf: Vec<u8>,
 }
 pub(crate) struct Compressor {
@@ -39,10 +43,8 @@ impl Compressor {
             buf_tx.send(vec![0; SIZE_LIMIT]).unwrap();
             compr_data_tx
                 .send(CompressTask {
-                    ordering_key: 0,
-                    field: Fields::RefID,
-                    num_items: 0,
-                    uncompr_size: 0,
+                    ordering_key: OrderingKey::UnusedBlock,
+                    block_info: BlockInfo::default(),
                     buf: vec![0; SIZE_LIMIT],
                 })
                 .unwrap();
@@ -63,10 +65,8 @@ impl Compressor {
 
     pub fn compress_block(
         &mut self,
-        ordering_key: usize,
-        field: Fields,
-        num_items: u32,
-        uncompr_size: usize,
+        ordering_key: OrderingKey,
+        block_info: BlockInfo,
         data: Vec<u8>,
         codec: Codecs,
     ) {
@@ -78,15 +78,13 @@ impl Compressor {
             rayon::spawn(move || {
                 let mut buf = buf_queue_rx.recv().unwrap();
                 buf.clear();
-                let compr_data = compress(&data[..uncompr_size], buf, codec);
+                let compr_data = compress(&data[..block_info.uncompr_size], buf, codec);
                 buf_queue_tx.send(data).unwrap();
 
                 compressed_tx
                     .send(CompressTask {
                         ordering_key,
-                        field,
-                        num_items,
-                        uncompr_size,
+                        block_info,
                         buf: compr_data,
                     })
                     .unwrap();

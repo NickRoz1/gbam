@@ -12,14 +12,28 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{Seek, SeekFrom, Write};
 
-struct BlockInfo {
+pub(crate) struct BlockInfo {
     pub numitems: u32,
     pub block_size: u32,
+    pub uncompr_size: usize,
+    pub field: Fields,
     // Interpretation is up to the reader.
     pub max_value: Option<Vec<u8>>,
     pub min_value: Option<Vec<u8>>,
 }
 
+impl Default for BlockInfo {
+    fn default() -> Self {
+        Self {
+            numitems: 0,
+            block_size: 0,
+            uncompr_size: 0,
+            field: Fields::RefID,
+            max_value: None,
+            min_value: None,
+        }
+    }
+}
 struct BlockSink<W>
 where
     W: Write + Seek,
@@ -33,16 +47,20 @@ where
     W: Write + Seek,
 {
     /// Send new data for compression. Retrieve old data
-    pub fn compress_and_write_block(&mut self, bytes: Vec<u8>, block_info: BlockInfo) -> Vec<u8> {
+    pub fn load_recv_compression(
+        &mut self,
+        bytes: Vec<u8>,
+        block_info: BlockInfo,
+    ) -> (Vec<u8>, BlockInfo) {
         // Flush already compressed data
         let compress_task = self.compressor.get_compr_block();
     }
 
-    fn write_block_and_update_meta(&mut self, bytes: Vec<u8>) {
+    ///
+    fn write_block(&mut self, bytes: Vec<u8>) -> std::io::Result<u64> {
         let seek_pos = self.writer.seek(SeekFrom::Current(0)).unwrap();
         self.writer.write_all(bytes).unwrap();
-
-        seek_pos
+        Ok(seek_pos)
     }
 }
 
