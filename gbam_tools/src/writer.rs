@@ -1,20 +1,21 @@
-use super::meta::{BlockMeta, Codecs, FieldMeta, FileInfo, FileMeta, FILE_INFO_SIZE};
-use crate::stats::CollectStats;
-use crate::{CompressTask, Compressor, SIZE_LIMIT, U32_SIZE};
+use super::meta::{BlockMeta, Codecs, FileInfo, FileMeta, FILE_INFO_SIZE};
+use crate::compressor::{CompressTask, Compressor, OrderingKey};
+use crate::stats::StatsCollector;
+use crate::{SIZE_LIMIT, U32_SIZE};
 use bam_tools::record::bamrawrecord::BAMRawRecord;
 use bam_tools::record::fields::{
     field_type, is_data_field, var_size_field_to_index, FieldType, Fields, FIELDS_NUM,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use crc32fast::Hasher;
-use std::borrow::{Borrow, Cow};
-use std::cell::RefCell;
+use std::borrow::Cow;
+use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::io::{Seek, SeekFrom, Write};
 
 pub(crate) struct BlockInfo {
     pub numitems: u32,
-    pub block_size: u32,
     pub uncompr_size: usize,
     pub field: Fields,
     // Interpretation is up to the reader.
@@ -26,7 +27,6 @@ impl Default for BlockInfo {
     fn default() -> Self {
         Self {
             numitems: 0,
-            block_size: 0,
             uncompr_size: 0,
             field: Fields::RefID,
             max_value: None,
@@ -34,104 +34,6 @@ impl Default for BlockInfo {
         }
     }
 }
-struct BlockSink<W>
-where
-    W: Write + Seek,
-{
-    writer: W,
-    compressor: Compressor,
-}
-
-impl<W> BlockSink<W>
-where
-    W: Write + Seek,
-{
-    /// Send new data for compression. Retrieve old data
-    pub fn load_recv_compression(
-        &mut self,
-        bytes: Vec<u8>,
-        block_info: BlockInfo,
-    ) -> (Vec<u8>, BlockInfo) {
-        // Flush already compressed data
-        let compress_task = self.compressor.get_compr_block();
-    }
-
-    ///
-    fn write_block(&mut self, bytes: Vec<u8>) -> std::io::Result<u64> {
-        let seek_pos = self.writer.seek(SeekFrom::Current(0)).unwrap();
-        self.writer.write_all(bytes).unwrap();
-        Ok(seek_pos)
-    }
-}
-
-struct Inner<W, T>
-where
-    W: Write + Seek,
-{
-    stats_collector: Option<Box<dyn CollectStats<T>>>,
-    sink: RefCell<Sink<W>>,
-    buffer: Vec<u8>,
-    offset: usize,
-    field: Fields,
-    rec_count: u32,
-}
-
-impl<W, T> Inner<W, T>
-where
-    W: Write + Seek,
-{
-    pub fn write_data(&mut self, data: &[u8]) {
-        if self.offset > 0 && self.offset + data.len() > SIZE_LIMIT {
-            self.flush();
-            self.offset = 0;
-        }
-
-        self.buffer[self.offset..self.offset + data.len()].clone_from_slice(data);
-        self.offset += data.len();
-
-        self.rec_count += 1;
-    }
-
-    fn flush(&mut self) {
-        if self.rec_count == 0 {
-            return;
-        }
-
-        self.sink.borrow_mut().write()
-    }
-}
-
-trait Column {
-    // Extracts and writes data from corresponding BAMRawRecord record.
-    fn write_record_field(&mut self, rec: &mut BAMRawRecord) -> ();
-}
-
-/// Column containing fixed sized fields.
-struct FixedColumn<W, T>(Inner<W, T>)
-where
-    W: Write + Seek,
-    T: Clone;
-
-impl<W, T> Column for FixedColumn<W, T>
-where
-    W: Write,
-    T: Clone,
-{
-    fn write_record_field(&mut self, rec: &mut BAMRawRecord) -> () {
-        let data = rec.get_bytes(&self.0.field);
-        // At least one record will be written in even if it exceeds SIZE_LIMIT (for variable sized fields).
-
-        if let Some(ref mut stats) = self.0.stats_collector {
-            stats.collect_stats(rec);
-        }
-    }
-}
-
-/// Column containing variable sized fields.
-// struct VariableColumn<W: Write> {
-//     inner: Inner<W>,
-//     index: FixedColumn<W>,
-// }
 
 /// The data is held in blocks.
 ///
@@ -142,157 +44,86 @@ where
 /// different amount of data. Variable sized fields are accompanied by separate
 /// index in separate block for fixed size fields. Groups records before writing
 /// out to file.
-pub struct Writer<W>
+pub struct Writer<WS>
 where
-    W: Write + Seek,
+    WS: Write + Seek,
 {
-    chunks: Vec<Vec<u8>>,
-    // Current item index
-    offsets: [usize; FIELDS_NUM],
-    num_items: [u32; FIELDS_NUM],
-    // Compression buffer to avoid allocations
-    compressor: Compressor,
     file_meta: FileMeta,
-    inner: W,
-    // Used to order meta information, since multithreaded compressor may
-    // compress latter block first, and disturb order.
-    blocks_nums: Vec<usize>,
+    columns: Vec<Box<dyn Column>>,
+    compressor: Compressor,
+    inner: WS,
 }
 
-impl<W> Writer<W>
+impl<WS> Writer<WS>
 where
-    W: Write + Seek,
+    WS: Write + Seek,
 {
-    /// Create new writer
     pub fn new(
-        mut inner: W,
-        codec: Codecs,
+        mut inner: WS,
+        codecs: Vec<Codecs>,
         thread_num: usize,
+        mut comparators: HashMap<Fields, StatsComparator>,
         ref_seqs: Vec<(String, i32)>,
     ) -> Self {
-        // Make space for the FileInfo to be written into.
         inner
             .seek(SeekFrom::Start((FILE_INFO_SIZE) as u64))
             .unwrap();
-        Writer {
-            chunks: vec![vec![0; SIZE_LIMIT]; FIELDS_NUM],
-            offsets: [0; FIELDS_NUM],
-            num_items: [0; FIELDS_NUM],
-            file_meta: FileMeta::new(codec, ref_seqs),
-            compressor: Compressor::new(thread_num),
+
+        let mut columns = Vec::new();
+
+        let mut count = 0;
+        for field in Fields::iterator().filter(|f| is_data_field(*f)) {
+            let comparator = comparators.remove(field).and_then(|val| Some(val));
+            let col = match field_type(field) {
+                FieldType::FixedSized => {
+                    Box::new(FixedColumn::new(*field, comparator)) as Box<dyn Column>
+                }
+                FieldType::VariableSized => {
+                    count += 1;
+                    Box::new(VariableColumn::new(*field, comparator)) as Box<dyn Column>
+                }
+            };
+            columns.push(col);
+            count += 1;
+        }
+        debug_assert!(count == FIELDS_NUM);
+
+        Self {
+            // TODO: Codecs (currently only one is supported).
+            file_meta: FileMeta::new(codecs[0], ref_seqs),
             inner,
-            blocks_nums: vec![0; FIELDS_NUM],
+            compressor: Compressor::new(thread_num),
+            columns,
         }
     }
+
+    pub fn new_no_stats(
+        inner: WS,
+        codecs: Vec<Codecs>,
+        thread_num: usize,
+        ref_seqs: Vec<(String, i32)>,
+    ) -> Self {
+        Self::new(
+            inner,
+            codecs,
+            thread_num,
+            HashMap::<Fields, StatsComparator>::new(),
+            ref_seqs,
+        )
+    }
+
     /// Push BAM record into this writer
     pub fn push_record(&mut self, record: &BAMRawRecord) {
-        let mut index_fields_buf: [u8; U32_SIZE] = [0; U32_SIZE];
         // Index fields are not written on their own. They hold index data for variable sized fields.
-        for field in Fields::iterator().filter(|f| is_data_field(*f)) {
-            let new_data = record.get_bytes(field);
-            match field_type(field) {
-                // Require update to index fields
-                FieldType::VariableSized => {
-                    // Write variable sized field
-                    self.update_field_buf(field, new_data);
-                    let end_pos = self.offsets[*field as usize];
-                    (&mut index_fields_buf[..])
-                        .write_u32::<LittleEndian>(end_pos as u32)
-                        .unwrap();
-                    // Write fixed size index
-                    self.update_field_buf(&var_size_field_to_index(field), &index_fields_buf);
-                }
-                FieldType::FixedSized => {
-                    self.update_field_buf(field, new_data);
-                }
+        for col in self.columns.iter_mut() {
+            while let WriteStatus::Full(inner) = col.write_record_field(&record) {
+                flush_field_buffer(
+                    &mut self.inner,
+                    &mut self.file_meta,
+                    &mut self.compressor,
+                    inner,
+                );
             }
-        }
-    }
-
-    /// Used to write new data into buffers
-    fn update_field_buf(&mut self, field: &Fields, new_data: &[u8]) {
-        let mut offset_into_chunk = self.offsets[*field as usize];
-
-        // At least one record will be written in even if it exceeds SIZE_LIMIT (for variable sized fields).
-        if offset_into_chunk > 0 && offset_into_chunk + new_data.len() > SIZE_LIMIT {
-            self.flush(field);
-            offset_into_chunk = 0;
-        }
-
-        let cur_chunk = &mut self.chunks[*field as usize];
-        if cur_chunk.len() < SIZE_LIMIT {
-            cur_chunk.resize(std::cmp::max(new_data.len(), SIZE_LIMIT), 0);
-        }
-        let item_counter = &mut self.num_items[*field as usize];
-
-        cur_chunk[offset_into_chunk..offset_into_chunk + new_data.len()].clone_from_slice(new_data);
-        offset_into_chunk += new_data.len();
-
-        self.offsets[*field as usize] = offset_into_chunk;
-        *item_counter += 1;
-    }
-
-    /// This method only schedules field for compression, it doesn't immediately
-    /// flush it to writer.
-    fn flush(&mut self, field: &Fields) {
-        // Already empty
-        if self.num_items[*field as usize] == 0 {
-            return;
-        }
-
-        // Flush already compressed data
-        let compress_task = self.compressor.get_compr_block();
-
-        // Skips prefilled blocks in the beginning of program execution
-        if compress_task.uncompr_size != 0 {
-            self.write_data_and_update_meta(&compress_task);
-        }
-
-        let mut buf = compress_task.buf;
-        std::mem::swap(&mut buf, &mut self.chunks[*field as usize]);
-        let uncompr_size = self.offsets[*field as usize];
-        let codec = self.file_meta.get_field_codec(field);
-
-        self.compressor.compress_block(
-            self.blocks_nums[*field as usize],
-            *field,
-            self.num_items[*field as usize],
-            uncompr_size,
-            buf,
-            *codec,
-        );
-        self.blocks_nums[*field as usize] += 1;
-
-        self.offsets[*field as usize] = 0;
-        self.num_items[*field as usize] = 0;
-    }
-
-    fn write_data_and_update_meta(&mut self, task: &CompressTask) {
-        let meta = self.generate_meta(task.num_items);
-        let compressed_size = task.buf.len();
-        self.inner.write_all(&task.buf[..compressed_size]).unwrap();
-
-        let block_sizes = self.file_meta.get_blocks_sizes(&task.field);
-        if block_sizes.len() <= task.ordering_key {
-            block_sizes.resize(task.ordering_key + 1, 0);
-        }
-        block_sizes[task.ordering_key] = compressed_size as u32;
-
-        // Order as came in
-        let field_meta = self.file_meta.get_blocks(&task.field);
-        if field_meta.len() <= task.ordering_key {
-            field_meta.resize(task.ordering_key + 1, BlockMeta::default());
-        }
-        field_meta[task.ordering_key] = meta;
-    }
-
-    fn generate_meta(&mut self, numitems: u32) -> BlockMeta {
-        let seekpos = self.inner.seek(SeekFrom::Current(0)).unwrap();
-        BlockMeta {
-            seekpos,
-            numitems,
-            max_value: None,
-            min_value: None,
         }
     }
 
@@ -300,12 +131,22 @@ where
     /// total amount of bytes written.
     pub fn finish(&mut self) -> std::io::Result<u64> {
         // Flush leftovers
-        for field in Fields::iterator() {
-            self.flush(field);
+        let mut columns: Vec<Box<dyn Column>> = self.columns.drain(..).collect();
+        for (inner, idx) in columns.iter_mut().map(|col| col.get_inners()) {
+            let writer = &mut self.inner;
+            let meta = &mut self.file_meta;
+            let compress = &mut self.compressor;
+
+            flush_field_buffer(writer, meta, compress, inner);
+            if let Some(idx_inner) = idx {
+                flush_field_buffer(writer, meta, compress, idx_inner);
+            }
         }
 
         for task in self.compressor.finish() {
-            self.write_data_and_update_meta(&task);
+            if let OrderingKey::Key(key) = task.ordering_key {
+                write_data_and_update_meta(&mut self.inner, &mut self.file_meta, key, &task);
+            }
         }
 
         let meta_start_pos = self.inner.seek(SeekFrom::Current(0))?;
@@ -322,6 +163,228 @@ where
         let file_meta_bytes = &Into::<Vec<u8>>::into(file_meta)[..];
         self.inner.write_all(file_meta_bytes)?;
         Ok(total_bytes_written)
+    }
+}
+
+fn flush_field_buffer<WS: Write + Seek>(
+    writer: &mut WS,
+    file_meta: &mut FileMeta,
+    compressor: &mut Compressor,
+    inner: &mut Inner,
+) {
+    let field = &inner.field;
+    let completed_task = compressor.get_compr_block();
+
+    if let OrderingKey::Key(key) = completed_task.ordering_key {
+        write_data_and_update_meta(writer, file_meta, key, &completed_task);
+    }
+
+    let old_buffer = &mut inner.buffer;
+
+    let data = std::mem::replace(old_buffer, completed_task.buf);
+
+    let codec = *file_meta.get_field_codec(&field);
+
+    compressor.compress_block(
+        OrderingKey::Key(inner.block_num),
+        inner.generate_block_info(),
+        data,
+        codec,
+    );
+
+    inner.reset_for_new_block();
+}
+
+fn write_data_and_update_meta<WS: Write + Seek>(
+    writer: &mut WS,
+    file_meta: &mut FileMeta,
+    key: u32,
+    task: &CompressTask,
+) {
+    let compressed_size = task.buf.len();
+    let meta = generate_meta(
+        writer,
+        task.block_info.numitems,
+        compressed_size.try_into().unwrap(),
+    );
+
+    writer.write_all(&task.buf).unwrap();
+
+    let field_meta = file_meta.get_blocks(&task.block_info.field);
+    if field_meta.len() <= key as usize {
+        field_meta.resize(key as usize + 1, BlockMeta::default());
+    }
+
+    // Order as came in
+    field_meta[key as usize] = meta;
+}
+
+fn generate_meta<S: Seek>(writer: &mut S, numitems: u32, block_size: u32) -> BlockMeta {
+    let seekpos = writer.seek(SeekFrom::Current(0)).unwrap();
+    BlockMeta {
+        seekpos,
+        numitems,
+        block_size,
+        max_value: None,
+        min_value: None,
+    }
+}
+
+enum WriteStatus<'a> {
+    Written,
+    // Column or its index is at capacity. Flush it.
+    Full(&'a mut Inner),
+}
+
+struct Inner {
+    stats_collector: Option<StatsCollector>,
+    buffer: Vec<u8>,
+    offset: usize,
+    field: Fields,
+    rec_count: u32,
+    block_num: u32,
+}
+
+type StatsComparator = Box<dyn Fn(&[u8], &[u8]) -> Ordering>;
+
+impl Inner {
+    pub fn new(field: Fields, comparator: Option<StatsComparator>) -> Self {
+        Self {
+            stats_collector: comparator.and_then(|cmp| Some(StatsCollector::new(field, cmp))),
+            buffer: Vec::new(),
+            offset: 0,
+            field,
+            rec_count: 0,
+            block_num: 0,
+        }
+    }
+    pub fn write_data(&mut self, data: &[u8]) -> WriteStatus {
+        // At this point everything should be flushed.
+        debug_assert!(!self.flush_required(&data));
+
+        if self.buffer.len() < SIZE_LIMIT {
+            self.buffer.resize(std::cmp::max(data.len(), SIZE_LIMIT), 0);
+        }
+
+        self.buffer[self.offset..self.offset + data.len()].clone_from_slice(data);
+        self.offset += data.len();
+
+        self.rec_count += 1;
+
+        WriteStatus::Written
+    }
+
+    pub fn flush_required(&self, data: &[u8]) -> bool {
+        // At least one record will be written in even if it exceeds SIZE_LIMIT.
+        self.offset > 0 && self.offset + data.len() > SIZE_LIMIT
+    }
+
+    pub fn reset_for_new_block(&mut self) {
+        if let Some(ref mut stats) = self.stats_collector {
+            stats.reset()
+        };
+        self.offset = 0;
+        self.rec_count = 0;
+        self.block_num += 1;
+    }
+
+    pub fn generate_block_info(&self) -> BlockInfo {
+        BlockInfo {
+            numitems: self.rec_count,
+            uncompr_size: self.offset,
+            field: self.field,
+            max_value: self
+                .stats_collector
+                .as_ref()
+                .and_then(|st| st.max_value.clone()),
+            min_value: self
+                .stats_collector
+                .as_ref()
+                .and_then(|st| st.min_value.clone()),
+        }
+    }
+}
+
+trait Column {
+    // Extracts and writes data from corresponding BAMRawRecord record.
+    fn write_record_field(&mut self, rec: &BAMRawRecord) -> WriteStatus;
+
+    fn get_inners(&mut self) -> (&mut Inner, Option<&mut Inner>);
+}
+
+/// Column containing fixed sized fields.
+struct FixedColumn(Inner);
+
+impl FixedColumn {
+    pub fn new(field: Fields, comparator: Option<StatsComparator>) -> Self {
+        Self(Inner::new(field, comparator))
+    }
+}
+
+impl Column for FixedColumn {
+    fn write_record_field(&mut self, rec: &BAMRawRecord) -> WriteStatus {
+        let inner = &mut self.0;
+        let data = rec.get_bytes(&inner.field);
+
+        if inner.flush_required(data) {
+            return WriteStatus::Full(inner);
+        }
+
+        if let Some(ref mut stats) = inner.stats_collector {
+            stats.update(data);
+        }
+
+        inner.write_data(data)
+    }
+
+    fn get_inners(&mut self) -> (&mut Inner, Option<&mut Inner>) {
+        (&mut self.0, None)
+    }
+}
+
+struct VariableColumn {
+    inner: Inner,
+    index: FixedColumn,
+}
+
+impl VariableColumn {
+    pub fn new(field: Fields, comparator: Option<StatsComparator>) -> Self {
+        Self {
+            inner: Inner::new(field, comparator),
+            index: FixedColumn::new(var_size_field_to_index(&field), None),
+        }
+    }
+}
+
+impl Column for VariableColumn {
+    fn write_record_field(&mut self, rec: &BAMRawRecord) -> WriteStatus {
+        let inner = &mut self.inner;
+        let index_inner = &mut self.index.0;
+
+        let data = rec.get_bytes(&inner.field);
+        let mut idx_buf: [u8; U32_SIZE] = [0; U32_SIZE];
+
+        if index_inner.flush_required(&idx_buf) {
+            return WriteStatus::Full(index_inner);
+        }
+
+        if inner.flush_required(data) {
+            return WriteStatus::Full(inner);
+        }
+
+        if let Some(ref mut stats) = inner.stats_collector {
+            stats.update(data);
+        }
+
+        inner.write_data(data);
+        (&mut idx_buf[..])
+            .write_u32::<LittleEndian>(inner.offset as u32)
+            .unwrap();
+        index_inner.write_data(&idx_buf)
+    }
+
+    fn get_inners(&mut self) -> (&mut Inner, Option<&mut Inner>) {
+        (&mut self.inner, Some(&mut self.index.0))
     }
 }
 
@@ -344,7 +407,9 @@ where
     }
 }
 
-// TODO: Its commented out because test doesnt compile otherwise.
+// TODO: Currently end user should manually call finish. Probably can be done
+// with a drop. If drop and manual finish used simultaneously, crc32 and meta of
+// file will be damaged.
 // impl<W> Drop for Writer<W>
 // where
 //     W: Write + Seek,

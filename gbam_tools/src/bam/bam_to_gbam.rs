@@ -1,6 +1,7 @@
 use crate::MEGA_BYTE_SIZE;
 use crate::{Codecs, Writer};
 use bam_tools::record::bamrawrecord::BAMRawRecord;
+use bam_tools::record::fields::FIELDS_NUM;
 use bam_tools::sorting::sort;
 use bam_tools::Reader;
 use std::borrow::Cow;
@@ -33,7 +34,7 @@ pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
     let buf_reader = BufReader::new(fin);
     let buf_writer = BufWriter::new(fout);
 
-    let mut writer = Writer::new(buf_writer, codec, 8, ref_seqs);
+    let mut writer = Writer::new_no_stats(buf_writer, vec![codec; FIELDS_NUM], 8, ref_seqs);
 
     let tmp_dir_path = std::env::temp_dir();
 
@@ -74,9 +75,9 @@ fn get_bam_reader_gbam_writer(
 
     bgzf_reader.read_header().unwrap();
 
-    let writer = Writer::new(
+    let writer = Writer::new_no_stats(
         buf_writer,
-        codec,
+        vec![codec; FIELDS_NUM],
         8,
         bgzf_reader.parse_reference_sequences().unwrap(),
     );

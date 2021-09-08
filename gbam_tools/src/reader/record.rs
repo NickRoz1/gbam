@@ -9,6 +9,7 @@ use bam_tools::record::{
 };
 use byteorder::{LittleEndian, ReadBytesExt};
 
+#[cfg(not(feature = "python-ffi"))]
 use crate::{query::cigar::Cigar, query::cigar::Op, U32_SIZE};
 
 #[cfg(not(feature = "python-ffi"))]
@@ -98,6 +99,7 @@ pub fn parse_cigar(bytes: &[u8]) -> String {
 
 pub static mut copying: Duration = Duration::from_nanos(0);
 /// This version is for Rust.
+#[cfg(not(feature = "python-ffi"))]
 pub fn parse_cigar(bytes: &[u8]) -> Cigar {
     // let mut v = Vec::new();
     // v.push(Op::new(1));

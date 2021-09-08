@@ -17,6 +17,7 @@ pub mod reader {
     pub mod records;
 }
 
+#[cfg(not(feature = "python-ffi"))]
 pub mod query {
     pub mod cigar;
     pub mod depth;

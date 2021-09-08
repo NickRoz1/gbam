@@ -3,7 +3,6 @@ use flume::{Receiver, Sender};
 use rayon::ThreadPool;
 
 use super::Codecs;
-use bam_tools::record::fields::Fields;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use lz4::EncoderBuilder;
@@ -11,7 +10,7 @@ use std::io::Write;
 
 use crate::writer::BlockInfo;
 
-enum OrderingKey {
+pub(crate) enum OrderingKey {
     Key(u32),
     UnusedBlock,
 }
@@ -96,7 +95,7 @@ impl Compressor {
     pub fn get_compr_block(&mut self) -> CompressTask {
         let task = self.compr_data_rx.recv().unwrap();
         // Correct for first dummy blocks
-        if task.uncompr_size != 0 {
+        if let OrderingKey::Key(_) = task.ordering_key {
             self.received += 1;
         }
         task
