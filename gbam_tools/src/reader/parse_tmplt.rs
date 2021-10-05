@@ -59,6 +59,7 @@ impl ParsingTemplate {
         self.active_data_fields.iter()
     }
 
+    /// This method exists because list of active fields is stored separately.
     fn set_active(&mut self) {
         self.active_data_fields = self
             .inner

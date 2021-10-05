@@ -151,6 +151,7 @@ impl VariableColumn {
 
 /// Fetch and decompress a data block.
 fn fetch_block(inner_column: &mut Inner, block_num: usize) -> Result<()> {
+    println!("Fetching for {}", inner_column.field);
     let field = &inner_column.field;
     let block_meta = inner_column.meta.view_blocks(field).get(block_num).unwrap();
     let reader = &inner_column.reader;

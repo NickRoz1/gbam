@@ -21,6 +21,7 @@ pub struct Reader {
     // Instead of hashmap. Empty columns will contain None.
     pub columns: Vec<Option<Box<dyn Column + Send>>>,
     pub parsing_template: ParsingTemplate,
+    original_template: ParsingTemplate,
     pub amount: usize,
     pub(crate) file_meta: Arc<FileMeta>,
     // Kept so File won't drop while used by mmap.
@@ -38,6 +39,7 @@ impl Reader {
             .fold(0, |acc, x| acc + x.numitems) as usize;
         Ok(Self {
             columns: init_columns(&mmap, &parsing_template, &file_meta),
+            original_template: parsing_template.clone(),
             parsing_template,
             file_meta,
             amount,
@@ -53,6 +55,19 @@ impl Reader {
                 .unwrap()
                 .fill_record_field(rec_num, rec);
         }
+    }
+
+    // Temporarily disable fetching for fields which are not needed
+    pub fn fetch_only(&mut self, fields: &[Fields]) {
+        self.parsing_template.clear();
+        for field in fields {
+            self.parsing_template.set(field, true);
+        }
+    }
+
+    // Restores original template if some fields fetching was paused.
+    pub fn restore_template(&mut self) {
+        self.parsing_template = self.original_template.clone();
     }
 
     /// Get iterator over all GBAM records (according to parsing template).

@@ -95,8 +95,12 @@ fn depth(args: Cli) {
     let mut reader = Reader::new(file, tmplt).unwrap();
 
     let (ref_id, pos) = parse_query(args.query.clone().unwrap());
-
+    let now = Instant::now();
     if let Some(depth) = get_depth(&mut reader, ref_id, pos) {
+        println!(
+            "GBAM. Time elapsed querying depth {}ms",
+            now.elapsed().as_millis()
+        );
         println!(
             "The depth at <{}> is equal to: {}",
             args.query.unwrap(),

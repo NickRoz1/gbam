@@ -1,16 +1,19 @@
 use std::cmp::Ordering;
 
 use bam_tools::record::fields::Fields;
+use byteorder::{LittleEndian, ReadBytesExt};
+
+pub type StatsComparator = fn(&[u8], &[u8]) -> Ordering;
 
 pub struct StatsCollector {
     field: Fields,
     pub max_value: Option<Vec<u8>>,
     pub min_value: Option<Vec<u8>>,
-    comparator: Box<dyn Fn(&[u8], &[u8]) -> Ordering>,
+    comparator: StatsComparator,
 }
 
 impl StatsCollector {
-    pub fn new(field: Fields, comparator: Box<dyn Fn(&[u8], &[u8]) -> Ordering>) -> Self {
+    pub fn new(field: Fields, comparator: StatsComparator) -> Self {
         Self {
             field,
             max_value: None,
@@ -36,4 +39,11 @@ impl StatsCollector {
         self.max_value = None;
         self.min_value = None;
     }
+}
+
+pub fn refid_comparator(mut left: &[u8], mut right: &[u8]) -> Ordering {
+    let left_val = left.read_i32::<LittleEndian>().unwrap();
+    let right_val = right.read_i32::<LittleEndian>().unwrap();
+
+    left_val.cmp(&right_val)
 }

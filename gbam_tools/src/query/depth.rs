@@ -1,12 +1,63 @@
+use std::convert::TryInto;
+use std::ops::{Range, RangeInclusive};
 use std::{cmp::Ordering, collections::HashSet, convert::TryFrom, time::Instant};
 
 use bam_tools::record::fields::Fields;
 
+/// This module provides function for fast querying of read depth.
+use crate::meta::BlockMeta;
 use crate::reader::{reader::generate_block_treemap, reader::Reader, record::GbamRecord};
 
-use crate::reader::record::copying;
+// use crate::reader::record::copying;
 
-/// This module provides function for fast querying of read depth.
+use byteorder::{LittleEndian, ReadBytesExt};
+
+// Approach as in https://github.com/brentp/mosdepth
+pub fn get_region_depth(region: (&str, i32, i32)) {
+    if !reader
+        .parsing_template
+        .check_if_active(&[Fields::RefID, Fields::Pos, Fields::RawCigar])
+    {
+        panic!("The reader should have parsing template which includes REFID, POS and CIGAR.");
+    }
+
+    let meta_blocks = reader.file_meta.view_blocks(&Fields::RefID);
+
+    let mut left_bound = 0;
+    let mut right_bound = reader.amount;
+
+    // If stats were collected for this file it's possible to narrow binary search.
+    if meta_blocks.first().unwrap().max_value.is_some() {
+        // println!("yeah that is stat");
+        // First block which contains this refid.
+        let first_block = find_leftmost_block(chr_num, &meta_blocks);
+
+        // There is no such refid inside.
+        if first_block == meta_blocks.len() {
+            return None;
+        }
+
+        left_bound = meta_blocks[..first_block]
+            .iter()
+            .fold(0, |x, meta| x + meta.numitems) as usize;
+        let block_size = meta_blocks[first_block].numitems;
+        right_bound = left_bound + block_size as usize;
+    }
+
+    // Find number of record when records with this ref_id begin.
+    // We don't need to fetch anything except refid to find first record with requested refid, so disable other fields fetching.
+    reader.fetch_only(&[Fields::RefID]);
+    // println!("Look - the template: {:?}", reader.parsing_template);
+    // println!("Left: {}, Right: {}", left_bound, right_bound);
+    let res = find_refid(reader, chr_num, left_bound..right_bound);
+    reader.restore_template();
+
+    if let Some(region_start) = res {
+        Some(calc_depth_at_pos(reader, region_start, pos, chr_num))
+    } else {
+        None
+    }
+}
 
 /// Get depth at position. The file should be sorted!
 pub fn get_depth(reader: &mut Reader, chr: String, pos: i32) -> Option<usize> {
@@ -23,42 +74,71 @@ pub fn get_depth(reader: &mut Reader, chr: String, pos: i32) -> Option<usize> {
         None => return None,
     };
 
-    // Used to quickly determine what block record belongs to.
-    let blocks = generate_block_treemap(&reader.file_meta, &Fields::RawCigar);
+    // // Used to quickly determine what block record belongs to.
+    // let blocks = generate_block_treemap(&reader.file_meta, &Fields::RawCigar);
 
-    let now = Instant::now();
+    let meta_blocks = reader.file_meta.view_blocks(&Fields::RefID);
 
-    // Find number of record when records with this ref_id begin.
-    if let Some(region_start) = find_refid(reader, chr_num) {
-        // Find number of record when records with next ref_id start, or the
-        // total amount of records if there is no such chr.
-        let region_end = match find_refid(reader, chr_num + 1) {
-            Some(end) => end,
-            None => reader.amount,
-        };
-        let res = Some(calc_depth_at_pos(reader, region_start, region_end, pos));
-        unsafe {
-            println!(
-                "Spent: {} ms\nOf which spent copying: {}\n",
-                now.elapsed().as_millis(),
-                copying.as_millis()
-            );
+    let mut left_bound = 0;
+    let mut right_bound = reader.amount;
+
+    // If stats were collected for this file it's possible to narrow binary search.
+    if meta_blocks.first().unwrap().max_value.is_some() {
+        // println!("yeah that is stat");
+        // First block which contains this refid.
+        let first_block = find_leftmost_block(chr_num, &meta_blocks);
+
+        // There is no such refid inside.
+        if first_block == meta_blocks.len() {
+            return None;
         }
 
-        res
+        left_bound = meta_blocks[..first_block]
+            .iter()
+            .fold(0, |x, meta| x + meta.numitems) as usize;
+        let block_size = meta_blocks[first_block].numitems;
+        right_bound = left_bound + block_size as usize;
+    }
+
+    // Find number of record when records with this ref_id begin.
+    // We don't need to fetch anything except refid to find first record with requested refid, so disable other fields fetching.
+    reader.fetch_only(&[Fields::RefID]);
+    // println!("Look - the template: {:?}", reader.parsing_template);
+    // println!("Left: {}, Right: {}", left_bound, right_bound);
+    let res = find_refid(reader, chr_num, left_bound..right_bound);
+    reader.restore_template();
+
+    if let Some(region_start) = res {
+        Some(calc_depth_at_pos(reader, region_start, pos, chr_num))
     } else {
         None
     }
 }
 
-fn find_refid(reader: &mut Reader, chr_num: i32) -> Option<usize> {
-    let rec_num = reader.amount;
+fn find_leftmost_block(id: i32, block_metas: &Vec<BlockMeta>) -> usize {
+    let mut left = 0;
+    let mut right = block_metas.len();
+    while left < right {
+        let mid = (left + right) / 2;
+        let max_val = (&block_metas[mid].max_value.as_ref().unwrap()[..])
+            .read_i32::<LittleEndian>()
+            .unwrap();
+        match max_val.cmp(&id) {
+            Ordering::Equal | Ordering::Greater => right = mid,
+            Ordering::Less => left = mid + 1,
+        }
+    }
+    left
+}
+
+// For each guess there may be I/O operation with decompression, so this method is not fast.
+fn find_refid(reader: &mut Reader, chr_num: i32, range: Range<usize>) -> Option<usize> {
     let pred = |num: usize, buf: &mut GbamRecord| {
         reader.fill_record(num, buf);
         buf.refid.unwrap().cmp(&chr_num)
     };
 
-    binary_search(0, rec_num, pred)
+    binary_search(range.start, range.end, pred)
 }
 
 /// Searches for the first record which satisfies predicate.
@@ -85,43 +165,60 @@ fn binary_search<F: FnMut(usize, &mut GbamRecord) -> Ordering>(
     Some(left)
 }
 
-pub fn calc_depth_at_pos(
+pub fn calc_depth(
     reader: &mut Reader,
-    mut region_start: usize,
-    mut region_end: usize,
-    pos: i32,
-) -> usize {
+    mut record_num: usize,
+    region: RangeInclusive<i32>,
+    refid: i32,
+) -> Vec<i32> {
     let mut buf = GbamRecord::default();
-    let mut depth = 0;
+    let mut sweeping_line = vec![0; (region.end() - region.start() + 1) as usize];
 
     loop {
-        if region_start >= reader.amount {
-            return depth;
+        if record_num >= reader.amount {
+            break;
         }
-        reader.fill_record(region_start, &mut buf);
-        region_start += 1;
+        reader.fill_record(record_num, &mut buf);
+        record_num += 1;
 
-        let read_pos = buf.pos.unwrap();
+        let read_start = buf.pos.unwrap();
         let base_cov = buf.cigar.as_ref().unwrap().base_coverage();
 
-        // println!(
-        //     "REF_ID: {}\nPOS: {}\nbase_cov: {}\ncigar_len: {}\nsearch pos: {}\nEND: {}\nDEPTH: {}\n",
-        //     buf.refid.unwrap(),
-        //     read_pos,
-        //     base_cov,
-        //     buf.cigar.as_ref().unwrap().0.len(),
-        //     pos,
-        //     read_pos + i32::try_from(base_cov).unwrap(),
-        //     read_pos > pos
-        // );
-
-        if read_pos >= pos {
-            return depth;
+        if read_start >= *region.end() || buf.refid.unwrap() > refid {
+            break;
         }
 
-        // https://github.com/biod/sambamba/blob/c795656721b3608ffe7765b6ab98502426d14131/BioD/bio/std/hts/bam/randomaccessmanager.d#L448
-        if read_pos + i32::try_from(base_cov).unwrap() > pos {
-            depth += 1;
+        let read_end = read_start + i32::try_from(base_cov).unwrap();
+
+        if read_start > *region.start() {
+            sweeping_line[(read_start - region.start()) as usize] += 1;
+        }
+        if read_end > *region.start() && read_end < *region.end() {
+            sweeping_line[(read_start - region.start()) as usize] -= 1;
         }
     }
+
+    let mut depth_of_region = sweeping_line;
+    let mut cur_depth = 0;
+    let mut delta = 0;
+
+    for ref mut sweep in depth_of_region {
+        debug_assert!(cur_depth >= 0);
+        delta = *sweep;
+        *sweep = cur_depth;
+        cur_depth += delta;
+    }
+
+    return depth_of_region;
 }
+
+// println!(
+//     "REF_ID: {}\nPOS: {}\nbase_cov: {}\ncigar_len: {}\nsearch pos: {}\nEND: {}\nDEPTH: {}\n",
+//     buf.refid.unwrap(),
+//     read_pos,
+//     base_cov,
+//     buf.cigar.as_ref().unwrap().0.len(),
+//     pos,
+//     read_pos + i32::try_from(base_cov).unwrap(),
+//     read_pos > pos
+// );

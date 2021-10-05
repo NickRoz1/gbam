@@ -1,10 +1,12 @@
+use crate::stats::{refid_comparator, StatsComparator};
 use crate::MEGA_BYTE_SIZE;
 use crate::{Codecs, Writer};
 use bam_tools::record::bamrawrecord::BAMRawRecord;
-use bam_tools::record::fields::FIELDS_NUM;
+use bam_tools::record::fields::{Fields, FIELDS_NUM};
 use bam_tools::sorting::sort;
 use bam_tools::Reader;
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 
@@ -75,10 +77,14 @@ fn get_bam_reader_gbam_writer(
 
     bgzf_reader.read_header().unwrap();
 
-    let writer = Writer::new_no_stats(
+    let mut stats_collectors = HashMap::<Fields, StatsComparator>::new();
+    stats_collectors.insert(Fields::RefID, refid_comparator);
+
+    let writer = Writer::new(
         buf_writer,
         vec![codec; FIELDS_NUM],
         8,
+        stats_collectors,
         bgzf_reader.parse_reference_sequences().unwrap(),
     );
 

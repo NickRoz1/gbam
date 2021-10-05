@@ -1,6 +1,6 @@
 use super::meta::{BlockMeta, Codecs, FileInfo, FileMeta, FILE_INFO_SIZE};
 use crate::compressor::{CompressTask, Compressor, OrderingKey};
-use crate::stats::StatsCollector;
+use crate::stats::{StatsCollector, StatsComparator};
 use crate::{SIZE_LIMIT, U32_SIZE};
 use bam_tools::record::bamrawrecord::BAMRawRecord;
 use bam_tools::record::fields::{
@@ -79,6 +79,7 @@ where
                     Box::new(FixedColumn::new(*field, comparator)) as Box<dyn Column>
                 }
                 FieldType::VariableSized => {
+                    // Index column +1.
                     count += 1;
                     Box::new(VariableColumn::new(*field, comparator)) as Box<dyn Column>
                 }
@@ -116,6 +117,11 @@ where
     pub fn push_record(&mut self, record: &BAMRawRecord) {
         // Index fields are not written on their own. They hold index data for variable sized fields.
         for col in self.columns.iter_mut() {
+            // Attempt to write data in this column. If the column is full it
+            // will return bytes for flushing. While loop is here because
+            // variable sized columns also have index columns (fixed size)
+            // inside and they might also come full and request flushing
+            // simultaneously with containing variable sized field column.
             while let WriteStatus::Full(inner) = col.write_record_field(&record) {
                 flush_field_buffer(
                     &mut self.inner,
@@ -143,9 +149,9 @@ where
             }
         }
 
-        for task in self.compressor.finish() {
+        for mut task in self.compressor.finish() {
             if let OrderingKey::Key(key) = task.ordering_key {
-                write_data_and_update_meta(&mut self.inner, &mut self.file_meta, key, &task);
+                write_data_and_update_meta(&mut self.inner, &mut self.file_meta, key, &mut task);
             }
         }
 
@@ -173,10 +179,10 @@ fn flush_field_buffer<WS: Write + Seek>(
     inner: &mut Inner,
 ) {
     let field = &inner.field;
-    let completed_task = compressor.get_compr_block();
+    let mut completed_task = compressor.get_compr_block();
 
     if let OrderingKey::Key(key) = completed_task.ordering_key {
-        write_data_and_update_meta(writer, file_meta, key, &completed_task);
+        write_data_and_update_meta(writer, file_meta, key, &mut completed_task);
     }
 
     let old_buffer = &mut inner.buffer;
@@ -199,12 +205,12 @@ fn write_data_and_update_meta<WS: Write + Seek>(
     writer: &mut WS,
     file_meta: &mut FileMeta,
     key: u32,
-    task: &CompressTask,
+    task: &mut CompressTask,
 ) {
     let compressed_size = task.buf.len();
     let meta = generate_meta(
         writer,
-        task.block_info.numitems,
+        &mut task.block_info,
         compressed_size.try_into().unwrap(),
     );
 
@@ -219,14 +225,18 @@ fn write_data_and_update_meta<WS: Write + Seek>(
     field_meta[key as usize] = meta;
 }
 
-fn generate_meta<S: Seek>(writer: &mut S, numitems: u32, block_size: u32) -> BlockMeta {
+fn generate_meta<S: Seek>(
+    writer: &mut S,
+    block_info: &mut BlockInfo,
+    block_size: u32,
+) -> BlockMeta {
     let seekpos = writer.seek(SeekFrom::Current(0)).unwrap();
     BlockMeta {
         seekpos,
-        numitems,
+        numitems: block_info.numitems,
         block_size,
-        max_value: None,
-        min_value: None,
+        max_value: block_info.max_value.take(),
+        min_value: block_info.min_value.take(),
     }
 }
 
@@ -244,8 +254,6 @@ struct Inner {
     rec_count: u32,
     block_num: u32,
 }
-
-type StatsComparator = Box<dyn Fn(&[u8], &[u8]) -> Ordering>;
 
 impl Inner {
     pub fn new(field: Fields, comparator: Option<StatsComparator>) -> Self {
@@ -280,27 +288,30 @@ impl Inner {
     }
 
     pub fn reset_for_new_block(&mut self) {
+        // Stats should be flushed with meta for previous block.
+
         if let Some(ref mut stats) = self.stats_collector {
-            stats.reset()
+            assert!(stats.max_value.is_none());
+            assert!(stats.min_value.is_none());
         };
         self.offset = 0;
         self.rec_count = 0;
         self.block_num += 1;
     }
 
-    pub fn generate_block_info(&self) -> BlockInfo {
+    pub fn generate_block_info(&mut self) -> BlockInfo {
         BlockInfo {
             numitems: self.rec_count,
             uncompr_size: self.offset,
             field: self.field,
             max_value: self
                 .stats_collector
-                .as_ref()
-                .and_then(|st| st.max_value.clone()),
+                .as_mut()
+                .and_then(|st| st.max_value.take()),
             min_value: self
                 .stats_collector
-                .as_ref()
-                .and_then(|st| st.min_value.clone()),
+                .as_mut()
+                .and_then(|st| st.min_value.take()),
         }
     }
 }
@@ -393,6 +404,7 @@ where
     W: Write + Seek,
 {
     /// WARNING: ENSURE THAT BUF CONTAINS A ONE FULL RECORD.
+    /// TODO: Implement a proper trait and use it instead of Write in bam_sorting.
     /// Write trait implementation is made to allow passing Write trait objects to sort function in BAM parallel.
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         assert!(buf.len() > 0);
