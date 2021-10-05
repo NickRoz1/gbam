@@ -1,9 +1,13 @@
 // use gbam_tools::bam_to_gbam;
 use bam_tools::record::fields::Fields;
-use gbam_tools::bam::bam_to_gbam::bam_sort_to_gbam;
-use gbam_tools::query::depth::get_depth;
-use gbam_tools::reader::{parse_tmplt::ParsingTemplate, reader::Reader, records::Records};
-use gbam_tools::{bam_to_gbam, Codecs};
+use gbam_tools::{
+    bam::bam_to_gbam::bam_sort_to_gbam,
+    query::depth::{get_region_depth, DepthStatus},
+    reader::{parse_tmplt::ParsingTemplate, reader::Reader, records::Records},
+    utils::bed,
+    {bam_to_gbam, Codecs},
+};
+
 use std::fs::File;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -29,9 +33,12 @@ struct Cli {
     /// The path to write output GBAM file
     #[structopt(parse(from_os_str))]
     out_path: Option<PathBuf>,
-    /// Depth query. Example: chr1:54, or chrX:1258
+    /// Depth query. Example: chr1:54-54, or chrX:1258-9999
     #[structopt(short, long)]
     query: Option<String>,
+    /// Depth query. Example: chr1:54, or chrX:1258
+    #[structopt(parse(from_os_str))]
+    bed_file: Option<PathBuf>,
 }
 
 /// Limited wrapper of `gbam_tools` converts BAM file to GBAM
@@ -93,34 +100,45 @@ fn depth(args: Cli) {
     let in_path = args.in_path.as_path().to_str().unwrap();
     let file = File::open(in_path).unwrap();
     let mut reader = Reader::new(file, tmplt).unwrap();
-
-    let (ref_id, pos) = parse_query(args.query.clone().unwrap());
-    let now = Instant::now();
-    if let Some(depth) = get_depth(&mut reader, ref_id, pos) {
-        println!(
-            "GBAM. Time elapsed querying depth {}ms",
-            now.elapsed().as_millis()
-        );
-        println!(
-            "The depth at <{}> is equal to: {}",
-            args.query.unwrap(),
-            depth
-        );
-        println!("test");
+    let mut queries = Vec::new();
+    if let Some(bed_path) = args.bed_file {
+        queries = bed::parse_bed_from_file(&bed_path).expect("BED file is corrupted.");
     } else {
-        println!("No reads cover position {}", args.query.unwrap());
+        queries.push(
+            bed::parse_region_query_owned(&args.query.unwrap())
+                .ok()
+                .ok_or_else(|| panic_err())
+                .unwrap(),
+        );
     }
-}
-
-fn parse_query(q: String) -> (String, i32) {
-    let mut parts = q.split(':');
-    if parts.clone().count() != 2 {
-        panic_err();
+    // let now = Instant::now();
+    // println!(
+    //     "GBAM. Time elapsed querying depth {}ms",
+    //     now.elapsed().as_millis()
+    // );
+    let mut buf = Vec::new();
+    if !queries.is_empty() {
+        println!("REFID\tPOS\tDEPTH");
     }
-    let ref_id = parts.next().unwrap().to_owned();
-    let pos = parts.next().unwrap().parse::<i32>().unwrap();
-
-    (ref_id, pos)
+    for query in queries.iter() {
+        match get_region_depth(&mut reader, query, buf) {
+            DepthStatus::Success(region_depth) => {
+                for (i, depth) in region_depth.iter().enumerate() {
+                    // Start pos + current offset.
+                    let position = query.1 as usize + i;
+                    println!("{}\t{}\t{}", query.0, position, depth);
+                }
+                buf = region_depth;
+            }
+            DepthStatus::None(buffer) => {
+                buf = buffer;
+                println!(
+                    "Unable to locate ref id {} or range {}-{}",
+                    query.0, query.1, query.2
+                );
+            }
+        }
+    }
 }
 
 fn panic_err() {

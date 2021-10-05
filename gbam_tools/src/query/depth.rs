@@ -12,55 +12,19 @@ use crate::reader::{reader::generate_block_treemap, reader::Reader, record::Gbam
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
-// Approach as in https://github.com/brentp/mosdepth
-pub fn get_region_depth(region: (&str, i32, i32)) {
-    if !reader
-        .parsing_template
-        .check_if_active(&[Fields::RefID, Fields::Pos, Fields::RawCigar])
-    {
-        panic!("The reader should have parsing template which includes REFID, POS and CIGAR.");
-    }
-
-    let meta_blocks = reader.file_meta.view_blocks(&Fields::RefID);
-
-    let mut left_bound = 0;
-    let mut right_bound = reader.amount;
-
-    // If stats were collected for this file it's possible to narrow binary search.
-    if meta_blocks.first().unwrap().max_value.is_some() {
-        // println!("yeah that is stat");
-        // First block which contains this refid.
-        let first_block = find_leftmost_block(chr_num, &meta_blocks);
-
-        // There is no such refid inside.
-        if first_block == meta_blocks.len() {
-            return None;
-        }
-
-        left_bound = meta_blocks[..first_block]
-            .iter()
-            .fold(0, |x, meta| x + meta.numitems) as usize;
-        let block_size = meta_blocks[first_block].numitems;
-        right_bound = left_bound + block_size as usize;
-    }
-
-    // Find number of record when records with this ref_id begin.
-    // We don't need to fetch anything except refid to find first record with requested refid, so disable other fields fetching.
-    reader.fetch_only(&[Fields::RefID]);
-    // println!("Look - the template: {:?}", reader.parsing_template);
-    // println!("Left: {}, Right: {}", left_bound, right_bound);
-    let res = find_refid(reader, chr_num, left_bound..right_bound);
-    reader.restore_template();
-
-    if let Some(region_start) = res {
-        Some(calc_depth_at_pos(reader, region_start, pos, chr_num))
-    } else {
-        None
-    }
+/// To avoid wasting buffer when get_region_depth returns None.
+pub enum DepthStatus {
+    Success(Vec<i32>),
+    None(Vec<i32>),
 }
 
+// Approach as in https://github.com/brentp/mosdepth
 /// Get depth at position. The file should be sorted!
-pub fn get_depth(reader: &mut Reader, chr: String, pos: i32) -> Option<usize> {
+pub fn get_region_depth(
+    reader: &mut Reader,
+    region: &(String, i32, i32),
+    buffer: Vec<i32>,
+) -> DepthStatus {
     if !reader
         .parsing_template
         .check_if_active(&[Fields::RefID, Fields::Pos, Fields::RawCigar])
@@ -69,13 +33,10 @@ pub fn get_depth(reader: &mut Reader, chr: String, pos: i32) -> Option<usize> {
     }
 
     // https://github.com/biod/sambamba/blob/3eff9a2d8bb3097b92c72752be3c6b42dd1c59b7/BioD/bio/std/hts/bam/read.d#L902
-    let chr_num = match reader.file_meta.get_ref_id(chr) {
+    let chr_num = match reader.file_meta.get_ref_id(&region.0) {
         Some(num) => num,
-        None => return None,
+        None => return DepthStatus::None(buffer),
     };
-
-    // // Used to quickly determine what block record belongs to.
-    // let blocks = generate_block_treemap(&reader.file_meta, &Fields::RawCigar);
 
     let meta_blocks = reader.file_meta.view_blocks(&Fields::RefID);
 
@@ -90,7 +51,7 @@ pub fn get_depth(reader: &mut Reader, chr: String, pos: i32) -> Option<usize> {
 
         // There is no such refid inside.
         if first_block == meta_blocks.len() {
-            return None;
+            return DepthStatus::None(buffer);
         }
 
         left_bound = meta_blocks[..first_block]
@@ -103,15 +64,13 @@ pub fn get_depth(reader: &mut Reader, chr: String, pos: i32) -> Option<usize> {
     // Find number of record when records with this ref_id begin.
     // We don't need to fetch anything except refid to find first record with requested refid, so disable other fields fetching.
     reader.fetch_only(&[Fields::RefID]);
-    // println!("Look - the template: {:?}", reader.parsing_template);
-    // println!("Left: {}, Right: {}", left_bound, right_bound);
     let res = find_refid(reader, chr_num, left_bound..right_bound);
     reader.restore_template();
 
     if let Some(region_start) = res {
-        Some(calc_depth_at_pos(reader, region_start, pos, chr_num))
+        calc_depth(reader, region_start, chr_num, region.1..=region.2, buffer)
     } else {
-        None
+        DepthStatus::None(buffer)
     }
 }
 
@@ -168,11 +127,16 @@ fn binary_search<F: FnMut(usize, &mut GbamRecord) -> Ordering>(
 pub fn calc_depth(
     reader: &mut Reader,
     mut record_num: usize,
-    region: RangeInclusive<i32>,
     refid: i32,
-) -> Vec<i32> {
+    region: RangeInclusive<i32>,
+    buffer: Vec<i32>,
+) -> DepthStatus {
     let mut buf = GbamRecord::default();
-    let mut sweeping_line = vec![0; (region.end() - region.start() + 1) as usize];
+
+    let mut sweeping_line = buffer;
+    sweeping_line.clear();
+    sweeping_line.resize((region.end() - region.start() + 1) as usize, 0);
+    let mut cur_depth = 0;
 
     loop {
         if record_num >= reader.amount {
@@ -184,32 +148,36 @@ pub fn calc_depth(
         let read_start = buf.pos.unwrap();
         let base_cov = buf.cigar.as_ref().unwrap().base_coverage();
 
+        let read_end = read_start + i32::try_from(base_cov).unwrap();
+
+        // println!("That is test! {} end {}", read_start, read_end);
+
         if read_start >= *region.end() || buf.refid.unwrap() > refid {
             break;
         }
 
-        let read_end = read_start + i32::try_from(base_cov).unwrap();
-
-        if read_start > *region.start() {
+        if read_start >= *region.start() {
             sweeping_line[(read_start - region.start()) as usize] += 1;
         }
-        if read_end > *region.start() && read_end < *region.end() {
-            sweeping_line[(read_start - region.start()) as usize] -= 1;
+        if read_end > *region.start() && read_end <= *region.end() {
+            if read_start < *region.start() {
+                cur_depth += 1;
+            }
+            sweeping_line[(read_end - region.start()) as usize] -= 1;
         }
     }
 
     let mut depth_of_region = sweeping_line;
-    let mut cur_depth = 0;
-    let mut delta = 0;
+    let mut delta;
 
-    for ref mut sweep in depth_of_region {
+    for sweep in depth_of_region.iter_mut() {
         debug_assert!(cur_depth >= 0);
         delta = *sweep;
         *sweep = cur_depth;
         cur_depth += delta;
     }
 
-    return depth_of_region;
+    return DepthStatus::Success(depth_of_region);
 }
 
 // println!(

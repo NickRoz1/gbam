@@ -242,8 +242,8 @@ impl FileMeta {
         }
     }
 
-    pub fn get_ref_id(&self, chr: String) -> Option<i32> {
-        self.name_to_ref_id.get(&chr).cloned()
+    pub fn get_ref_id(&self, chr: &str) -> Option<i32> {
+        self.name_to_ref_id.get(chr).cloned()
     }
 
     /// Used to retrieve BlockMeta vector mutable borrow, to push new blocks

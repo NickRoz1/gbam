@@ -30,7 +30,12 @@ fn parse_record(s: &str) -> io::Result<(String, i32, i32)> {
     Ok((reference_sequence_name, start, end))
 }
 
-fn parse_bed<R: Read>(source: &mut R) -> io::Result<Vec<(String, i32, i32)>> {
+pub fn parse_bed_from_file(path: &Path) -> io::Result<Vec<(String, i32, i32)>> {
+    let mut file = File::open(path)?;
+    parse_bed(&mut file)
+}
+
+pub fn parse_bed<R: Read>(source: &mut R) -> io::Result<Vec<(String, i32, i32)>> {
     let mut res = Vec::new();
     let lines = read_lines(source)?;
 
@@ -43,14 +48,14 @@ fn parse_bed<R: Read>(source: &mut R) -> io::Result<Vec<(String, i32, i32)>> {
     Ok(res)
 }
 
-fn read_lines<R>(file: R) -> io::Result<io::Lines<io::BufReader<R>>>
+fn read_lines<R>(source: &mut R) -> io::Result<io::Lines<io::BufReader<&mut R>>>
 where
     R: Read,
 {
-    Ok(io::BufReader::new(file).lines())
+    Ok(io::BufReader::new(source).lines())
 }
 
-fn parse_region_query(q: &str) -> io::Result<(&str, i32, i32)> {
+pub fn parse_region_query(q: &str) -> io::Result<(&str, i32, i32)> {
     let mut parts = q.split(':');
 
     let ref_id = parts.next().unwrap();
@@ -75,6 +80,11 @@ fn parse_region_query(q: &str) -> io::Result<(&str, i32, i32)> {
     };
 
     Ok((ref_id, left, right))
+}
+
+pub fn parse_region_query_owned(q: &str) -> io::Result<(String, i32, i32)> {
+    let res = parse_region_query(q)?;
+    Ok((res.0.to_owned(), res.1, res.2))
 }
 
 #[cfg(test)]
