@@ -85,12 +85,18 @@ pub enum Codecs {
     /// LZ4 encoding
     Lz4,
 }
+
+pub(crate) trait Limits<T> {
+    fn get_max(&self) -> Option<T>;
+    fn get_min(&self) -> Option<T>;
+}
+
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub(crate) struct BlockMeta {
     pub seekpos: u64,
     pub numitems: u32,
     pub block_size: u32,
-    // Interpretation is up to the reader.
+    // Interpretation is up to the reader to accommodate for various types one might store.
     pub max_value: Option<Vec<u8>>,
     pub min_value: Option<Vec<u8>>,
 }

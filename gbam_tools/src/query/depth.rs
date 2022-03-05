@@ -5,7 +5,7 @@ use std::{cmp::Ordering, collections::HashSet, convert::TryFrom, time::Instant};
 use bam_tools::record::fields::Fields;
 
 /// This module provides function for fast querying of read depth.
-use crate::meta::BlockMeta;
+use crate::meta::{BlockMeta, Limits};
 use crate::reader::{reader::generate_block_treemap, reader::Reader, record::GbamRecord};
 
 // use crate::reader::record::copying;
@@ -18,11 +18,29 @@ pub enum DepthStatus {
     None(Vec<i32>),
 }
 
+// TODO: Merge bed regions with tolerance to form super regions. Then do
+// sweepline for each of the super regions. Print the depth results for each of
+// the regions by taking chunks from the super regions or doing in process while
+// calculating to avoid double iterating the super region sweep line array.
+
+fn parse_bytes(bytes: &Vec<u8>) -> i32 {
+    (&bytes[..]).read_i32::<LittleEndian>().unwrap()
+}
+
+impl Limits<i32> for BlockMeta {
+    fn get_max(&self) -> Option<i32> {
+        self.max_value.and_then(|bytes| Some(parse_bytes(&bytes)))
+    }
+    fn get_min(&self) -> Option<i32> {
+        self.min_value.and_then(|bytes| Some(parse_bytes(&bytes)))
+    }
+}
+
 // Approach as in https://github.com/brentp/mosdepth
 /// Get depth at position. The file should be sorted!
-pub fn get_region_depth(
+pub fn get_region_depths(
     reader: &mut Reader,
-    region: &(String, i32, i32),
+    regions: &Vec<&(String, i32, i32)>,
     buffer: Vec<i32>,
 ) -> DepthStatus {
     if !reader
@@ -32,34 +50,44 @@ pub fn get_region_depth(
         panic!("The reader should have parsing template which includes REFID, POS and CIGAR.");
     }
 
+    // dbg!(&region.0);
     // https://github.com/biod/sambamba/blob/3eff9a2d8bb3097b92c72752be3c6b42dd1c59b7/BioD/bio/std/hts/bam/read.d#L902
-    let chr_num = match reader.file_meta.get_ref_id(&region.0) {
-        Some(num) => num,
-        None => return DepthStatus::None(buffer),
-    };
+    let chr_nums = regions
+        .into_iter()
+        .map(|region| reader.file_meta.get_ref_id(&region.0))
+        .collect::<Vec<Option<i32>>>();
 
     let meta_blocks = reader.file_meta.view_blocks(&Fields::RefID);
 
     let mut left_bound = 0;
     let mut right_bound = reader.amount;
 
+    let mut chrs_bounds: Vec<Option<(usize, usize)>>;
+    chrs_bounds.resize(chr_nums.len(), None);
+
     // If stats were collected for this file it's possible to narrow binary search.
     if meta_blocks.first().unwrap().max_value.is_some() {
-        // println!("yeah that is stat");
-        // First block which contains this refid.
-        let first_block = find_leftmost_block(chr_num, &meta_blocks);
-
-        // There is no such refid inside.
-        if first_block == meta_blocks.len() {
-            return DepthStatus::None(buffer);
+        let meta_iter = meta_blocks.iter();
+        let mut cur_offset: usize = 0;
+        for (i, cur_chr) in chr_nums.iter().flatten().enumerate() {
+            // Iterate thorugh blocks, until one with max value bigger than cur_chr is found.
+            while let Some(meta_block) = meta_iter.next() {
+                if &meta_block.get_max().unwrap() >= cur_chr {
+                    if &meta_block.get_min().unwrap() > cur_chr {
+                        chrs_bounds[i] = None;
+                    } else {
+                        // This block may contain the REFID. Later on we will search this block to determine this ultimately.
+                        chrs_bounds[i] =
+                            Some((cur_offset, cur_offset + meta_block.numitems as usize));
+                    }
+                    break;
+                }
+                cur_offset += meta_block.numitems as usize;
+            }
         }
-
-        left_bound = meta_blocks[..first_block]
-            .iter()
-            .fold(0, |x, meta| x + meta.numitems) as usize;
-        let block_size = meta_blocks[first_block].numitems;
-        right_bound = left_bound + block_size as usize;
     }
+
+    for bound in chrs_bounds.iter().flatten() {}
 
     // Find number of record when records with this ref_id begin.
     // We don't need to fetch anything except refid to find first record with requested refid, so disable other fields fetching.
@@ -96,7 +124,7 @@ fn find_refid(reader: &mut Reader, chr_num: i32, range: Range<usize>) -> Option<
         reader.fill_record(num, buf);
         buf.refid.unwrap().cmp(&chr_num)
     };
-
+    // dbg!("Looking for", chr_num);
     binary_search(range.start, range.end, pred)
 }
 
@@ -112,12 +140,13 @@ fn binary_search<F: FnMut(usize, &mut GbamRecord) -> Ordering>(
     while left < right {
         let mid = (left + right) / 2;
         // println!("Mid - {:?}", mid);
+        // dbg!(mid, &buf.refid);
         match cmp(mid, &mut buf) {
             Ordering::Less => left = mid + 1,
             Ordering::Equal | Ordering::Greater => right = mid,
         }
     }
-
+    // dbg!("Finished search");
     if left == end || cmp(left, &mut buf) != Ordering::Equal {
         return None;
     }
