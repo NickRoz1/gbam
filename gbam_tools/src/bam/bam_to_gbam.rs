@@ -36,7 +36,16 @@ pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
     let buf_reader = BufReader::new(fin);
     let buf_writer = BufWriter::new(fout);
 
-    let mut writer = Writer::new_no_stats(buf_writer, vec![codec; FIELDS_NUM], 8, ref_seqs);
+    let mut stats_collectors = HashMap::<Fields, StatsComparator>::new();
+    stats_collectors.insert(Fields::RefID, refid_comparator);
+
+    let mut writer = Writer::new(
+        buf_writer,
+        vec![codec; FIELDS_NUM],
+        8,
+        stats_collectors,
+        ref_seqs,
+    );
 
     let tmp_dir_path = std::env::temp_dir();
 

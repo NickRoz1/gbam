@@ -2,7 +2,7 @@
 use bam_tools::record::fields::Fields;
 use gbam_tools::{
     bam::bam_to_gbam::bam_sort_to_gbam,
-    query::depth::{get_region_depth, DepthStatus},
+    query::depth::get_regions_depths,
     reader::{parse_tmplt::ParsingTemplate, reader::Reader, records::Records},
     utils::bed,
     {bam_to_gbam, Codecs},
@@ -37,7 +37,7 @@ struct Cli {
     #[structopt(short, long)]
     query: Option<String>,
     /// Depth query. Example: chr1:54, or chrX:1258
-    #[structopt(parse(from_os_str))]
+    #[structopt(short, parse(from_os_str))]
     bed_file: Option<PathBuf>,
 }
 
@@ -111,34 +111,16 @@ fn depth(args: Cli) {
                 .unwrap(),
         );
     }
-    // let now = Instant::now();
-    // println!(
-    //     "GBAM. Time elapsed querying depth {}ms",
-    //     now.elapsed().as_millis()
-    // );
-    let mut buf = Vec::new();
+
     if !queries.is_empty() {
         println!("REFID\tPOS\tDEPTH");
     }
-    for query in queries.iter() {
-        match get_region_depth(&mut reader, query, buf) {
-            DepthStatus::Success(region_depth) => {
-                for (i, depth) in region_depth.iter().enumerate() {
-                    // Start pos + current offset.
-                    let position = query.1 as usize + i;
-                    println!("{}\t{}\t{}", query.0, position, depth);
-                }
-                buf = region_depth;
-            }
-            DepthStatus::None(buffer) => {
-                buf = buffer;
-                println!(
-                    "Unable to locate ref id {} or range {}-{}",
-                    query.0, query.1, query.2
-                );
-            }
-        }
-    }
+    let now = Instant::now();
+    get_regions_depths(&mut reader, &queries);
+    println!(
+        "GBAM. Time elapsed querying depth {}ms",
+        now.elapsed().as_millis()
+    );
 }
 
 fn panic_err() {

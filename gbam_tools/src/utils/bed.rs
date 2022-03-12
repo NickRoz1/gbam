@@ -5,7 +5,7 @@ use std::path::Path;
 const SEPARATOR: char = '\t';
 
 /// Source: https://github.com/zaeleus/noodles/blob/90e70874eaa6dd41ac8339933d6dd95bd98080c2/noodles-tabix/examples/tabix_write.rs#L24
-fn parse_record(s: &str) -> io::Result<(String, i32, i32)> {
+fn parse_record(s: &str) -> io::Result<(String, u32, u32)> {
     let mut components = s.splitn(3, SEPARATOR);
 
     let reference_sequence_name = components
@@ -30,12 +30,12 @@ fn parse_record(s: &str) -> io::Result<(String, i32, i32)> {
     Ok((reference_sequence_name, start, end))
 }
 
-pub fn parse_bed_from_file(path: &Path) -> io::Result<Vec<(String, i32, i32)>> {
+pub fn parse_bed_from_file(path: &Path) -> io::Result<Vec<(String, u32, u32)>> {
     let mut file = File::open(path)?;
     parse_bed(&mut file)
 }
 
-pub fn parse_bed<R: Read>(source: &mut R) -> io::Result<Vec<(String, i32, i32)>> {
+pub fn parse_bed<R: Read>(source: &mut R) -> io::Result<Vec<(String, u32, u32)>> {
     let mut res = Vec::new();
     let lines = read_lines(source)?;
 
@@ -55,7 +55,7 @@ where
     Ok(io::BufReader::new(source).lines())
 }
 
-pub fn parse_region_query(q: &str) -> io::Result<(&str, i32, i32)> {
+pub fn parse_region_query(q: &str) -> io::Result<(&str, u32, u32)> {
     let mut parts = q.split(':');
 
     let ref_id = parts.next().unwrap();
@@ -65,13 +65,13 @@ pub fn parse_region_query(q: &str) -> io::Result<(&str, i32, i32)> {
     let left = region_parts
         .next()
         .unwrap()
-        .parse::<i32>()
+        .parse::<u32>()
         .ok()
         .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?;
     let right = region_parts
         .next()
         .unwrap()
-        .parse::<i32>()
+        .parse::<u32>()
         .ok()
         .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?;
 
@@ -82,7 +82,7 @@ pub fn parse_region_query(q: &str) -> io::Result<(&str, i32, i32)> {
     Ok((ref_id, left, right))
 }
 
-pub fn parse_region_query_owned(q: &str) -> io::Result<(String, i32, i32)> {
+pub fn parse_region_query_owned(q: &str) -> io::Result<(String, u32, u32)> {
     let res = parse_region_query(q)?;
     Ok((res.0.to_owned(), res.1, res.2))
 }

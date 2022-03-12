@@ -138,7 +138,12 @@ pub(crate) struct FileMeta {
     field_to_meta: [FieldMeta; FIELDS_NUM],
     name_to_ref_id: HashMap<String, i32>,
 }
-// HashMap<Fields, FieldMeta>
+
+impl FileMeta {
+    pub fn get_name_to_ref_id(&self) -> &HashMap<String, i32> {
+        &self.name_to_ref_id
+    }
+}
 
 // To make metadata easier to read, convert to json where fields are represented
 // as strings with their names, not numbers in enum.

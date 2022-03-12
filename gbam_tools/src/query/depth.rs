@@ -1,22 +1,19 @@
-use std::convert::TryInto;
-use std::ops::{Range, RangeInclusive};
-use std::{cmp::Ordering, collections::HashSet, convert::TryFrom, time::Instant};
-
 use bam_tools::record::fields::Fields;
+use itertools::Itertools;
+use std::ascii::AsciiExt;
+use std::collections::BTreeMap;
+use std::convert::TryInto;
+use std::io::Write;
+use std::ops::{Range, RangeInclusive};
+use std::{cmp::Ordering, collections::HashMap, convert::TryFrom, time::Instant};
 
 /// This module provides function for fast querying of read depth.
 use crate::meta::{BlockMeta, Limits};
 use crate::reader::{reader::generate_block_treemap, reader::Reader, record::GbamRecord};
 
-// use crate::reader::record::copying;
+type Region = RangeInclusive<u32>;
 
 use byteorder::{LittleEndian, ReadBytesExt};
-
-/// To avoid wasting buffer when get_region_depth returns None.
-pub enum DepthStatus {
-    Success(Vec<i32>),
-    None(Vec<i32>),
-}
 
 // TODO: Merge bed regions with tolerance to form super regions. Then do
 // sweepline for each of the super regions. Print the depth results for each of
@@ -29,56 +26,95 @@ fn parse_bytes(bytes: &Vec<u8>) -> i32 {
 
 impl Limits<i32> for BlockMeta {
     fn get_max(&self) -> Option<i32> {
-        self.max_value.and_then(|bytes| Some(parse_bytes(&bytes)))
+        self.max_value
+            .as_ref()
+            .and_then(|bytes| Some(parse_bytes(&bytes)))
     }
     fn get_min(&self) -> Option<i32> {
-        self.min_value.and_then(|bytes| Some(parse_bytes(&bytes)))
+        self.min_value
+            .as_ref()
+            .and_then(|bytes| Some(parse_bytes(&bytes)))
     }
 }
 
-// Approach as in https://github.com/brentp/mosdepth
-/// Get depth at position. The file should be sorted!
-pub fn get_region_depths(
-    reader: &mut Reader,
-    regions: &Vec<&(String, i32, i32)>,
-    buffer: Vec<i32>,
-) -> DepthStatus {
-    if !reader
-        .parsing_template
-        .check_if_active(&[Fields::RefID, Fields::Pos, Fields::RawCigar])
-    {
-        panic!("The reader should have parsing template which includes REFID, POS and CIGAR.");
-    }
-
-    // dbg!(&region.0);
+fn get_chr_name_mapping<'a, I>(ref_ids: I, reader: &mut Reader) -> HashMap<String, Option<i32>>
+where
+    I: Iterator<Item = &'a String>,
+{
     // https://github.com/biod/sambamba/blob/3eff9a2d8bb3097b92c72752be3c6b42dd1c59b7/BioD/bio/std/hts/bam/read.d#L902
-    let chr_nums = regions
+    ref_ids
+        .map(|id| (id.to_owned(), reader.file_meta.get_ref_id(id)))
+        .collect::<HashMap<String, Option<i32>>>()
+}
+
+// Union of bed regions with tolerance.
+struct SuperRegion {
+    region: Region,
+    bed_regions: Vec<Region>,
+}
+
+// Creates super regions from multiple bed regions, if they are close enough
+// (within tolerance). Later the array of size of this super region will be used
+// to calculate depth for each one of the nested bed regions.
+fn merge_regions(
+    regions: &Vec<(String, u32, u32)>,
+    tolerance: u32,
+) -> HashMap<String, Vec<SuperRegion>> {
+    let ref_id_groups = regions
+        .iter()
+        .map(|a| (a.0.clone(), (a.1..=a.2)))
         .into_iter()
-        .map(|region| reader.file_meta.get_ref_id(&region.0))
-        .collect::<Vec<Option<i32>>>();
+        .into_group_map();
+    let mut ret = HashMap::<String, Vec<SuperRegion>>::new();
+    for (ref_id, mut bed_regions) in ref_id_groups.into_iter() {
+        bed_regions.sort_by(|a, b| a.start().cmp(b.start()));
+        let mut consumed_regions = vec![bed_regions.first().unwrap().clone()];
+        let mut super_start = *bed_regions.first().unwrap().start();
+        let mut super_end = *bed_regions.first().unwrap().end();
+        for range in bed_regions.into_iter().skip(1) {
+            if *range.start() > super_end + tolerance {
+                ret.entry(ref_id.clone()).or_default().push(SuperRegion {
+                    region: super_start..=super_end,
+                    bed_regions: consumed_regions,
+                });
+                consumed_regions = Vec::<Region>::new();
+                super_start = *range.start();
+            }
+            super_end = std::cmp::max(super_end, *range.end());
+            consumed_regions.push(range);
+        }
+        ret.entry(ref_id.clone()).or_default().push(SuperRegion {
+            region: super_start..=super_end,
+            bed_regions: consumed_regions,
+        });
+    }
+    ret
+}
 
+fn get_refid_bounds(
+    mut ref_ids: Vec<i32>,
+    reader: &mut Reader,
+) -> HashMap<i32, Option<Range<usize>>> {
+    ref_ids.sort();
+    let mut refid_bounds = HashMap::<i32, Option<Range<usize>>>::new();
     let meta_blocks = reader.file_meta.view_blocks(&Fields::RefID);
-
-    let mut left_bound = 0;
-    let mut right_bound = reader.amount;
-
-    let mut chrs_bounds: Vec<Option<(usize, usize)>>;
-    chrs_bounds.resize(chr_nums.len(), None);
-
     // If stats were collected for this file it's possible to narrow binary search.
     if meta_blocks.first().unwrap().max_value.is_some() {
-        let meta_iter = meta_blocks.iter();
+        dbg!(meta_blocks.len());
+        let mut meta_iter = meta_blocks.iter();
         let mut cur_offset: usize = 0;
-        for (i, cur_chr) in chr_nums.iter().flatten().enumerate() {
+        for ref_id in ref_ids.into_iter() {
             // Iterate thorugh blocks, until one with max value bigger than cur_chr is found.
             while let Some(meta_block) = meta_iter.next() {
-                if &meta_block.get_max().unwrap() >= cur_chr {
-                    if &meta_block.get_min().unwrap() > cur_chr {
-                        chrs_bounds[i] = None;
+                if &meta_block.get_max().unwrap() >= &ref_id {
+                    if &meta_block.get_min().unwrap() > &ref_id {
+                        refid_bounds.insert(ref_id, None);
                     } else {
                         // This block may contain the REFID. Later on we will search this block to determine this ultimately.
-                        chrs_bounds[i] =
-                            Some((cur_offset, cur_offset + meta_block.numitems as usize));
+                        refid_bounds.insert(
+                            ref_id,
+                            Some(cur_offset..(cur_offset + meta_block.numitems as usize)),
+                        );
                     }
                     break;
                 }
@@ -86,19 +122,101 @@ pub fn get_region_depths(
             }
         }
     }
+    refid_bounds
+}
 
-    for bound in chrs_bounds.iter().flatten() {}
+pub trait DepthWrite {
+    fn write_depth(&self, depth: &(i32, u32, u32));
+}
 
-    // Find number of record when records with this ref_id begin.
-    // We don't need to fetch anything except refid to find first record with requested refid, so disable other fields fetching.
-    reader.fetch_only(&[Fields::RefID]);
-    let res = find_refid(reader, chr_num, left_bound..right_bound);
-    reader.restore_template();
+fn process_depth_query<W: DepthWrite>(
+    reader: &mut Reader,
+    output: &mut W,
+    buf: &mut Vec<i32>,
+    super_regions: Vec<SuperRegion>,
+    first_record: usize,
+    ref_id: i32,
+) {
+    for SuperRegion {
+        region: super_region,
+        bed_regions,
+    } in super_regions.into_iter()
+    {
+        buf.clear();
+        buf.resize((super_region.end() - super_region.start() + 1) as usize, 0);
+        calc_depth(reader, first_record, ref_id, &super_region, buf);
+        let offset = *super_region.start();
+        for bed_region in bed_regions.into_iter() {
+            for pos in bed_region {
+                debug_assert!(pos >= offset);
+                output.write_depth(&(ref_id, pos, buf[(pos - offset) as usize] as u32));
+            }
+        }
+    }
+}
 
-    if let Some(region_start) = res {
-        calc_depth(reader, region_start, chr_num, region.1..=region.2, buffer)
-    } else {
-        DepthStatus::None(buffer)
+struct ConsolePrinter {
+    ref_id_to_chr: HashMap<i32, String>,
+}
+impl ConsolePrinter {
+    pub fn new(ref_id_to_chr: HashMap<i32, String>) -> Self {
+        Self { ref_id_to_chr }
+    }
+}
+impl DepthWrite for ConsolePrinter {
+    fn write_depth(&self, depth: &(i32, u32, u32)) {
+        println!(
+            "{:?}\t{}\t{}",
+            self.ref_id_to_chr.get(&depth.0),
+            depth.1,
+            depth.2
+        );
+    }
+}
+
+pub fn get_regions_depths(reader: &mut Reader, regions: &Vec<(String, u32, u32)>) {
+    let mut map = reader.file_meta.get_name_to_ref_id().clone();
+    let ref_id_to_chr = map.drain().map(|(k, v)| (v, k)).collect();
+    let mut printer = ConsolePrinter::new(ref_id_to_chr);
+    get_regions_depths_with_printer(reader, regions, &mut printer);
+}
+
+// Approach as in https://github.com/brentp/mosdepth
+/// Get depth at position. The file should be sorted!
+pub fn get_regions_depths_with_printer<W: DepthWrite>(
+    reader: &mut Reader,
+    regions: &Vec<(String, u32, u32)>,
+    output: &mut W,
+) {
+    if !reader
+        .parsing_template
+        .check_if_active(&[Fields::RefID, Fields::Pos, Fields::RawCigar])
+    {
+        panic!("The reader should have parsing template which includes REFID, POS and CIGAR.");
+    }
+
+    let super_regions = merge_regions(regions, 300_000);
+    let ref_id_to_chr = get_chr_name_mapping(super_regions.keys(), reader);
+    let depth_queries = super_regions
+        .into_iter()
+        .map(|(k, v)| (ref_id_to_chr.get(&k).unwrap().unwrap(), v))
+        .collect::<BTreeMap<i32, Vec<SuperRegion>>>();
+
+    let ref_ids_bounds =
+        get_refid_bounds(ref_id_to_chr.values().copied().flatten().collect(), reader);
+
+    let mut buf = Vec::<i32>::new();
+    for (ref_id, super_regions) in depth_queries.into_iter() {
+        if let Some(ref_id_pos_hint) = ref_ids_bounds.get(&ref_id).unwrap() {
+            // Find number of record when records with this ref_id begin.
+            // We don't need to fetch anything except refid to find first record with requested refid, so disable other fields fetching.
+            reader.fetch_only(&[Fields::RefID]);
+            let first_record = find_refid(reader, ref_id, ref_id_pos_hint);
+            reader.restore_template();
+            if let Some(first_pos) = first_record {
+                process_depth_query(reader, output, &mut buf, super_regions, first_pos, ref_id);
+            }
+        }
     }
 }
 
@@ -119,7 +237,7 @@ fn find_leftmost_block(id: i32, block_metas: &Vec<BlockMeta>) -> usize {
 }
 
 // For each guess there may be I/O operation with decompression, so this method is not fast.
-fn find_refid(reader: &mut Reader, chr_num: i32, range: Range<usize>) -> Option<usize> {
+fn find_refid(reader: &mut Reader, chr_num: i32, range: &Range<usize>) -> Option<usize> {
     let pred = |num: usize, buf: &mut GbamRecord| {
         reader.fill_record(num, buf);
         buf.refid.unwrap().cmp(&chr_num)
@@ -157,14 +275,12 @@ pub fn calc_depth(
     reader: &mut Reader,
     mut record_num: usize,
     refid: i32,
-    region: RangeInclusive<i32>,
-    buffer: Vec<i32>,
-) -> DepthStatus {
+    super_region: &RangeInclusive<u32>,
+    buffer: &mut Vec<i32>,
+) {
     let mut buf = GbamRecord::default();
 
-    let mut sweeping_line = buffer;
-    sweeping_line.clear();
-    sweeping_line.resize((region.end() - region.start() + 1) as usize, 0);
+    let sweeping_line = buffer;
     let mut cur_depth = 0;
 
     loop {
@@ -174,39 +290,36 @@ pub fn calc_depth(
         reader.fill_record(record_num, &mut buf);
         record_num += 1;
 
-        let read_start = buf.pos.unwrap();
+        let read_start = buf.pos.unwrap().try_into().unwrap();
         let base_cov = buf.cigar.as_ref().unwrap().base_coverage();
-
-        let read_end = read_start + i32::try_from(base_cov).unwrap();
+        let read_end = read_start + base_cov;
 
         // println!("That is test! {} end {}", read_start, read_end);
 
-        if read_start >= *region.end() || buf.refid.unwrap() > refid {
+        if read_start >= *super_region.end() || buf.refid.unwrap() > refid {
             break;
         }
 
-        if read_start >= *region.start() {
-            sweeping_line[(read_start - region.start()) as usize] += 1;
+        if super_region.contains(&read_start) {
+            sweeping_line[(read_start - super_region.start()) as usize] += 1;
         }
-        if read_end > *region.start() && read_end <= *region.end() {
-            if read_start < *region.start() {
+        // Adding 1 since read_end is also covered.
+        if super_region.contains(&(read_end + 1)) {
+            // Record starts before the region and end on it.
+            if !super_region.contains(&read_start) {
                 cur_depth += 1;
             }
-            sweeping_line[(read_end - region.start()) as usize] -= 1;
+            sweeping_line[(read_end + 1 - super_region.start()) as usize] -= 1;
         }
     }
 
-    let mut depth_of_region = sweeping_line;
-    let mut delta;
+    let depth_of_region = sweeping_line;
 
     for sweep in depth_of_region.iter_mut() {
-        debug_assert!(cur_depth >= 0);
-        delta = *sweep;
+        debug_assert!(!(*sweep < 0 && -*sweep > cur_depth));
+        cur_depth += *sweep;
         *sweep = cur_depth;
-        cur_depth += delta;
     }
-
-    return DepthStatus::Success(depth_of_region);
 }
 
 // println!(
