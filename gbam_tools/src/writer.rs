@@ -235,6 +235,7 @@ fn generate_meta<S: Seek>(
         seekpos,
         numitems: block_info.numitems,
         block_size,
+        uncompressed_size: block_info.uncompr_size as u64,
         max_value: block_info.max_value.take(),
         min_value: block_info.min_value.take(),
     }

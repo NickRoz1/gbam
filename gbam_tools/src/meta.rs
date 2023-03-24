@@ -96,6 +96,7 @@ pub(crate) struct BlockMeta {
     pub seekpos: u64,
     pub numitems: u32,
     pub block_size: u32,
+    pub uncompressed_size: u64,
     // Interpretation is up to the reader to accommodate for various types one might store.
     pub max_value: Option<Vec<u8>>,
     pub min_value: Option<Vec<u8>>,

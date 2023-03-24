@@ -92,29 +92,49 @@ pub struct GbamRecord {
 }
 
 /// cfg_attribute currently doesn't work with pyo3(get)
-#[cfg(feature = "python-ffi")]
-pub fn parse_cigar(bytes: &[u8]) -> String {
-    decode_cigar(bytes)
-}
+// #[cfg(feature = "python-ffi")]
+// pub fn parse_cigar(bytes: &[u8]) -> String {
+//     decode_cigar(bytes)
+// }
 
 // pub static mut copying: Duration = Duration::from_nanos(0);
 /// This version is for Rust.
 #[cfg(not(feature = "python-ffi"))]
-pub fn parse_cigar(bytes: &[u8]) -> Cigar {
+pub fn parse_cigar(bytes: &[u8], prealloc: &mut Cigar) {
     // let mut v = Vec::new();
     // v.push(Op::new(1));
     // Cigar::new(v)
     // let now = Instant::now();
-    let res = Cigar::new(
-        bytes
-            .chunks(U32_SIZE)
-            .map(|mut slice| Op::new(slice.read_u32::<LittleEndian>().unwrap()))
-            .collect(),
-    );
+    // let mut arr = Vec::new();
+    // if prealloc.is_some() {
+    //     arr = prealloc.unwrap().0;
+    // }
+    // arr.clear();
+    // if (arr.capacity() < 66000) {
+
+    // }
+    prealloc.0.resize(bytes.len() / U32_SIZE, Op::new(0));
+    // prealloc.0.extend(
+    //     bytes
+    //         .chunks(U32_SIZE)
+    //         .map(|mut slice| Op::new(slice.read_u32::<LittleEndian>().unwrap())),
+    // );
+    // // let insides = &mut prealloc.0;
+    for (i, mut chunk) in bytes.chunks(U32_SIZE).enumerate() {
+        prealloc.0[i] = Op::new(chunk.read_u32::<LittleEndian>().unwrap());
+    }
+
+    // let res = Cigar::new(
+    //     bytes
+    //         .chunks(U32_SIZE)
+    //         .map(|mut slice| Op::new(slice.read_u32::<LittleEndian>().unwrap()))
+    //         .collect(),
+    // );
+    // Some(res)
+    // *prealloc = res;
     // unsafe {
     //     copying += now.elapsed();
     // }
-    res
 }
 
 // TODO :: ADD TEMPLATE LENGTHS TO GBAM RECORD
@@ -131,7 +151,12 @@ impl GbamRecord {
             Fields::NextPos => self.next_pos = Some(bytes.read_i32::<LittleEndian>().unwrap()),
             Fields::TemplateLength => self.tlen = Some(bytes.read_i32::<LittleEndian>().unwrap()),
             Fields::ReadName => self.read_name = Some(bytes.to_vec()),
-            Fields::RawCigar => self.cigar = Some(parse_cigar(bytes)),
+            Fields::RawCigar => {
+                // if (self.cigar.is_none()) {
+                //     dbg!("here");
+                // }
+                parse_cigar(bytes, self.cigar.as_mut().unwrap());
+            }
             Fields::RawSequence => self.seq = Some(decode_seq(bytes)),
             Fields::RawQual => self.qual = Some(bytes.to_vec()),
             Fields::RawTags => self.tags = Some(bytes.to_vec()),

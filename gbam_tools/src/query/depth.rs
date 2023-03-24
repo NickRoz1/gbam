@@ -137,14 +137,26 @@ fn process_depth_query<W: DepthWrite>(
     first_record: usize,
     ref_id: i32,
 ) {
+    let mut counter = 0;
+    let mut gbam_buffer_record = GbamRecord::default();
+    gbam_buffer_record.cigar = Some(super::cigar::Cigar(Vec::with_capacity(100000)));
     for SuperRegion {
         region: super_region,
         bed_regions,
     } in super_regions.into_iter()
     {
+        counter += 1;
+        // dbg!(counter);
         buf.clear();
         buf.resize((super_region.end() - super_region.start() + 1) as usize, 0);
-        calc_depth(reader, first_record, ref_id, &super_region, buf);
+        calc_depth(
+            reader,
+            first_record,
+            ref_id,
+            &super_region,
+            buf,
+            &mut gbam_buffer_record,
+        );
         let offset = *super_region.start();
         for bed_region in bed_regions.into_iter() {
             for pos in bed_region {
@@ -277,17 +289,17 @@ pub fn calc_depth(
     refid: i32,
     super_region: &RangeInclusive<u32>,
     buffer: &mut Vec<i32>,
+    buf: &mut GbamRecord,
 ) {
-    let mut buf = GbamRecord::default();
-
     let sweeping_line = buffer;
     let mut cur_depth = 0;
-
+    // dbg!("What?");
     loop {
         if record_num >= reader.amount {
             break;
         }
-        reader.fill_record(record_num, &mut buf);
+
+        reader.fill_record(record_num, buf);
         record_num += 1;
 
         let read_start = buf.pos.unwrap().try_into().unwrap();
@@ -312,7 +324,7 @@ pub fn calc_depth(
             sweeping_line[(read_end + 1 - super_region.start()) as usize] -= 1;
         }
     }
-
+    // dbg!("What?");
     let depth_of_region = sweeping_line;
 
     for sweep in depth_of_region.iter_mut() {

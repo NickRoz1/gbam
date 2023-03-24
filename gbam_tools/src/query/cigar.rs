@@ -2,7 +2,7 @@ use std::{fmt::Display, slice::Iter};
 
 use bam_tools::record::bamrawrecord::decode_cigar;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Op(u32);
 
 impl Op {

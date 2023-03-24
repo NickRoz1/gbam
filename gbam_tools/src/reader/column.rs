@@ -2,11 +2,14 @@ use std::{collections::BTreeMap, io::Result, sync::Arc};
 
 use super::reader::generate_block_treemap;
 use super::record::GbamRecord;
+use crate::SIZE_LIMIT;
+// use lz4_flex::decompress_into;
+use lzzzz::{lz4, lz4_hc, lz4f};
 
 use bam_tools::record::fields::Fields;
 use byteorder::{LittleEndian, ReadBytesExt};
 use flate2::write::GzDecoder;
-use lz4::Decoder;
+// use lz4::Decoder;
 use memmap2::Mmap;
 
 use crate::{meta::FileMeta, Codecs};
@@ -29,7 +32,7 @@ impl Inner {
             range_begin: 0,
             range_end: 0,
             field,
-            buffer: Vec::<u8>::new(),
+            buffer: Vec::<u8>::with_capacity(SIZE_LIMIT * 2),
             reader,
         }
     }
@@ -151,21 +154,25 @@ impl VariableColumn {
 
 /// Fetch and decompress a data block.
 fn fetch_block(inner_column: &mut Inner, block_num: usize) -> Result<()> {
-    println!("Fetching for {}", inner_column.field);
+    // println!("Fetching for {}", inner_column.field);
     let field = &inner_column.field;
     let block_meta = inner_column.meta.view_blocks(field).get(block_num).unwrap();
     let reader = &inner_column.reader;
     let block_size = block_meta.block_size;
+    let uncompressed_size = block_meta.uncompressed_size;
 
     let data =
         &reader[(block_meta.seekpos as usize)..(block_meta.seekpos + block_size as u64) as usize];
-
-    inner_column.buffer.clear();
+    // inner_column.buffer.clear();
+    // dbg!(uncompressed_size);
+    inner_column.buffer.resize(uncompressed_size as usize, 0);
     let codec = inner_column.meta.get_field_codec(field);
 
     decompress_block(data, &mut inner_column.buffer, codec).expect("Decompression failed.");
     Ok(())
 }
+
+// depth at 3566652 = 353
 
 fn decompress_block(source: &[u8], dest: &mut Vec<u8>, codec: &Codecs) -> std::io::Result<()> {
     use std::io::Write;
@@ -176,8 +183,11 @@ fn decompress_block(source: &[u8], dest: &mut Vec<u8>, codec: &Codecs) -> std::i
             decoder.try_finish().unwrap();
         }
         Codecs::Lz4 => {
-            let mut decoder = Decoder::new(source)?;
-            std::io::copy(&mut decoder, dest).unwrap();
+            // let mut decoder = Decoder::new(source)?;
+            // std::io::copy(&mut decoder, dest).unwrap();
+            // dbg!(dest.len());
+            lz4::decompress(&source, dest).unwrap();
+            // decompress_into(source, dest).unwrap();
         }
     };
     Ok(())
