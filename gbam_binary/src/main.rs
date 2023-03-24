@@ -8,9 +8,13 @@ use gbam_tools::{
     {bam_to_gbam, Codecs},
 };
 
-use std::fs::File;
+use bam_tools::record::bamrawrecord::BAMRawRecord;
+use rust_htslib::bam::{FetchDefinition, Read, Record};
+use rust_htslib::errors::Error;
+use std::io::{BufReader, BufWriter};
 use std::path::PathBuf;
 use std::time::Instant;
+use std::{borrow::Cow, fs::File};
 use structopt::StructOpt;
 
 #[derive(StructOpt)]
@@ -28,10 +32,10 @@ struct Cli {
     #[structopt(short, long)]
     depth: bool,
     /// The path to the BAM file to read
-    #[structopt(parse(from_os_str))]
+    #[structopt(short, parse(from_os_str))]
     in_path: PathBuf,
     /// The path to write output GBAM file
-    #[structopt(parse(from_os_str))]
+    #[structopt(short, parse(from_os_str))]
     out_path: Option<PathBuf>,
     /// Depth query. Example: chr1:54-54, or chrX:1258-9999
     #[structopt(short, long)]
@@ -39,6 +43,12 @@ struct Cli {
     /// Depth query. Example: chr1:54, or chrX:1258
     #[structopt(short, parse(from_os_str))]
     bed_file: Option<PathBuf>,
+    /// Test speed of reading whole BAM file with my reader.
+    #[structopt(long)]
+    test_speed_my_reader: bool,
+    /// Test speed of reading whole BAM file with rust hts reader.
+    #[structopt(long)]
+    test_speed_rust_hts: bool,
 }
 
 /// Limited wrapper of `gbam_tools` converts BAM file to GBAM
@@ -51,6 +61,64 @@ fn main() {
         test(args);
     } else if args.depth {
         depth(args);
+    } else if args.test_speed_my_reader {
+        fn_test_read_time(Kind::my_reader, args.in_path.as_path().to_str().unwrap());
+    } else if args.test_speed_rust_hts {
+        fn_test_read_time(Kind::rust_hts, args.in_path.as_path().to_str().unwrap());
+    }
+}
+
+enum Kind {
+    my_reader,
+    rust_hts,
+}
+
+fn fn_test_read_time(kind: Kind, in_path: &str) {
+    match kind {
+        Kind::my_reader => {
+            let fin = File::open(in_path).expect("failed");
+
+            let now = Instant::now();
+            let buf_reader = BufReader::new(fin);
+
+            let mut bgzf_reader = bam_tools::Reader::new(buf_reader, 20);
+
+            bgzf_reader.read_header().unwrap();
+            bgzf_reader.parse_reference_sequences().unwrap();
+
+            let mut records = bgzf_reader.records();
+            let mut counter = 0;
+            while let Some(Ok(rec)) = records.next_rec() {
+                let wrapper = BAMRawRecord(Cow::Borrowed(rec));
+                counter += 1;
+            }
+
+            let cur = now.elapsed().as_millis();
+            println!("My reader took : {}ms, to read this file.", cur);
+        }
+        Kind::rust_hts => {
+            let now = Instant::now();
+
+            let mut bam = rust_htslib::bam::Reader::from_path(in_path).unwrap();
+
+            let pool = rust_htslib::tpool::ThreadPool::new(20).unwrap();
+
+            bam.set_thread_pool(&pool).unwrap();
+
+            let mut record = Record::new();
+            let mut counter = 0;
+            while let Some(result) = bam.read(&mut record) {
+                match result {
+                    Ok(_) => {
+                        counter += 1;
+                        // println!("Read sequence: {:?}", record.seq().as_bytes());
+                    }
+                    Err(_) => panic!("BAM parsing failed..."),
+                }
+            }
+            let cur = now.elapsed().as_millis();
+            println!("Rust_hts took : {}ms, to read this file.", cur);
+        }
     }
 }
 
