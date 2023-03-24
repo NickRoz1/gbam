@@ -10,8 +10,7 @@ edition = "2018"
 zstd = "0.5"
 flate2 = "1.0.1"
 byteorder = "1.2.3"
-# bam_tools = {  git = "https://github.com/NickRoz1/bam_parallel" }
-bam_tools = {  path = "/home/nickr/Development/Rust/bam_parallel/bam_tools/" }
+bam_tools = {  git = "https://github.com/NickRoz1/bam_parallel" }
 libc = "0.2.93"
 serde_json = "1.0"
 serde = {version = "1.0.125", features = ["derive"]}
@@ -20,6 +19,8 @@ lz4 = "1.23.1"
 rayon = "1.5.1"
 flume = "0.10.5"
 memmap2 = "0.3.0"
+rust-htslib = { version = "*", default-features = false }
+itertools = "0.10.5"
 
 
 [dependencies.pyo3]
