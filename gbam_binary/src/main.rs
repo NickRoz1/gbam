@@ -8,9 +8,10 @@ use gbam_tools::{
     {bam_to_gbam, Codecs},
 };
 
-use std::fs::File;
+use memmap2::Mmap;
 use std::path::PathBuf;
 use std::time::Instant;
+use std::{borrow::Borrow, fs::File};
 use structopt::StructOpt;
 
 #[derive(StructOpt)]
@@ -71,24 +72,28 @@ fn convert(args: Cli) {
 }
 
 fn test(args: Cli) {
-    let mut tmplt = ParsingTemplate::new();
-    tmplt.set(&Fields::RefID, true);
-    tmplt.set(&Fields::Pos, true);
-    tmplt.set(&Fields::RawCigar, true);
-    let file = File::open(args.in_path.as_path().to_str().unwrap()).unwrap();
-    let mut reader = Reader::new(file, tmplt).unwrap();
-    let mut records = reader.records();
-    let now = Instant::now();
-    let mut u = 0;
-    #[allow(unused_variables)]
-    while let Some(rec) = records.next_rec() {
-        // u += rec.cigar.as_ref().unwrap().as_bytes().len();
-    }
-    println!("Record count {}", u);
-    println!(
-        "GBAM. Time elapsed querying POS and RAWCIGAR field throughout whole file: {}ms",
-        now.elapsed().as_millis()
-    );
+    // let mut tmplt = ParsingTemplate::new();
+    // tmplt.set(&Fields::RefID, true);
+    // tmplt.set(&Fields::Pos, true);
+    // tmplt.set(&Fields::RawCigar, true);
+
+    // // Kept so File won't drop while used by mmap.
+    // let file = Box::new(File::open(args.in_path.as_path().to_str().unwrap()).unwrap());
+    // let mmap = unsafe { Mmap::map(file.borrow()).unwrap() };
+    // let mut reader = Reader::new(&mmap, tmplt).unwrap();
+    // let mut records = reader.records();
+    // let now = Instant::now();
+    // let mut u = 0;
+    // #[allow(unused_variables)]
+    // while let Some(rec) = records.next_rec() {
+    //     // u += rec.cigar.as_ref().unwrap().as_bytes().len();
+    // }
+    // println!("Record count {}", u);
+    // println!(
+    //     "GBAM. Time elapsed querying POS and RAWCIGAR field throughout whole file: {}ms",
+    //     now.elapsed().as_millis()
+    // );
+    // drop(records);
 }
 
 fn depth(args: Cli) {
@@ -98,8 +103,10 @@ fn depth(args: Cli) {
     tmplt.set(&Fields::RawCigar, true);
 
     let in_path = args.in_path.as_path().to_str().unwrap();
-    let file = File::open(in_path).unwrap();
-    let mut reader = Reader::new(file, tmplt).unwrap();
+    // Kept so File won't drop while used by mmap.
+    let file = Box::new(File::open(in_path).unwrap());
+    let mmap = unsafe { Mmap::map(file.borrow()).unwrap() };
+    let mut reader = Reader::new(&mmap, tmplt).unwrap();
     let mut queries = Vec::new();
     if let Some(bed_path) = args.bed_file {
         queries = bed::parse_bed_from_file(&bed_path).expect("BED file is corrupted.");
