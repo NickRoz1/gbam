@@ -28,6 +28,7 @@ pub mod reader {
 pub mod query {
     pub mod cigar;
     pub mod depth;
+    pub mod flagstat;
 }
 
 /// Manages parallel compression

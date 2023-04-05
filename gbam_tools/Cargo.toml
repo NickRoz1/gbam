@@ -23,7 +23,7 @@ rust-htslib = { version = "*", default-features = false }
 itertools = "0.10.5"
 # lz4_flex = { version = "0.10", default-features = false }
 lzzzz = "1.0.3"
-
+bitflags = "2.0.2"
 
 [dependencies.pyo3]
 version = "0.13.2"

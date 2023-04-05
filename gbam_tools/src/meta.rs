@@ -41,7 +41,9 @@ impl From<&[u8]> for FileInfo {
             bytes.len() == FILE_INFO_SIZE,
             "Not enough bytes to form file info struct.",
         );
-        assert_eq!(&bytes[..U64_SIZE], GBAM_MAGIC);
+        if &bytes[..U64_SIZE] != GBAM_MAGIC {
+            panic!("The file GBAM_MAGIC is not correct. Are you trying to open GBAM file or BAM file?");
+        }
         let mut ver1 = &bytes[U64_SIZE..];
         let mut ver2 = &bytes[U64_SIZE + U32_SIZE..];
         let mut seekpos = &bytes[U64_SIZE + 2 * U32_SIZE..];

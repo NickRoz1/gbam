@@ -7,6 +7,7 @@ use gbam_tools::{
     reader::{parse_tmplt::ParsingTemplate, reader::Reader, records::Records},
     utils::bed,
     {bam_to_gbam, Codecs},
+    query::flagstat::collect_stats,
 };
 
 use memmap2::Mmap;
@@ -32,6 +33,9 @@ struct Cli {
     /// Get depth at position.
     #[structopt(short, long)]
     depth: bool,
+    /// Collect statistic from flag field from all records in the file.
+    #[structopt(short, long)]
+    flagstat: bool,
     /// The path to the BAM file to read
     #[structopt(parse(from_os_str))]
     in_path: PathBuf,
@@ -58,6 +62,8 @@ fn main() {
         depth(args);
     } else if args.convert_to_bam {
         convert_to_bam(args);
+    } else if args.flagstat {
+        flagstat(args);
     }
 }
 
@@ -97,13 +103,32 @@ fn convert_to_bam(args: Cli) {
     gbam_to_bam(in_path, out_path);
 }
 
+fn flagstat(args: Cli) {
+    let in_path = args
+        .in_path
+        .as_path()
+        .to_str()
+        .expect("Couldn't parse input path.");
+
+    let mut tmplt = ParsingTemplate::new();
+    tmplt.set(&Fields::Flags, true);
+    tmplt.set(&Fields::RefID, true);
+    tmplt.set(&Fields::NextRefID, true);
+    tmplt.set(&Fields::Mapq, true);
+
+    let file = File::open(in_path).unwrap();
+    let mut reader = Reader::new(file, tmplt).unwrap();
+    let mut records = reader.records();
+    
+    collect_stats(&mut records);
+}
+
 fn test(args: Cli) {
     let mut tmplt = ParsingTemplate::new();
     tmplt.set(&Fields::RefID, true);
     tmplt.set(&Fields::Pos, true);
     tmplt.set(&Fields::RawCigar, true);
 
-    // Kept so File won't drop while used by mmap.
     let file = File::open(args.in_path.as_path().to_str().unwrap()).unwrap();
 
     let mut reader = Reader::new(file, tmplt).unwrap();
