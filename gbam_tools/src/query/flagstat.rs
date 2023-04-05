@@ -4,6 +4,7 @@ use bitflags::bitflags;
 use std::fmt;
 use std::str;
 use std::io::Write;
+use std::string::String;
 
 // https://github.com/samtools/htslib/blob/32de287eafdafc45dde0a22244b72697294f161d/htslib/sam.h
 bitflags! {
@@ -56,18 +57,17 @@ struct Stats {
     pub n_pdup: [i64; 2],
 }
 
-fn percent(n: i64, total: i64) -> [u8;16]
+fn percent(n: i64, total: i64) -> String
 {   
-    let mut buffer: [u8; 16] = [0; 16];
+
     if total != 0 {
-        write!((&mut buffer[..]), "{:.2}", (n as f64) / ((total as f64) * 100.0)).unwrap();
+        // dbg!(n, total, ((n as f64) / ((total as f64) * 100.0)));
+        format!("{:.2}%", (n as f64) / ((total as f64)) * 100.0)
     } 
     else {
-        buffer[0] = 'N' as u8;
-        buffer[1] = '/' as u8;
-        buffer[2] = 'A' as u8;
+       String::from("N/A")
     }
-    return buffer;
+
 }
 
 impl fmt::Display for Stats {
@@ -78,16 +78,16 @@ impl fmt::Display for Stats {
         writeln!(f, "{} + {} supplementary", self.n_supp[0], self.n_supp[1]).unwrap();
         writeln!(f, "{} + {} duplicates", self.n_dup[0], self.n_dup[1]).unwrap();
         writeln!(f, "{} + {} primary duplicates", self.n_pdup[0], self.n_pdup[1]).unwrap();
-        writeln!(f, "{} + {} mapped ({} : {})", self.n_mapped[0], self.n_mapped[1], str::from_utf8(&percent(self.n_mapped[0], self.n_reads[0])[..]).unwrap(), str::from_utf8(&percent(self.n_mapped[1], self.n_reads[1])).unwrap()).unwrap();
-        writeln!(f, "{} + {} primary mapped ({} : {})", self.n_pmapped[0], self.n_pmapped[1], str::from_utf8(&percent(self.n_pmapped[0], self.n_primary[0])).unwrap(), str::from_utf8(&percent(self.n_pmapped[1], self.n_primary[1])).unwrap()).unwrap();
+        writeln!(f, "{} + {} mapped ({} : {})", self.n_mapped[0], self.n_mapped[1], percent(self.n_mapped[0], self.n_reads[0]), percent(self.n_mapped[1], self.n_reads[1])).unwrap();
+        writeln!(f, "{} + {} primary mapped ({} : {})", self.n_pmapped[0], self.n_pmapped[1], percent(self.n_pmapped[0], self.n_primary[0]), percent(self.n_pmapped[1], self.n_primary[1])).unwrap();
         writeln!(f, "{} + {} paired in sequencing", self.n_pair_all[0], self.n_pair_all[1]).unwrap();
         writeln!(f, "{} + {} read1", self.n_read1[0], self.n_read1[1]).unwrap();
         writeln!(f, "{} + {} read2", self.n_read2[0], self.n_read2[1]).unwrap();
-        writeln!(f, "{} + {} properly paired ({} : {})", self.n_pair_good[0], self.n_pair_good[1], str::from_utf8(&percent(self.n_pair_good[0], self.n_pair_all[0])).unwrap(), str::from_utf8(&percent(self.n_pair_good[1], self.n_pair_all[1])).unwrap()).unwrap();
+        writeln!(f, "{} + {} properly paired ({} : {})", self.n_pair_good[0], self.n_pair_good[1], percent(self.n_pair_good[0], self.n_pair_all[0]), percent(self.n_pair_good[1], self.n_pair_all[1])).unwrap();
         writeln!(f, "{} + {} with itself and mate mapped", self.n_pair_map[0], self.n_pair_map[1]).unwrap();
-        writeln!(f, "{} + {} singletons ({} : {})", self.n_sgltn[0], self.n_sgltn[1], str::from_utf8(&percent(self.n_sgltn[0], self.n_pair_all[0])).unwrap(), str::from_utf8(&percent(self.n_sgltn[1], self.n_pair_all[1])).unwrap()).unwrap();
+        writeln!(f, "{} + {} singletons ({} : {})", self.n_sgltn[0], self.n_sgltn[1], percent(self.n_sgltn[0], self.n_pair_all[0]), percent(self.n_sgltn[1], self.n_pair_all[1])).unwrap();
         writeln!(f, "{} + {} with mate mapped to a different chr", self.n_diffchr[0], self.n_diffchr[1]).unwrap();
-        writeln!(f, "{} + {} with mate mapped to a different chr (mapQ>=5)", self.n_diffhigh[0], self.n_diffhigh[1])
+        write!(f, "{} + {} with mate mapped to a different chr (mapQ>=5)", self.n_diffhigh[0], self.n_diffhigh[1])
         
     }
 }
