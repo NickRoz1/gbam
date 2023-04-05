@@ -1,6 +1,7 @@
 use crate::stats::{refid_comparator, StatsComparator};
 use crate::MEGA_BYTE_SIZE;
 use crate::{Codecs, Writer};
+use bam_tools::parse_reference_sequences;
 use bam_tools::record::bamrawrecord::BAMRawRecord;
 use bam_tools::record::fields::{Fields, FIELDS_NUM};
 use bam_tools::sorting::sort;
@@ -12,12 +13,11 @@ use std::io::{BufReader, BufWriter};
 
 const MEM_LIMIT: usize = 2000 * MEGA_BYTE_SIZE;
 
-/// Converts BAM file to GBAM file. This uses the `bam_parallel`
-/// reader.
+/// Converts BAM file to GBAM file. This uses the `bam_parallel` reader.
 pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
-    let (mut bgzf_reader, mut writer) = get_bam_reader_gbam_writer(in_path, out_path, codec);
+    let (mut bam_reader, mut writer) = get_bam_reader_gbam_writer(in_path, out_path, codec);
 
-    let mut records = bgzf_reader.records();
+    let mut records = bam_reader.records();
     while let Some(Ok(rec)) = records.next_rec() {
         let wrapper = BAMRawRecord(Cow::Borrowed(rec));
         writer.push_record(&wrapper);
@@ -26,9 +26,13 @@ pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
     writer.finish().unwrap();
 }
 
+/// Converts BAM file to GBAM file. Sorts BAM file in process. This uses the `bam_parallel` reader.
 pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
     let fin_for_ref_seqs = File::open(in_path).expect("failed");
-    let ref_seqs = extract_ref_seqs(BufReader::new(fin_for_ref_seqs));
+    let mut reader_for_header_only = Reader::new(fin_for_ref_seqs, 1);
+    let (sam_header, ref_seqs, ref_seq_offset) =
+        read_sam_header_and_ref_seqs(&mut reader_for_header_only);
+    let only_text = &sam_header[..ref_seq_offset];
 
     let fin = File::open(in_path).expect("failed");
     let fout = File::create(out_path).expect("failed");
@@ -45,6 +49,7 @@ pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
         8,
         stats_collectors,
         ref_seqs,
+        Vec::from(only_text),
     );
 
     let tmp_dir_path = std::env::temp_dir();
@@ -65,10 +70,21 @@ pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
     writer.finish().unwrap();
 }
 
-fn extract_ref_seqs(reader: BufReader<File>) -> Vec<(String, i32)> {
-    let mut parallel_reader = Reader::new(reader, 1);
-    parallel_reader.read_header().unwrap();
-    parallel_reader.parse_reference_sequences().unwrap()
+/// Consumes SAM header from input BAM reader.
+///
+///
+/// # Returns
+/// Tuple of 3 elements.
+///
+/// **tuple.0** -> all bytes of BAM header including reference sequences.
+///
+/// **tuple.1** -> parsed reference sequences from BAM header.
+///
+/// **tuple.2** -> offset to reference sequences in tuple.0. It's before n_ref uint32_t.
+fn read_sam_header_and_ref_seqs(reader: &mut Reader) -> (Vec<u8>, Vec<(String, i32)>, usize) {
+    let (bytes_of_header, ref_sequences_offset) = reader.read_header().unwrap();
+    let sequences = parse_reference_sequences(&bytes_of_header[ref_sequences_offset..]).unwrap();
+    (bytes_of_header, sequences, ref_sequences_offset)
 }
 
 fn get_bam_reader_gbam_writer(
@@ -82,9 +98,11 @@ fn get_bam_reader_gbam_writer(
     let buf_reader = BufReader::new(fin);
     let buf_writer = BufWriter::new(fout);
 
-    let mut bgzf_reader = Reader::new(buf_reader, 20);
+    let mut bgzf_reader = Reader::new(buf_reader, 1);
 
-    bgzf_reader.read_header().unwrap();
+    let (sam_header, ref_seqs, ref_seq_offset) = read_sam_header_and_ref_seqs(&mut bgzf_reader);
+
+    let only_text = &sam_header[..ref_seq_offset];
 
     let mut stats_collectors = HashMap::<Fields, StatsComparator>::new();
     stats_collectors.insert(Fields::RefID, refid_comparator);
@@ -94,7 +112,8 @@ fn get_bam_reader_gbam_writer(
         vec![codec; FIELDS_NUM],
         8,
         stats_collectors,
-        bgzf_reader.parse_reference_sequences().unwrap(),
+        ref_seqs,
+        Vec::from(only_text),
     );
 
     (bgzf_reader, writer)

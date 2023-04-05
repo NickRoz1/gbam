@@ -17,30 +17,33 @@ use super::{
     records::Records,
 };
 
-pub struct Reader<'a> {
+pub struct Reader {
     // Instead of hashmap. Empty columns will contain None.
-    pub columns: Vec<Option<Box<dyn Column + 'a>>>,
+    pub columns: Vec<Option<Box<dyn Column + Send>>>,
     pub parsing_template: ParsingTemplate,
     original_template: ParsingTemplate,
     pub amount: usize,
     pub(crate) file_meta: Arc<FileMeta>,
-    mmap: &'a Mmap,
+    // Kept so File won't drop while used by mmap.
+    inner: Box<File>,
 }
 
-impl<'a: 'b, 'b> Reader<'a> {
-    pub fn new(mmap: &'a Mmap, parsing_template: ParsingTemplate) -> std::io::Result<Self> {
+impl Reader {
+    pub fn new(inner: File, parsing_template: ParsingTemplate) -> std::io::Result<Self> {
+        let inner = Box::new(inner);
+        let mmap = Arc::new(unsafe { Mmap::map(inner.borrow())? });
         let file_meta = Arc::new(verify_and_parse_meta(&mmap)?);
         let amount = file_meta
             .view_blocks(&Fields::RefID)
             .iter()
             .fold(0, |acc, x| acc + x.numitems) as usize;
         Ok(Self {
-            mmap,
             columns: init_columns(&mmap, &parsing_template, &file_meta),
             original_template: parsing_template.clone(),
             parsing_template,
             file_meta,
             amount,
+            inner,
         })
     }
 
@@ -67,17 +70,17 @@ impl<'a: 'b, 'b> Reader<'a> {
         self.parsing_template = self.original_template.clone();
     }
 
-    // Get iterator over all GBAM records (according to parsing template).
-    // pub fn records(&'b mut self) -> Records<'b> {
-    //     Records::<'b>::new(self)
-    // }
+    /// Get iterator over all GBAM records (according to parsing template).
+    pub fn records(&mut self) -> Records {
+        Records::new(self)
+    }
 }
 
-fn init_columns<'a>(
-    mmap: &'a Mmap,
+fn init_columns(
+    mmap: &Arc<Mmap>,
     parse_template: &ParsingTemplate,
     meta: &Arc<FileMeta>,
-) -> Vec<Option<Box<dyn Column + 'a>>> {
+) -> Vec<Option<Box<dyn Column + Send>>> {
     let mut res = Vec::new();
     (0..FIELDS_NUM).for_each(|_| res.push(None));
     for &field in parse_template.get_active_fields_iter() {
@@ -86,8 +89,8 @@ fn init_columns<'a>(
     res
 }
 
-fn init_col<'a>(field: Fields, mmap: &'a Mmap, meta: &Arc<FileMeta>) -> Box<dyn Column + 'a> {
-    let inner = Inner::new(meta.clone(), field, mmap);
+fn init_col(field: Fields, mmap: &Arc<Mmap>, meta: &Arc<FileMeta>) -> Box<dyn Column + Send> {
+    let inner = Inner::new(meta.clone(), field, mmap.clone());
     match field_type(&field) {
         FieldType::FixedSized => Box::new(FixedColumn::new(inner)),
         FieldType::VariableSized => {
@@ -113,10 +116,9 @@ fn verify_and_parse_meta(mmap: &Mmap) -> std::io::Result<FileMeta> {
     let file_meta_json_str = String::from_utf8(buf.to_owned()).unwrap();
     Ok(serde_json::from_str(&file_meta_json_str).expect("File meta json string was damaged."))
 }
-pub static mut coundt: u64 = 0;
+
 // The tree map will be used to quickly determine which block record belong to.
 pub(crate) fn generate_block_treemap(meta: &FileMeta, field: &Fields) -> BTreeMap<usize, usize> {
-    // dbg!(meta.view_blocks(field).len());
     meta.view_blocks(field)
         .iter()
         .enumerate()

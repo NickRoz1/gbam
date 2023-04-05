@@ -6,6 +6,8 @@ use std::mem;
 pub mod bam {
     /// BAM to GBAM converter
     pub mod bam_to_gbam;
+    /// GBAM to BAM converter
+    pub mod gbam_to_bam;
 }
 
 pub mod utils {

@@ -2,6 +2,7 @@
 use bam_tools::record::fields::Fields;
 use gbam_tools::{
     bam::bam_to_gbam::bam_sort_to_gbam,
+    bam::gbam_to_bam::gbam_to_bam,
     query::depth::get_regions_depths,
     reader::{parse_tmplt::ParsingTemplate, reader::Reader, records::Records},
     utils::bed,
@@ -21,7 +22,10 @@ struct Cli {
     sort: bool,
     /// Determines whether conversion is requested
     #[structopt(short, long)]
-    convert: bool,
+    convert_to_gbam: bool,
+    /// Convert to bam
+    #[structopt(long)]
+    convert_to_bam: bool,
     /// Perform the test
     #[structopt(short, long)]
     test: bool,
@@ -46,17 +50,23 @@ struct Cli {
 /// file. Also limited tests may be run.
 fn main() {
     let args = Cli::from_args();
-    if args.convert {
+    if args.convert_to_gbam {
         convert(args);
     } else if args.test {
         test(args);
     } else if args.depth {
         depth(args);
+    } else if args.convert_to_bam {
+        convert_to_bam(args);
     }
 }
 
 fn convert(args: Cli) {
-    let in_path = args.in_path.as_path().to_str().unwrap();
+    let in_path = args
+        .in_path
+        .as_path()
+        .to_str()
+        .expect("Couldn't parse input path");
     let out_path = args
         .out_path
         .as_ref()
@@ -71,29 +81,45 @@ fn convert(args: Cli) {
     }
 }
 
-fn test(args: Cli) {
-    // let mut tmplt = ParsingTemplate::new();
-    // tmplt.set(&Fields::RefID, true);
-    // tmplt.set(&Fields::Pos, true);
-    // tmplt.set(&Fields::RawCigar, true);
+fn convert_to_bam(args: Cli) {
+    let in_path = args
+        .in_path
+        .as_path()
+        .to_str()
+        .expect("Couldn't parse input path.");
+    let out_path = args
+        .out_path
+        .as_ref()
+        .expect("Output path is mandatory for this operation.")
+        .as_path()
+        .to_str()
+        .unwrap();
+    gbam_to_bam(in_path, out_path);
+}
 
-    // // Kept so File won't drop while used by mmap.
-    // let file = Box::new(File::open(args.in_path.as_path().to_str().unwrap()).unwrap());
-    // let mmap = unsafe { Mmap::map(file.borrow()).unwrap() };
-    // let mut reader = Reader::new(&mmap, tmplt).unwrap();
-    // let mut records = reader.records();
-    // let now = Instant::now();
-    // let mut u = 0;
-    // #[allow(unused_variables)]
-    // while let Some(rec) = records.next_rec() {
-    //     // u += rec.cigar.as_ref().unwrap().as_bytes().len();
-    // }
-    // println!("Record count {}", u);
-    // println!(
-    //     "GBAM. Time elapsed querying POS and RAWCIGAR field throughout whole file: {}ms",
-    //     now.elapsed().as_millis()
-    // );
-    // drop(records);
+fn test(args: Cli) {
+    let mut tmplt = ParsingTemplate::new();
+    tmplt.set(&Fields::RefID, true);
+    tmplt.set(&Fields::Pos, true);
+    tmplt.set(&Fields::RawCigar, true);
+
+    // Kept so File won't drop while used by mmap.
+    let file = File::open(args.in_path.as_path().to_str().unwrap()).unwrap();
+
+    let mut reader = Reader::new(file, tmplt).unwrap();
+    let mut records = reader.records();
+    let now = Instant::now();
+    let mut u = 0;
+    #[allow(unused_variables)]
+    while let Some(rec) = records.next_rec() {
+        // u += rec.cigar.as_ref().unwrap().as_bytes().len();
+    }
+    println!("Record count {}", u);
+    println!(
+        "GBAM. Time elapsed querying POS and RAWCIGAR field throughout whole file: {}ms",
+        now.elapsed().as_millis()
+    );
+    drop(records);
 }
 
 fn depth(args: Cli) {
@@ -104,9 +130,8 @@ fn depth(args: Cli) {
 
     let in_path = args.in_path.as_path().to_str().unwrap();
     // Kept so File won't drop while used by mmap.
-    let file = Box::new(File::open(in_path).unwrap());
-    let mmap = unsafe { Mmap::map(file.borrow()).unwrap() };
-    let mut reader = Reader::new(&mmap, tmplt).unwrap();
+    let file = File::open(in_path).unwrap();
+    let mut reader = Reader::new(file, tmplt).unwrap();
     let mut queries = Vec::new();
     if let Some(bed_path) = args.bed_file {
         queries = bed::parse_bed_from_file(&bed_path).expect("BED file is corrupted.");

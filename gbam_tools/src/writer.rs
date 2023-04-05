@@ -64,6 +64,7 @@ where
         thread_num: usize,
         mut comparators: HashMap<Fields, StatsComparator>,
         ref_seqs: Vec<(String, i32)>,
+        sam_header: Vec<u8>,
     ) -> Self {
         inner
             .seek(SeekFrom::Start((FILE_INFO_SIZE) as u64))
@@ -91,7 +92,7 @@ where
 
         Self {
             // TODO: Codecs (currently only one is supported).
-            file_meta: FileMeta::new(codecs[0], ref_seqs),
+            file_meta: FileMeta::new(codecs[0], ref_seqs, sam_header),
             inner,
             compressor: Compressor::new(thread_num),
             columns,
@@ -103,6 +104,7 @@ where
         codecs: Vec<Codecs>,
         thread_num: usize,
         ref_seqs: Vec<(String, i32)>,
+        sam_header: Vec<u8>,
     ) -> Self {
         Self::new(
             inner,
@@ -110,6 +112,7 @@ where
             thread_num,
             HashMap::<Fields, StatsComparator>::new(),
             ref_seqs,
+            sam_header,
         )
     }
 

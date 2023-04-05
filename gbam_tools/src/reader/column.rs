@@ -15,18 +15,18 @@ use memmap2::Mmap;
 use crate::{meta::FileMeta, Codecs};
 
 // Contains fields needed both for fixed sized fields and variable sized fields.
-pub struct Inner<'a> {
+pub struct Inner {
     /// Arc is needed since this struct should work with PyO3 which sends struct between threads (Send trait is required).
     meta: Arc<FileMeta>,
     range_begin: usize,
     range_end: usize,
     field: Fields,
     buffer: Vec<u8>,
-    reader: &'a Mmap,
+    reader: Arc<Mmap>,
 }
 
-impl<'a> Inner<'a> {
-    pub(crate) fn new(meta: Arc<FileMeta>, field: Fields, reader: &'a Mmap) -> Self {
+impl Inner {
+    pub(crate) fn new(meta: Arc<FileMeta>, field: Fields, reader: Arc<Mmap>) -> Self {
         Inner {
             meta,
             range_begin: 0,
@@ -46,9 +46,9 @@ pub trait Column {
 }
 
 /// GBAM file column. Responsible for fetching data.
-pub struct FixedColumn<'a>(Inner<'a>);
+pub struct FixedColumn(Inner);
 
-impl<'a> Column for FixedColumn<'a> {
+impl Column for FixedColumn {
     /// Fetches data into provider record buffer. If item is located outside of
     /// currently loaded data block, the new block will be loaded and
     /// decompressed.
@@ -57,8 +57,8 @@ impl<'a> Column for FixedColumn<'a> {
     }
 }
 
-impl<'a> FixedColumn<'a> {
-    pub fn new(inner: Inner<'a>) -> Self {
+impl FixedColumn {
+    pub fn new(inner: Inner) -> Self {
         Self(inner)
     }
     fn get_item(&mut self, item_num: usize) -> &[u8] {
@@ -90,21 +90,21 @@ impl<'a> FixedColumn<'a> {
 }
 
 /// Column managing access to variable sized data. Utilizes another column (for fixed sized fields) to index data.
-pub struct VariableColumn<'a> {
-    inner: Inner<'a>,
-    index: FixedColumn<'a>,
+pub struct VariableColumn {
+    inner: Inner,
+    index: FixedColumn,
     // Used to quickly determine what block record belongs to.
     blocks: BTreeMap<usize, usize>,
 }
 
-impl<'a> Column for VariableColumn<'a> {
+impl Column for VariableColumn {
     fn fill_record_field(&mut self, item_num: usize, rec: &mut GbamRecord) -> () {
         rec.parse_from_bytes(&self.inner.field.clone(), self.get_item(item_num));
     }
 }
 
-impl<'a> VariableColumn<'a> {
-    pub fn new(inner: Inner<'a>, index: FixedColumn<'a>) -> Self {
+impl VariableColumn {
+    pub fn new(inner: Inner, index: FixedColumn) -> Self {
         Self {
             blocks: generate_block_treemap(&inner.meta, &inner.field),
             inner,
@@ -114,7 +114,6 @@ impl<'a> VariableColumn<'a> {
 
     fn get_item(&mut self, item_num: usize) -> &[u8] {
         if let Some((range_begin, block_num)) = self.find_block(item_num) {
-            // dbg!(block_num);
             Self::update_buffer(&mut self.inner, block_num, range_begin);
         }
         let rec_num_in_block = item_num - self.inner.range_begin;
@@ -147,7 +146,6 @@ impl<'a> VariableColumn<'a> {
 
     fn update_buffer(inner: &mut Inner, block_num: usize, range_begin: usize) {
         fetch_block(inner, block_num).unwrap();
-
         let block_len = inner.meta.view_blocks(&inner.field)[block_num].numitems as usize;
         inner.range_begin = range_begin;
         inner.range_end = inner.range_begin + block_len;
@@ -169,9 +167,7 @@ fn fetch_block(inner_column: &mut Inner, block_num: usize) -> Result<()> {
     // dbg!(uncompressed_size);
     inner_column.buffer.resize(uncompressed_size as usize, 0);
     let codec = inner_column.meta.get_field_codec(field);
-    unsafe {
-        crate::reader::reader::coundt += 1;
-    }
+
     decompress_block(data, &mut inner_column.buffer, codec).expect("Decompression failed.");
     Ok(())
 }

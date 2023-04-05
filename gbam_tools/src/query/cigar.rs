@@ -1,9 +1,13 @@
 use std::{fmt::Display, slice::Iter};
 
 use bam_tools::record::bamrawrecord::decode_cigar;
+use byteorder::ByteOrder;
+use byteorder::LittleEndian;
+use byteorder::WriteBytesExt;
+use std::io::Write;
 
 #[derive(Debug, Clone)]
-pub struct Op(u32);
+pub struct Op(pub u32);
 
 impl Op {
     pub fn new(val: u32) -> Op {
@@ -20,6 +24,22 @@ impl Op {
     /// Length of operator
     pub fn length(&self) -> u32 {
         return self.0 >> 4;
+    }
+
+    /// Type of operator itself
+    pub fn op_type(&self) -> char {
+        match self.0 & 0xF {
+            0 => 'M',
+            1 => 'I',
+            2 => 'D',
+            3 => 'N',
+            4 => 'S',
+            5 => 'H',
+            6 => 'P',
+            7 => '=',
+            8 => 'X',
+            _ => panic!("Unexpected cigar operation"),
+        }
     }
 }
 
@@ -41,8 +61,13 @@ impl Cigar {
         count
     }
 
-    fn ops(&self) -> Iter<Op> {
+    pub fn ops(&self) -> Iter<Op> {
         self.0.iter()
+    }
+
+    pub fn write_as_bytes<T: ByteOrder>(&self, bytes: &mut Vec<u8>) {
+        self.ops()
+            .for_each(|op| bytes.write_u32::<T>(op.0).unwrap());
     }
 }
 

@@ -3,3 +3,4 @@ Cargo.lock
 /gbam_tools/env
 /gbam_tools/gbam_tools/*.so
 /gbam_tools/target
+tests/__pycache__

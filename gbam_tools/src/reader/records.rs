@@ -5,15 +5,15 @@ use std::fs::File;
 use pyo3::prelude::*;
 
 /// Iterates over GBAM file.
-pub struct Records<'b> {
-    reader: &'b mut Reader<'b>,
+pub struct Records<'a> {
+    reader: &'a mut Reader,
     cur_rec: usize,
     rec_amount: usize,
     buf: GbamRecord,
 }
 
-impl<'b> Records<'b> {
-    pub fn new(reader: &'b mut Reader<'b>) -> Self {
+impl<'a> Records<'a> {
+    pub fn new(reader: &'a mut Reader) -> Self {
         Self {
             rec_amount: reader.amount,
             reader,
@@ -32,25 +32,25 @@ impl<'b> Records<'b> {
     }
 }
 
-// #[cfg_attr(feature = "python-ffi", pyclass)]
-// /// This class was created because no generics (lifetimes) allowed in PyO3.
-// pub struct PyRecords {
-//     reader: Reader,
-//     cur_rec: usize,
-//     rec_amount: usize,
-//     buf: GbamRecord,
-// }
+#[cfg_attr(feature = "python-ffi", pyclass)]
+/// This class was created because no generics (lifetimes) allowed in PyO3.
+pub struct PyRecords {
+    reader: Reader,
+    cur_rec: usize,
+    rec_amount: usize,
+    buf: GbamRecord,
+}
 
-// impl PyRecords {
-//     pub fn next_rec(&mut self) -> Option<&GbamRecord> {
-//         if self.cur_rec == self.rec_amount {
-//             return None;
-//         }
-//         self.reader.fill_record(self.cur_rec, &mut self.buf);
-//         self.cur_rec += 1;
-//         Some(&self.buf)
-//     }
-// }
+impl PyRecords {
+    pub fn next_rec(&mut self) -> Option<&GbamRecord> {
+        if self.cur_rec == self.rec_amount {
+            return None;
+        }
+        self.reader.fill_record(self.cur_rec, &mut self.buf);
+        self.cur_rec += 1;
+        Some(&self.buf)
+    }
+}
 
 // Methods to be called from Python.
 #[cfg(feature = "python-ffi")]
