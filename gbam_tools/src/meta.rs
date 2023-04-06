@@ -131,7 +131,7 @@ impl Default for FieldMeta {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone)]
 pub(crate) struct FileMeta {
     // Improvised hashmap for speed
     #[serde(

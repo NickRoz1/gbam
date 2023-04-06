@@ -172,7 +172,6 @@ fn fetch_block(inner_column: &mut Inner, block_num: usize) -> Result<()> {
     Ok(())
 }
 
-// depth at 3566652 = 353
 
 fn decompress_block(source: &[u8], dest: &mut Vec<u8>, codec: &Codecs) -> std::io::Result<()> {
     use std::io::Write;
@@ -183,11 +182,7 @@ fn decompress_block(source: &[u8], dest: &mut Vec<u8>, codec: &Codecs) -> std::i
             decoder.try_finish().unwrap();
         }
         Codecs::Lz4 => {
-            // let mut decoder = Decoder::new(source)?;
-            // std::io::copy(&mut decoder, dest).unwrap();
-            // dbg!(dest.len());
             lz4::decompress(&source, dest).unwrap();
-            // decompress_into(source, dest).unwrap();
         }
     };
     Ok(())

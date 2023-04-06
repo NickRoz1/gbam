@@ -225,9 +225,9 @@ pub fn collect_stats(file: File) {
     let tmplt = ParsingTemplate::new();
     let reader = Reader::new(file.try_clone().unwrap(), tmplt).unwrap();
     let total_records = reader.amount;
-    drop(reader);
+    let file_meta = reader.file_meta;
     
-    let file_stats = (0..total_records).into_par_iter().chunks(400_000).map(|records_range| {
+    let file_stats = (0..total_records).into_par_iter().chunks(500_000).map(|records_range| {
         let mut stats = Stats::default();
 
         let mut rec =  GbamRecord::default();
@@ -237,7 +237,7 @@ pub fn collect_stats(file: File) {
         tmplt.set(&Fields::NextRefID, true);
         tmplt.set(&Fields::Mapq, true);
     
-        let mut reader = Reader::new(file.try_clone().unwrap(), tmplt).unwrap();
+        let mut reader = Reader::new_with_meta(file.try_clone().unwrap(), tmplt, &file_meta).unwrap();
 
         for rec_num in records_range {
             reader.fill_record(rec_num, &mut rec);

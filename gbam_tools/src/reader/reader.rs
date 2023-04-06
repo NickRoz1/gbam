@@ -30,18 +30,26 @@ pub struct Reader {
 
 impl Reader {
     pub fn new(inner: File, parsing_template: ParsingTemplate) -> std::io::Result<Self> {
+        let inner = inner;
+        let mmap = unsafe { Mmap::map(inner.borrow())? };
+        let file_meta = verify_and_parse_meta(&mmap)?;
+        Self::new_with_meta(inner, parsing_template, &file_meta)
+    }
+
+    pub(crate) fn new_with_meta(inner: File, parsing_template: ParsingTemplate, file_meta: &FileMeta) -> std::io::Result<Self> {
         let inner = Box::new(inner);
         let mmap = Arc::new(unsafe { Mmap::map(inner.borrow())? });
-        let file_meta = Arc::new(verify_and_parse_meta(&mmap)?);
+        verify(&mmap)?;
         let amount = file_meta
             .view_blocks(&Fields::RefID)
             .iter()
             .fold(0, |acc, x| acc + x.numitems) as usize;
+        let meta = Arc::new(file_meta.clone());
         Ok(Self {
-            columns: init_columns(&mmap, &parsing_template, &file_meta),
+            columns: init_columns(&mmap, &parsing_template, &meta),
             original_template: parsing_template.clone(),
             parsing_template,
-            file_meta,
+            file_meta: meta,
             amount,
             inner,
         })
@@ -55,6 +63,12 @@ impl Reader {
                 .unwrap()
                 .fill_record_field(rec_num, rec);
         }
+    }
+
+    pub fn get_column(&mut self, field: &Fields) -> &mut Box<dyn Column + Send> {
+        self.columns[*field as usize]
+            .as_mut()
+            .unwrap()
     }
 
     // Temporarily disable fetching for fields which are not needed
@@ -102,6 +116,19 @@ fn init_col(field: Fields, mmap: &Arc<Mmap>, meta: &Arc<FileMeta>) -> Box<dyn Co
     }
 }
 
+fn verify(mmap: &Mmap) -> std::io::Result<()>{
+    let file_info_bytes = &mmap[0..FILE_INFO_SIZE];
+    let file_info = FileInfo::from(&file_info_bytes[..]);
+    // Read file meta
+    let buf = &mmap[file_info.seekpos as usize..];
+    if calc_crc_for_meta_bytes(&buf[..]) != file_info.crc32 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Metadata JSON was damaged.",
+        ));
+    }
+    Ok(())
+}
 fn verify_and_parse_meta(mmap: &Mmap) -> std::io::Result<FileMeta> {
     let file_info_bytes = &mmap[0..FILE_INFO_SIZE];
     let file_info = FileInfo::from(&file_info_bytes[..]);
