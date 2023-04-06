@@ -46,7 +46,7 @@ pub trait Column {
 }
 
 /// GBAM file column. Responsible for fetching data.
-pub struct FixedColumn(Inner);
+pub struct FixedColumn(Inner, usize);
 
 impl Column for FixedColumn {
     /// Fetches data into provider record buffer. If item is located outside of
@@ -58,15 +58,15 @@ impl Column for FixedColumn {
 }
 
 impl FixedColumn {
-    pub fn new(inner: Inner) -> Self {
-        Self(inner)
+    pub fn new(inner: Inner, field_size: usize) -> Self {
+        Self(inner, field_size)
     }
     fn get_item(&mut self, item_num: usize) -> &[u8] {
         if let Some(block_num) = self.find_block(item_num) {
             Self::update_buffer(&mut self.0, block_num);
         }
         let rec_num_in_block = item_num - self.0.range_begin;
-        let item_size = self.0.meta.get_field_size(&self.0.field).unwrap() as usize;
+        let item_size = self.1;
         let offset = rec_num_in_block * item_size;
         &self.0.buffer[offset..offset + item_size]
     }

@@ -1,10 +1,14 @@
 use crate::reader::record::GbamRecord;
+use crate::reader::reader::Reader;
 use crate::reader::records::Records;
 use bitflags::bitflags;
 use std::fmt;
 use std::str;
 use std::io::Write;
 use std::string::String;
+use std::time::Instant;
+use bam_tools::record::fields::Fields;
+use crate::reader::parse_tmplt::ParsingTemplate;
 
 // https://github.com/samtools/htslib/blob/32de287eafdafc45dde0a22244b72697294f161d/htslib/sam.h
 bitflags! {
@@ -92,8 +96,8 @@ impl fmt::Display for Stats {
     }
 }
 
-fn collect(rec: &GbamRecord, stats: &mut Stats) {
-    let record_flag = BamFlags::from_bits(rec.flag.unwrap() as u32).unwrap();
+fn collect(rec: &Bundle, stats: &mut Stats) {
+    let record_flag = BamFlags::from_bits(rec.flag as u32).unwrap();
     let w = record_flag.contains(BamFlags::BAM_FQCFAIL) as usize;
     
     stats.n_reads[w] += 1;
@@ -122,9 +126,9 @@ fn collect(rec: &GbamRecord, stats: &mut Stats) {
             }
             if !record_flag.contains(BamFlags::BAM_FUNMAP) &&  !record_flag.contains(BamFlags::BAM_FMUNMAP){
                 stats.n_pair_map[w] += 1;
-                if rec.next_ref_id.unwrap() != rec.refid.unwrap(){
+                if rec.next_ref_id != rec.refid {
                     stats.n_diffchr[w] += 1;
-                    if rec.mapq.unwrap() >= 5 {
+                    if rec.mapq >= 5 {
                         stats.n_diffhigh[w] += 1;
                     }
                 }
@@ -176,10 +180,91 @@ fn collect(rec: &GbamRecord, stats: &mut Stats) {
     // if (c->flag & BAM_FDUP) ++s->n_dup[w];
 }
 
-pub fn collect_stats(records: &mut Records) {
+#[derive(Default, Clone, Copy)]
+#[repr(C)] 
+struct Bundle {
+    refid: i32,
+    next_ref_id:i32,
+    flag: u16,
+    mapq: u8,
+}
+
+static mut uncompress_time : u128 =  0;
+
+
+
+pub fn collect_stats(reader: &mut Reader) {
     let mut stats = Stats::default();
-    while let Some(rec) = records.next_rec() {
-        collect(rec, &mut stats);
+    let mut buf =  GbamRecord::default();
+
+    const BUF_SIZE: usize = 1_000_000;
+    let mut recs = vec![Bundle::default(); BUF_SIZE];
+    // dbg!("WHAT");
+    let mut tmplt = ParsingTemplate::new();
+    let mut current_record = 0;
+    
+    loop {
+        // dbg!(current_record);
+        if current_record == reader.amount {
+            break;
+        }
+        let available_records = std::cmp::min(BUF_SIZE, reader.amount-current_record);
+        
+        let column = reader.get_column(&Fields::RefID);
+        for offset in 0..available_records {
+            column.fill_record_field(current_record+offset, &mut buf);
+            if buf.refid.is_none() {
+                dbg!(current_record+offset);
+            }
+            // recs[offset].refid = buf.refid.unwrap();
+        }
+        
+        let column = reader.get_column(&Fields::NextRefID);
+        for offset in 0..available_records {
+            column.fill_record_field(current_record+offset, &mut buf);
+            // recs[offset].next_ref_id = buf.next_ref_id.unwrap();
+        }
+        
+        let column = reader.get_column(&Fields::Flags);
+        for offset in 0..available_records {
+            column.fill_record_field(current_record+offset, &mut buf);
+            // recs[offset].flag = buf.flag.unwrap();
+        }
+        let now = Instant::now();
+        let column = reader.get_column(&Fields::Mapq);
+        for offset in 0..available_records {
+            column.fill_record_field(current_record+offset, &mut buf);
+            // recs[offset].mapq = buf.mapq.unwrap();
+        }
+        unsafe {
+            uncompress_time += now.elapsed().as_micros();
+        }
+
+        
+        for offset in 0..available_records {
+            // collect(&recs[offset], &mut stats);
+        }
+        
+        current_record += available_records;
+        
     }
+    unsafe {
+    dbg!(uncompress_time/1000);
+    
+    }
+    // tmplt.set(&Fields::RefID, true);
+    // tmplt.set(&Fields::NextRefID, true);
+    // tmplt.set(&Fields::Mapq, true);
+
+
+    
+    // let mut count = 0;
+    // while let Some(rec) = records.next_rec() {
+    //     recs[count].refid = rec.refid.unwrap();
+    //     recs[count].nextrefid = rec.next_ref_id.unwrap();
+    //     recs[count]. = rec.refid.unwrap();
+    //     recs[count].refid = rec.refid.unwrap();
+    //     collect(rec, &mut stats);
+    // }
     println!("{stats}");
 }

@@ -92,11 +92,11 @@ fn init_columns(
 fn init_col(field: Fields, mmap: &Arc<Mmap>, meta: &Arc<FileMeta>) -> Box<dyn Column + Send> {
     let inner = Inner::new(meta.clone(), field, mmap.clone());
     match field_type(&field) {
-        FieldType::FixedSized => Box::new(FixedColumn::new(inner)),
+        FieldType::FixedSized => Box::new(FixedColumn::new(inner, meta.get_field_size(&field).unwrap() as usize)),
         FieldType::VariableSized => {
             let idx_field = var_size_field_to_index(&field);
             let idx_inner = Inner::new(meta.clone(), idx_field, mmap.clone());
-            let idx_col = FixedColumn::new(idx_inner);
+            let idx_col = FixedColumn::new(idx_inner, meta.get_field_size(&idx_field).unwrap() as usize);
             Box::new(VariableColumn::new(inner, idx_col))
         }
     }
