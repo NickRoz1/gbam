@@ -176,36 +176,6 @@ fn collect(rec: &GbamRecord, stats: &mut Stats) {
     if record_flag.contains(BamFlags::BAM_FDUP) {
         stats.n_dup[w] += 1;
     }
-
-    // int w = (c->flag & BAM_FQCFAIL)? 1 : 0;
-    // ++s->n_reads[w];
-    // if (c->flag & BAM_FSECONDARY ) {
-    //     ++s->n_secondary[w];
-    // } else if (c->flag & BAM_FSUPPLEMENTARY ) {
-    //     ++s->n_supp[w];
-    // } else {
-    //     ++s->n_primary[w];
-
-    //     if (c->flag & BAM_FPAIRED) {
-    //         ++s->n_pair_all[w];
-    //         if ((c->flag & BAM_FPROPER_PAIR) && !(c->flag & BAM_FUNMAP) ) ++s->n_pair_good[w];
-    //         if (c->flag & BAM_FREAD1) ++s->n_read1[w];
-    //         if (c->flag & BAM_FREAD2) ++s->n_read2[w];
-    //         if ((c->flag & BAM_FMUNMAP) && !(c->flag & BAM_FUNMAP)) ++s->n_sgltn[w];
-    //         if (!(c->flag & BAM_FUNMAP) && !(c->flag & BAM_FMUNMAP)) {
-    //             ++s->n_pair_map[w];
-    //             if (c->mtid != c->tid) {
-    //                 ++s->n_diffchr[w];
-    //                 if (c->qual >= 5) ++s->n_diffhigh[w];
-    //             }
-    //         }
-    //     }
-
-    //     if (!(c->flag & BAM_FUNMAP)) ++s->n_pmapped[w];
-    //     if (c->flag & BAM_FDUP) ++s->n_pdup[w];
-    // }
-    // if (!(c->flag & BAM_FUNMAP)) ++s->n_mapped[w];
-    // if (c->flag & BAM_FDUP) ++s->n_dup[w];
 }
 
 #[derive(Default, Clone, Copy)]
