@@ -2,7 +2,10 @@ use crate::reader::record::GbamRecord;
 use crate::reader::reader::Reader;
 use crate::reader::records::Records;
 use bitflags::bitflags;
+use itertools::Itertools;
 use std::fmt;
+use rayon::prelude::*;
+use std::fs::File;
 use std::str;
 use std::io::Write;
 use std::string::String;
@@ -61,6 +64,31 @@ struct Stats {
     pub n_pdup: [i64; 2],
 }
 
+impl Stats {
+    fn add_two_arrs(dest: &mut[i64;2], src:&[i64;2]){
+        dest[0] += src[0];
+        dest[1] += src[1];
+    }
+    pub fn add(&mut self, other: &Stats){
+        Self::add_two_arrs(&mut self.n_reads,&  other.n_reads);
+        Self::add_two_arrs(&mut self.n_mapped,&  other.n_mapped);
+        Self::add_two_arrs(&mut self.n_pair_all,&  other.n_pair_all);
+        Self::add_two_arrs(&mut self.n_pair_map,&  other.n_pair_map);
+        Self::add_two_arrs(&mut self.n_pair_good,&  other.n_pair_good);
+        Self::add_two_arrs(&mut self.n_sgltn,&  other.n_sgltn);
+        Self::add_two_arrs(&mut self.n_read1,&  other.n_read1);
+        Self::add_two_arrs(&mut self.n_read2,&  other.n_read2);
+        Self::add_two_arrs(&mut self.n_dup,&  other.n_dup);
+        Self::add_two_arrs(&mut self.n_diffchr,&  other.n_diffchr);
+        Self::add_two_arrs(&mut self.n_diffhigh,&  other.n_diffhigh);
+        Self::add_two_arrs(&mut self.n_secondary,&  other.n_secondary);
+        Self::add_two_arrs(&mut self.n_supp,&  other.n_supp);
+        Self::add_two_arrs(&mut self.n_primary,&  other.n_primary);
+        Self::add_two_arrs(&mut self.n_pmapped,&  other.n_pmapped);
+        Self::add_two_arrs(&mut self.n_pdup,&  other.n_pdup);
+    }
+}
+
 fn percent(n: i64, total: i64) -> String
 {   
 
@@ -96,8 +124,8 @@ impl fmt::Display for Stats {
     }
 }
 
-fn collect(rec: &Bundle, stats: &mut Stats) {
-    let record_flag = BamFlags::from_bits(rec.flag as u32).unwrap();
+fn collect(rec: &GbamRecord, stats: &mut Stats) {
+    let record_flag = BamFlags::from_bits(rec.flag.unwrap() as u32).unwrap();
     let w = record_flag.contains(BamFlags::BAM_FQCFAIL) as usize;
     
     stats.n_reads[w] += 1;
@@ -126,9 +154,9 @@ fn collect(rec: &Bundle, stats: &mut Stats) {
             }
             if !record_flag.contains(BamFlags::BAM_FUNMAP) &&  !record_flag.contains(BamFlags::BAM_FMUNMAP){
                 stats.n_pair_map[w] += 1;
-                if rec.next_ref_id != rec.refid {
+                if rec.next_ref_id.unwrap() != rec.refid.unwrap() {
                     stats.n_diffchr[w] += 1;
-                    if rec.mapq >= 5 {
+                    if rec.mapq.unwrap() >= 5 {
                         stats.n_diffhigh[w] += 1;
                     }
                 }
@@ -193,78 +221,32 @@ static mut uncompress_time : u128 =  0;
 
 
 
-pub fn collect_stats(reader: &mut Reader) {
-    let mut stats = Stats::default();
-    let mut buf =  GbamRecord::default();
-
-    const BUF_SIZE: usize = 1_000_000;
-    let mut recs = vec![Bundle::default(); BUF_SIZE];
-    // dbg!("WHAT");
-    let mut tmplt = ParsingTemplate::new();
-    let mut current_record = 0;
+pub fn collect_stats(file: File) {
+    let tmplt = ParsingTemplate::new();
+    let reader = Reader::new(file.try_clone().unwrap(), tmplt).unwrap();
+    let total_records = reader.amount;
+    drop(reader);
     
-    loop {
-        // dbg!(current_record);
-        if current_record == reader.amount {
-            break;
-        }
-        let available_records = std::cmp::min(BUF_SIZE, reader.amount-current_record);
-        
-        let column = reader.get_column(&Fields::RefID);
-        for offset in 0..available_records {
-            column.fill_record_field(current_record+offset, &mut buf);
-            if buf.refid.is_none() {
-                dbg!(current_record+offset);
-            }
-            // recs[offset].refid = buf.refid.unwrap();
-        }
-        
-        let column = reader.get_column(&Fields::NextRefID);
-        for offset in 0..available_records {
-            column.fill_record_field(current_record+offset, &mut buf);
-            // recs[offset].next_ref_id = buf.next_ref_id.unwrap();
-        }
-        
-        let column = reader.get_column(&Fields::Flags);
-        for offset in 0..available_records {
-            column.fill_record_field(current_record+offset, &mut buf);
-            // recs[offset].flag = buf.flag.unwrap();
-        }
-        let now = Instant::now();
-        let column = reader.get_column(&Fields::Mapq);
-        for offset in 0..available_records {
-            column.fill_record_field(current_record+offset, &mut buf);
-            // recs[offset].mapq = buf.mapq.unwrap();
-        }
-        unsafe {
-            uncompress_time += now.elapsed().as_micros();
-        }
+    let file_stats = (0..total_records).chunks(1_000_000).into_iter().map(|records_range| {
+        let mut stats = Stats::default();
 
-        
-        for offset in 0..available_records {
-            // collect(&recs[offset], &mut stats);
-        }
-        
-        current_record += available_records;
-        
-    }
-    unsafe {
-    dbg!(uncompress_time/1000);
+        let mut rec =  GbamRecord::default();
+        let mut tmplt = ParsingTemplate::new();
+        tmplt.set(&Fields::Flags, true);
+        tmplt.set(&Fields::RefID, true);
+        tmplt.set(&Fields::NextRefID, true);
+        tmplt.set(&Fields::Mapq, true);
     
-    }
-    // tmplt.set(&Fields::RefID, true);
-    // tmplt.set(&Fields::NextRefID, true);
-    // tmplt.set(&Fields::Mapq, true);
+        let mut reader = Reader::new(file.try_clone().unwrap(), tmplt).unwrap();
 
+        for rec_num in records_range {
+            reader.fill_record(rec_num, &mut rec);
+            collect(&rec, &mut stats);
+        }
 
-    
-    // let mut count = 0;
-    // while let Some(rec) = records.next_rec() {
-    //     recs[count].refid = rec.refid.unwrap();
-    //     recs[count].nextrefid = rec.next_ref_id.unwrap();
-    //     recs[count]. = rec.refid.unwrap();
-    //     recs[count].refid = rec.refid.unwrap();
-    //     collect(rec, &mut stats);
-    // }
-    println!("{stats}");
+        stats
+
+    }).fold(Stats::default(), |mut acc, thread_collected_stats| {acc.add(&thread_collected_stats); acc});
+
+    println!("{file_stats}");
 }

@@ -117,10 +117,8 @@ fn flagstat(args: Cli) {
     tmplt.set(&Fields::Mapq, true);
 
     let file = File::open(in_path).unwrap();
-    let mut reader = Reader::new(file, tmplt).unwrap();
-    let mut records = reader.records();
-    
-    collect_stats(&mut records);
+
+    collect_stats(file);
 }
 
 fn test(args: Cli) {
