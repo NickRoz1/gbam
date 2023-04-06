@@ -187,10 +187,6 @@ struct Bundle {
     mapq: u8,
 }
 
-static mut uncompress_time : u128 =  0;
-
-
-
 pub fn collect_stats(file: File) {
     let tmplt = ParsingTemplate::new();
     let reader = Reader::new(file.try_clone().unwrap(), tmplt).unwrap();
