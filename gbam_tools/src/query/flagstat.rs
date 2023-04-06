@@ -227,7 +227,7 @@ pub fn collect_stats(file: File) {
     let total_records = reader.amount;
     drop(reader);
     
-    let file_stats = (0..total_records).chunks(1_000_000).into_iter().map(|records_range| {
+    let file_stats = (0..total_records).into_par_iter().chunks(400_000).map(|records_range| {
         let mut stats = Stats::default();
 
         let mut rec =  GbamRecord::default();
@@ -246,7 +246,7 @@ pub fn collect_stats(file: File) {
 
         stats
 
-    }).fold(Stats::default(), |mut acc, thread_collected_stats| {acc.add(&thread_collected_stats); acc});
+    }).reduce(|| Stats::default(), |mut a, b| {a.add(&b); a});
 
     println!("{file_stats}");
 }
