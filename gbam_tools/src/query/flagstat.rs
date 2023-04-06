@@ -178,15 +178,6 @@ fn collect(rec: &GbamRecord, stats: &mut Stats) {
     }
 }
 
-#[derive(Default, Clone, Copy)]
-#[repr(C)] 
-struct Bundle {
-    refid: i32,
-    next_ref_id:i32,
-    flag: u16,
-    mapq: u8,
-}
-
 pub fn collect_stats(file: File) {
     let tmplt = ParsingTemplate::new();
     let reader = Reader::new(file.try_clone().unwrap(), tmplt).unwrap();
