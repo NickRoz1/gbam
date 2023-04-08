@@ -6,8 +6,6 @@ use std::convert::TryInto;
 use std::io::Write;
 use std::ops::{Range, RangeInclusive};
 use std::{cmp::Ordering, collections::HashMap, convert::TryFrom, time::Instant};
-extern crate libc;
-use std::mem;
 
 /// This module provides function for fast querying of read depth.
 use crate::meta::{BlockMeta, Limits};
@@ -102,7 +100,7 @@ fn get_refid_bounds(
     let meta_blocks = reader.file_meta.view_blocks(&Fields::RefID);
     // If stats were collected for this file it's possible to narrow binary search.
     if meta_blocks.first().unwrap().max_value.is_some() {
-        // dbg!(meta_blocks.len());
+        dbg!(meta_blocks.len());
         let mut meta_iter = meta_blocks.iter();
         let mut cur_offset: usize = 0;
         for ref_id in ref_ids.into_iter() {
@@ -134,7 +132,7 @@ pub trait DepthWrite {
 fn process_depth_query<W: DepthWrite>(
     reader: &mut Reader,
     output: &mut W,
-    buf: &mut [i32],
+    buf: &mut Vec<i32>,
     super_regions: Vec<SuperRegion>,
     first_record: usize,
     ref_id: i32,
@@ -142,7 +140,6 @@ fn process_depth_query<W: DepthWrite>(
     let mut counter = 0;
     let mut gbam_buffer_record = GbamRecord::default();
     gbam_buffer_record.cigar = Some(super::cigar::Cigar(Vec::with_capacity(100000)));
-    let now = Instant::now();
     for SuperRegion {
         region: super_region,
         bed_regions,
@@ -150,14 +147,8 @@ fn process_depth_query<W: DepthWrite>(
     {
         counter += 1;
         // dbg!(counter);
-        // buf.clear();
-        // dbg!(buf.capacity() > (super_region.end() - super_region.start() + 1) as usize);
-        // buf.resize((super_region.end() - super_region.start() + 1) as usize, 0);
-        // dbg!(&super_region);
-        // unsafe {
-        //     dbg!(crate::reader::reader::coundt);
-        // }
-
+        buf.clear();
+        buf.resize((super_region.end() - super_region.start() + 1) as usize, 0);
         calc_depth(
             reader,
             first_record,
@@ -166,10 +157,6 @@ fn process_depth_query<W: DepthWrite>(
             buf,
             &mut gbam_buffer_record,
         );
-        // unsafe {
-        //     dbg!(crate::reader::reader::coundt);
-        // }
-        dbg!(now.elapsed().as_millis());
         let offset = *super_region.start();
         for bed_region in bed_regions.into_iter() {
             for pos in bed_region {
@@ -220,7 +207,7 @@ pub fn get_regions_depths_with_printer<W: DepthWrite>(
         panic!("The reader should have parsing template which includes REFID, POS and CIGAR.");
     }
 
-    let super_regions = merge_regions(regions, 3_000_000_000);
+    let super_regions = merge_regions(regions, 300_000);
     let ref_id_to_chr = get_chr_name_mapping(super_regions.keys(), reader);
     let depth_queries = super_regions
         .into_iter()
@@ -230,47 +217,7 @@ pub fn get_regions_depths_with_printer<W: DepthWrite>(
     let ref_ids_bounds =
         get_refid_bounds(ref_id_to_chr.values().copied().flatten().collect(), reader);
 
-    // let mut buf = Vec::<i32>::new();
-    let buf: *mut i32;
-    unsafe {
-        // let temp =
-        //     libc::malloc(350_000_000 * mem::size_of::<i32>() as libc::size_t) as *mut libc::c_void;
-        let now = Instant::now();
-
-        let temp = libc::mmap(
-            0 as *mut libc::c_void,
-            (1 << 21) * 668,
-            libc::PROT_READ | libc::PROT_WRITE,
-            libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | libc::MAP_HUGETLB,
-            -1,
-            0,
-        );
-
-        // panic!("STOP");
-
-        // libc::memset(
-        //     temp,
-        //     0,
-        //     (350_000_000 * mem::size_of::<i32>()) as libc::size_t,
-        // );
-
-        if temp == libc::MAP_FAILED {
-            panic!("failed to allocate memory");
-        }
-        // panic!("Success");
-
-        buf = temp as *mut i32;
-        // let tr = unsafe { std::slice::from_raw_parts_mut(buf, ((1 << 21) * 667) / 4 as usize) };
-        // dbg!(tr[0]);
-    }
-    // buf.resize(350_000_000, 0);
-
-    // for x in (1..350_000_000).step_by(999) {
-    //     buf[x] = 0;
-    //     println!("{}", x);
-    // }
-    let now = Instant::now();
-
+    let mut buf = Vec::<i32>::new();
     for (ref_id, super_regions) in depth_queries.into_iter() {
         if let Some(ref_id_pos_hint) = ref_ids_bounds.get(&ref_id).unwrap() {
             // Find number of record when records with this ref_id begin.
@@ -279,27 +226,10 @@ pub fn get_regions_depths_with_printer<W: DepthWrite>(
             let first_record = find_refid(reader, ref_id, ref_id_pos_hint);
             reader.restore_template();
             if let Some(first_pos) = first_record {
-                process_depth_query(
-                    reader,
-                    output,
-                    unsafe { std::slice::from_raw_parts_mut(buf, ((1 << 21) * 668) / 4 as usize) },
-                    super_regions,
-                    first_pos,
-                    ref_id,
-                );
+                process_depth_query(reader, output, &mut buf, super_regions, first_pos, ref_id);
             }
         }
     }
-
-    unsafe {
-        let res = libc::munmap(buf as *mut libc::c_void, ((1 << 21) * 668));
-        if res != 0 {
-            panic!("failed to free memory");
-        }
-        // libc::free(buf as *mut libc::c_void);
-    }
-    dbg!(now.elapsed().as_millis());
-    // dbg!(buf.capacity());
 }
 
 fn find_leftmost_block(id: i32, block_metas: &Vec<BlockMeta>) -> usize {
@@ -358,7 +288,7 @@ pub fn calc_depth(
     mut record_num: usize,
     refid: i32,
     super_region: &RangeInclusive<u32>,
-    buffer: &mut [i32],
+    buffer: &mut Vec<i32>,
     buf: &mut GbamRecord,
 ) {
     let sweeping_line = buffer;

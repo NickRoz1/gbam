@@ -80,6 +80,7 @@ impl Into<Vec<u8>> for FileInfo {
 }
 
 /// Type of encoding used in GBAM writer
+/// TODO: use MessagePack or another compact form of serialization.
 #[derive(Serialize, Deserialize, Clone, Copy)]
 pub enum Codecs {
     /// Gzip encoding
@@ -88,9 +89,37 @@ pub enum Codecs {
     Lz4,
 }
 
-pub(crate) trait Limits<T> {
-    fn get_max(&self) -> Option<T>;
-    fn get_min(&self) -> Option<T>;
+#[derive(Serialize, Deserialize, Clone)]
+/// Currently block stats only for RefID or POS are supported.
+pub(crate) struct Stat {
+    pub min_value: i32,
+    pub max_value: i32,
+}
+
+impl Stat {
+    pub fn update(&mut self, val: i32) {
+        self.max_value = std::cmp::min(val, self.max_value);
+        self.min_value = std::cmp::min(val, self.min_value);
+    }
+
+    /// Checks if it's in reset state.
+    pub fn is_reset(&self) -> bool {
+        (self.min_value == std::i32::MAX) && (self.max_value == std::i32::MIN)
+    }
+
+    pub fn reset(&mut self) {
+        self.min_value = std::i32::MAX;
+        self.max_value = std::i32::MIN;
+    }
+}
+
+impl Default for Stat {
+    fn default() -> Self { 
+        Self {
+            min_value:std::i32::MAX,
+            max_value:std::i32::MIN,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -99,9 +128,7 @@ pub(crate) struct BlockMeta {
     pub numitems: u32,
     pub block_size: u32,
     pub uncompressed_size: u64,
-    // Interpretation is up to the reader to accommodate for various types one might store.
-    pub max_value: Option<Vec<u8>>,
-    pub min_value: Option<Vec<u8>>,
+    pub stats: Option<Stat>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

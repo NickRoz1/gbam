@@ -1,12 +1,11 @@
-use super::meta::{BlockMeta, Codecs, FileInfo, FileMeta, FILE_INFO_SIZE};
+use super::meta::{BlockMeta, Codecs, FileInfo, FileMeta, FILE_INFO_SIZE, Stat};
 use crate::compressor::{CompressTask, Compressor, OrderingKey};
-use crate::stats::{StatsCollector, StatsComparator};
 use crate::{SIZE_LIMIT, U32_SIZE};
 use bam_tools::record::bamrawrecord::BAMRawRecord;
 use bam_tools::record::fields::{
     field_type, is_data_field, var_size_field_to_index, FieldType, Fields, FIELDS_NUM,
 };
-use byteorder::{LittleEndian, WriteBytesExt};
+use byteorder::{LittleEndian, WriteBytesExt, ReadBytesExt};
 use crc32fast::Hasher;
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -19,8 +18,7 @@ pub(crate) struct BlockInfo {
     pub uncompr_size: usize,
     pub field: Fields,
     // Interpretation is up to the reader.
-    pub max_value: Option<Vec<u8>>,
-    pub min_value: Option<Vec<u8>>,
+    pub stats: Option<Stat>,
 }
 
 impl Default for BlockInfo {
@@ -29,8 +27,7 @@ impl Default for BlockInfo {
             numitems: 0,
             uncompr_size: 0,
             field: Fields::RefID,
-            max_value: None,
-            min_value: None,
+            stats: None,
         }
     }
 }
@@ -62,7 +59,7 @@ where
         mut inner: WS,
         codecs: Vec<Codecs>,
         thread_num: usize,
-        mut comparators: HashMap<Fields, StatsComparator>,
+        collect_stats_for: Vec<Fields>,
         ref_seqs: Vec<(String, i32)>,
         sam_header: Vec<u8>,
     ) -> Self {
@@ -74,15 +71,15 @@ where
 
         let mut count = 0;
         for field in Fields::iterator().filter(|f| is_data_field(*f)) {
-            let comparator = comparators.remove(field).and_then(|val| Some(val));
+            let stat_collector = collect_stats_for.iter().find(|f| *f == field).and(Some(Stat::default()));
             let col = match field_type(field) {
                 FieldType::FixedSized => {
-                    Box::new(FixedColumn::new(*field, comparator)) as Box<dyn Column>
+                    Box::new(FixedColumn::new(*field, stat_collector)) as Box<dyn Column>
                 }
                 FieldType::VariableSized => {
                     // Index column +1.
                     count += 1;
-                    Box::new(VariableColumn::new(*field, comparator)) as Box<dyn Column>
+                    Box::new(VariableColumn::new(*field, stat_collector)) as Box<dyn Column>
                 }
             };
             columns.push(col);
@@ -110,7 +107,7 @@ where
             inner,
             codecs,
             thread_num,
-            HashMap::<Fields, StatsComparator>::new(),
+            Vec::new(),
             ref_seqs,
             sam_header,
         )
@@ -239,8 +236,7 @@ fn generate_meta<S: Seek>(
         numitems: block_info.numitems,
         block_size,
         uncompressed_size: block_info.uncompr_size as u64,
-        max_value: block_info.max_value.take(),
-        min_value: block_info.min_value.take(),
+        stats: block_info.stats.take(),
     }
 }
 
@@ -251,7 +247,7 @@ enum WriteStatus<'a> {
 }
 
 struct Inner {
-    stats_collector: Option<StatsCollector>,
+    stats_collector: Option<Stat>,
     buffer: Vec<u8>,
     offset: usize,
     field: Fields,
@@ -260,9 +256,9 @@ struct Inner {
 }
 
 impl Inner {
-    pub fn new(field: Fields, comparator: Option<StatsComparator>) -> Self {
+    pub fn new(field: Fields, stats_collector: Option<Stat>) -> Self {
         Self {
-            stats_collector: comparator.and_then(|cmp| Some(StatsCollector::new(field, cmp))),
+            stats_collector,
             buffer: Vec::new(),
             offset: 0,
             field,
@@ -292,30 +288,23 @@ impl Inner {
     }
 
     pub fn reset_for_new_block(&mut self) {
-        // Stats should be flushed with meta for previous block.
-
-        if let Some(ref mut stats) = self.stats_collector {
-            assert!(stats.max_value.is_none());
-            assert!(stats.min_value.is_none());
-        };
         self.offset = 0;
         self.rec_count = 0;
         self.block_num += 1;
     }
 
     pub fn generate_block_info(&mut self) -> BlockInfo {
+        let stat = if self.stats_collector.is_some(){
+            self.stats_collector.replace(Stat::default())
+        }
+        else{
+            None
+        };
         BlockInfo {
             numitems: self.rec_count,
             uncompr_size: self.offset,
             field: self.field,
-            max_value: self
-                .stats_collector
-                .as_mut()
-                .and_then(|st| st.max_value.take()),
-            min_value: self
-                .stats_collector
-                .as_mut()
-                .and_then(|st| st.min_value.take()),
+            stats: stat,
         }
     }
 }
@@ -331,7 +320,10 @@ trait Column {
 struct FixedColumn(Inner);
 
 impl FixedColumn {
-    pub fn new(field: Fields, comparator: Option<StatsComparator>) -> Self {
+    pub fn new(field: Fields, comparator: Option<Stat>) -> Self {
+        if comparator.is_some() && field != Fields::RefID && field != Fields::Pos {
+            panic!("Stats collection is only supported for RefID and POS fields.");
+        }
         Self(Inner::new(field, comparator))
     }
 }
@@ -346,7 +338,7 @@ impl Column for FixedColumn {
         }
 
         if let Some(ref mut stats) = inner.stats_collector {
-            stats.update(data);
+            stats.update((&data[..]).read_i32::<LittleEndian>().unwrap());
         }
 
         inner.write_data(data)
@@ -363,7 +355,10 @@ struct VariableColumn {
 }
 
 impl VariableColumn {
-    pub fn new(field: Fields, comparator: Option<StatsComparator>) -> Self {
+    pub fn new(field: Fields, comparator: Option<Stat>) -> Self {
+        if comparator.is_some() {
+            panic!("Stats collection is not supported for variable length fields.");
+        }
         Self {
             inner: Inner::new(field, comparator),
             index: FixedColumn::new(var_size_field_to_index(&field), None),
@@ -387,9 +382,7 @@ impl Column for VariableColumn {
             return WriteStatus::Full(inner);
         }
 
-        if let Some(ref mut stats) = inner.stats_collector {
-            stats.update(data);
-        }
+        assert!(inner.stats_collector.is_none());
 
         inner.write_data(data);
         (&mut idx_buf[..])

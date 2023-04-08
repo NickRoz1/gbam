@@ -1,4 +1,3 @@
-use crate::stats::{refid_comparator, StatsComparator};
 use crate::MEGA_BYTE_SIZE;
 use crate::{Codecs, Writer};
 use bam_tools::parse_reference_sequences;
@@ -40,14 +39,11 @@ pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
     let buf_reader = BufReader::new(fin);
     let buf_writer = BufWriter::new(fout);
 
-    let mut stats_collectors = HashMap::<Fields, StatsComparator>::new();
-    stats_collectors.insert(Fields::RefID, refid_comparator);
-
     let mut writer = Writer::new(
         buf_writer,
         vec![codec; FIELDS_NUM],
         8,
-        stats_collectors,
+        vec![Fields::RefID],
         ref_seqs,
         Vec::from(only_text),
     );
@@ -60,7 +56,7 @@ pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
         &mut writer,
         tmp_dir_path,
         0,
-        20,
+        1,
         20,
         false,
         sort::SortBy::NameAndMatchMates,
@@ -104,14 +100,11 @@ fn get_bam_reader_gbam_writer(
 
     let only_text = &sam_header[..ref_seq_offset];
 
-    let mut stats_collectors = HashMap::<Fields, StatsComparator>::new();
-    stats_collectors.insert(Fields::RefID, refid_comparator);
-
     let writer = Writer::new(
         buf_writer,
         vec![codec; FIELDS_NUM],
         8,
-        stats_collectors,
+        vec![Fields::RefID],
         ref_seqs,
         Vec::from(only_text),
     );
