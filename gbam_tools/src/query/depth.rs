@@ -186,8 +186,8 @@ pub fn get_regions_depths(reader: &mut Reader, regions: &Vec<(String, u32, u32)>
     let ref_id_to_chr = reader
     .file_meta
     .get_ref_seqs()
-    .iter()
-    .map(|(k, v)| (*v, k.clone()))
+    .iter().enumerate()
+    .map(|(k, (refid, _))| (k as i32, refid.clone()))
     .collect();
     let mut printer = ConsolePrinter::new(ref_id_to_chr);
     get_regions_depths_with_printer(reader, regions, &mut printer);
