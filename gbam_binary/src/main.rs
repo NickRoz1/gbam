@@ -3,7 +3,7 @@ use bam_tools::record::fields::Fields;
 use gbam_tools::{
     bam::bam_to_gbam::bam_sort_to_gbam,
     bam::gbam_to_bam::gbam_to_bam,
-    query::depth::get_regions_depths,
+    query::depth::main_depth,
     reader::{parse_tmplt::ParsingTemplate, reader::Reader, records::Records},
     utils::bed,
     {bam_to_gbam, Codecs},
@@ -48,6 +48,12 @@ struct Cli {
     /// Depth query. Example: chr1:54, or chrX:1258
     #[structopt(short, parse(from_os_str))]
     bed_file: Option<PathBuf>,
+    /// Depth query. Filter reads with map quality lower than.
+    #[structopt(long)]
+    mapq: Option<u32>,
+    /// Depth query. Number of threads to use. WARNING: each thread will attempt to allocate up to 1GB.
+    #[structopt(long)]
+    thread_num: Option<usize>
 }
 
 /// Limited wrapper of `gbam_tools` converts BAM file to GBAM
@@ -146,36 +152,40 @@ fn test(args: Cli) {
 }
 
 fn depth(args: Cli) {
-    let mut tmplt = ParsingTemplate::new();
-    tmplt.set(&Fields::RefID, true);
-    tmplt.set(&Fields::Pos, true);
-    tmplt.set(&Fields::RawCigar, true);
+    // let mut tmplt = ParsingTemplate::new();
+    // tmplt.set(&Fields::RefID, true);
+    // tmplt.set(&Fields::Pos, true);
+    // tmplt.set(&Fields::RawCigar, true);
 
+    // let in_path = args.in_path.as_path().to_str().unwrap();
+    // // Kept so File won't drop while used by mmap.
+    // let file = File::open(in_path).unwrap();
+    // let mut reader = Reader::new(file, tmplt).unwrap();
+    // let mut queries = Vec::new();
+    // if let Some(bed_path) = args.bed_file {
+    //     queries = bed::parse_bed_from_file(&bed_path).expect("BED file is corrupted.");
+    // } else {
+    //     queries.push(
+    //         bed::parse_region_query_owned(&args.query.unwrap())
+    //             .ok()
+    //             .ok_or_else(|| panic_err())
+    //             .unwrap(),
+    //     );
+    // }
+
+    // if !queries.is_empty() {
+    //     println!("REFID\tPOS\tDEPTH");
+    // }
+    // let now = Instant::now();
+    // get_regions_depths(&mut reader, &queries);
+    // println!(
+    //     "GBAM. Time elapsed querying depth {}ms",
+    //     now.elapsed().as_millis()
+    // );
     let in_path = args.in_path.as_path().to_str().unwrap();
-    // Kept so File won't drop while used by mmap.
-    let file = File::open(in_path).unwrap();
-    let mut reader = Reader::new(file, tmplt).unwrap();
-    let mut queries = Vec::new();
-    if let Some(bed_path) = args.bed_file {
-        queries = bed::parse_bed_from_file(&bed_path).expect("BED file is corrupted.");
-    } else {
-        queries.push(
-            bed::parse_region_query_owned(&args.query.unwrap())
-                .ok()
-                .ok_or_else(|| panic_err())
-                .unwrap(),
-        );
-    }
+    let gbam_file = File::open(in_path).unwrap();
+    main_depth(gbam_file, args.bed_file.as_ref(), args.query, args.mapq, args.thread_num);
 
-    if !queries.is_empty() {
-        println!("REFID\tPOS\tDEPTH");
-    }
-    let now = Instant::now();
-    get_regions_depths(&mut reader, &queries);
-    println!(
-        "GBAM. Time elapsed querying depth {}ms",
-        now.elapsed().as_millis()
-    );
 }
 
 fn panic_err() {

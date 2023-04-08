@@ -6,14 +6,54 @@ use std::convert::TryInto;
 use std::io::Write;
 use std::ops::{Range, RangeInclusive};
 use std::{cmp::Ordering, collections::HashMap, convert::TryFrom, time::Instant};
-
+use std::fs::File;
+use crate::reader::parse_tmplt::ParsingTemplate;
+use crate::utils::bed;
 /// This module provides function for fast querying of read depth.
 use crate::meta::{BlockMeta};
 use crate::reader::{reader::generate_block_treemap, reader::Reader, record::GbamRecord};
-
+use std::path::PathBuf;
+use rayon::prelude::*;
 type Region = RangeInclusive<u32>;
 
 use byteorder::{LittleEndian, ReadBytesExt};
+
+fn panic_err() {
+    panic!("The query you entered is incorrect. The format is as following: <ref name>:<position>\ne.g. chr1:1257\n");
+}
+
+
+pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: Option<String>, mapq: Option<u32>, thread_num: Option<usize>){
+    let mut queries = Vec::new();
+    if let Some(bed_path) = bed_file {
+        queries = bed::parse_bed_from_file(&bed_path).expect("BED file is corrupted.");
+    } 
+    if let Some(query) = bed_cli_request {
+        queries.push(
+            bed::parse_region_query_owned(&query)
+                .ok()
+                .ok_or_else(|| panic_err())
+                .unwrap(),
+        );
+    }
+    let qual_cutoff = mapq.unwrap_or(0);
+
+    let reader = Reader::new(gbam_file, ParsingTemplate::new()).unwrap();
+    let file_meta = reader.file_meta.clone();
+    drop(reader);
+
+    let ref_seqs = file_meta.get_ref_seqs();
+
+    let mut bufs = Vec::new();
+    if thread_num.is_some(){
+        rayon::ThreadPoolBuilder::new().num_threads(thread_num.unwrap()).build_global().unwrap();
+        bufs = vec![Vec::<i32>::new()];
+    }
+    
+    ref_seqs.iter().zip(bufs.iter_mut()).into_par_iter().map(|((refid, len), buf)| {
+
+    });
+}
 
 // TODO: Merge bed regions with tolerance to form super regions. Then do
 // sweepline for each of the super regions. Print the depth results for each of
