@@ -89,7 +89,7 @@ pub enum Codecs {
     Lz4,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 /// Currently block stats only for RefID or POS are supported.
 pub(crate) struct Stat {
     pub min_value: i32,
@@ -98,7 +98,7 @@ pub(crate) struct Stat {
 
 impl Stat {
     pub fn update(&mut self, val: i32) {
-        self.max_value = std::cmp::min(val, self.max_value);
+        self.max_value = std::cmp::max(val, self.max_value);
         self.min_value = std::cmp::min(val, self.min_value);
     }
 
