@@ -8,7 +8,7 @@ use std::ops::{Range, RangeInclusive};
 use std::{cmp::Ordering, collections::HashMap, convert::TryFrom, time::Instant};
 
 /// This module provides function for fast querying of read depth.
-use crate::meta::{BlockMeta, Limits};
+use crate::meta::{BlockMeta};
 use crate::reader::{reader::generate_block_treemap, reader::Reader, record::GbamRecord};
 
 type Region = RangeInclusive<u32>;
@@ -24,26 +24,22 @@ fn parse_bytes(bytes: &Vec<u8>) -> i32 {
     (&bytes[..]).read_i32::<LittleEndian>().unwrap()
 }
 
-impl Limits<i32> for BlockMeta {
-    fn get_max(&self) -> Option<i32> {
-        self.max_value
-            .as_ref()
-            .and_then(|bytes| Some(parse_bytes(&bytes)))
-    }
-    fn get_min(&self) -> Option<i32> {
-        self.min_value
-            .as_ref()
-            .and_then(|bytes| Some(parse_bytes(&bytes)))
-    }
-}
-
 fn get_chr_name_mapping<'a, I>(ref_ids: I, reader: &mut Reader) -> HashMap<String, Option<i32>>
 where
     I: Iterator<Item = &'a String>,
 {
+    let mut name_to_ref_id = HashMap::<String, i32>::new();
+    reader
+        .file_meta
+        .get_ref_seqs()
+        .into_iter()
+        .enumerate()
+        .for_each(|(i, (name, _))| {
+            name_to_ref_id.insert(name.clone(), i as i32);
+        });
     // https://github.com/biod/sambamba/blob/3eff9a2d8bb3097b92c72752be3c6b42dd1c59b7/BioD/bio/std/hts/bam/read.d#L902
     ref_ids
-        .map(|id| (id.to_owned(), reader.file_meta.get_ref_id(id)))
+        .map(|id| (id.to_owned(), name_to_ref_id.get(id).cloned()))
         .collect::<HashMap<String, Option<i32>>>()
 }
 
@@ -99,15 +95,15 @@ fn get_refid_bounds(
     let mut refid_bounds = HashMap::<i32, Option<Range<usize>>>::new();
     let meta_blocks = reader.file_meta.view_blocks(&Fields::RefID);
     // If stats were collected for this file it's possible to narrow binary search.
-    if meta_blocks.first().unwrap().max_value.is_some() {
+    if meta_blocks.first().unwrap().stats.is_some() {
         dbg!(meta_blocks.len());
         let mut meta_iter = meta_blocks.iter();
         let mut cur_offset: usize = 0;
         for ref_id in ref_ids.into_iter() {
             // Iterate thorugh blocks, until one with max value bigger than cur_chr is found.
             while let Some(meta_block) = meta_iter.next() {
-                if &meta_block.get_max().unwrap() >= &ref_id {
-                    if &meta_block.get_min().unwrap() > &ref_id {
+                if &meta_block.stats.as_ref().unwrap().max_value >= &ref_id {
+                    if &meta_block.stats.as_ref().unwrap().min_value > &ref_id {
                         refid_bounds.insert(ref_id, None);
                     } else {
                         // This block may contain the REFID. Later on we will search this block to determine this ultimately.
@@ -187,8 +183,12 @@ impl DepthWrite for ConsolePrinter {
 }
 
 pub fn get_regions_depths(reader: &mut Reader, regions: &Vec<(String, u32, u32)>) {
-    let mut map = reader.file_meta.get_name_to_ref_id().clone();
-    let ref_id_to_chr = map.drain().map(|(k, v)| (v, k)).collect();
+    let ref_id_to_chr = reader
+    .file_meta
+    .get_ref_seqs()
+    .iter()
+    .map(|(k, v)| (*v, k.clone()))
+    .collect();
     let mut printer = ConsolePrinter::new(ref_id_to_chr);
     get_regions_depths_with_printer(reader, regions, &mut printer);
 }
@@ -237,9 +237,7 @@ fn find_leftmost_block(id: i32, block_metas: &Vec<BlockMeta>) -> usize {
     let mut right = block_metas.len();
     while left < right {
         let mid = (left + right) / 2;
-        let max_val = (&block_metas[mid].max_value.as_ref().unwrap()[..])
-            .read_i32::<LittleEndian>()
-            .unwrap();
+        let max_val = &block_metas[mid].stats.as_ref().unwrap().max_value;
         match max_val.cmp(&id) {
             Ordering::Equal | Ordering::Greater => right = mid,
             Ordering::Less => left = mid + 1,
