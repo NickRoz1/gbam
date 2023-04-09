@@ -32,7 +32,7 @@ struct OperationBuffers {
     pub decrements: Vec<usize>,
 }
 
-fn process_range(mut gbam_reader: Reader, rec_range: Chunk<'_, RangeInclusive<usize>, >, mut buf: OperationBuffers) -> OperationBuffers {
+fn process_range(mut gbam_reader: Reader, rec_range: Range<usize>, mut buf: OperationBuffers) -> OperationBuffers {
     let mut rec = GbamRecord::default();
     for idx in rec_range {
         gbam_reader.fill_record(idx, &mut rec);
@@ -58,30 +58,46 @@ fn calc_depth(gbam_file: File, file_meta: Arc<FileMeta>, number_of_records: usiz
     assert!(last_rec >= num_rec);
     let thread_num = buffers.len();
     let chunks_size = (last_rec-num_rec+1+thread_num-1)/thread_num;
+    let mut range_len = last_rec-num_rec+1;
     assert!(last_rec < number_of_records);
     // dbg!(chunks_size);
+    // dbg!((last_rec+1)-num_rec);
     // dbg!(buffers.len());
-    let mut buffers: Vec<OperationBuffers> = (num_rec..=last_rec).chunks(chunks_size).into_iter().zip_eq(buffers.into_iter()).map(|(range, buf)| {
+    
+    let mut ranges: Vec<Range<usize>> = Vec::new();
+    let mut prev = num_rec;
+    while range_len > 0 {
+        let mn = std::cmp::min(chunks_size, range_len);
+        ranges.push(prev..(prev+mn));
+        prev += mn;
+        range_len -= mn;
+    }
+    assert!(prev == last_rec+1);
+    // dbg!(&ranges);
+    
+    let mut buffers: Vec<OperationBuffers> = ranges.into_par_iter().zip_eq(buffers.into_par_iter()).map(|(range, buf)| {
         process_range(Reader::new_with_meta(gbam_file.try_clone().unwrap(), ParsingTemplate::new_with(&[Fields::RefID, Fields::Pos, Fields::RawCigar]), &file_meta).unwrap(), range, buf)
     }).collect();
 
-    for buf in buffers.iter_mut() {
-        for &inc in buf.increments.iter() {
-            if inc < coverage_arr.len(){
-                coverage_arr[inc] += 1;
-            }
-        }
-        for &dec in buf.decrements.iter() {
-            if dec+1 < coverage_arr.len(){
-                coverage_arr[dec+1] -= 1;
-            }
-        }
-        buf.increments.clear();
-        buf.decrements.clear();
-    }
+    // dbg!(buffers.len());
+    // for buf in buffers.iter_mut() {
+    //     for &inc in buf.increments.iter() {
+    //         if inc < coverage_arr.len(){
+    //             coverage_arr[inc] += 1;
+    //         }
+    //     }
+    //     for &dec in buf.decrements.iter() {
+    //         if dec+1 < coverage_arr.len(){
+    //             coverage_arr[dec+1] -= 1;
+    //         }
+    //     }
+    //     buf.increments.clear();
+    //     buf.decrements.clear();
+    // }
 
     buffers 
 }
+
 
 pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: Option<String>, mapq: Option<u32>, thread_num: Option<usize>){
     let mut queries = HashMap::<String, Vec<(u32, u32)>>::new();
@@ -109,7 +125,7 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
 
     let mut buffers = vec![OperationBuffers::default()];
     if thread_num.is_some(){
-        rayon::ThreadPoolBuilder::new().num_threads(thread_num.unwrap()).build_global().unwrap();
+        // rayon::ThreadPoolBuilder::new().num_threads(thread_num.unwrap()).build_global().unwrap();
         buffers = vec![OperationBuffers::default(); thread_num.unwrap()];
     }
     let mut coverage_arr: Vec<i64> = Vec::new(); 
@@ -123,12 +139,24 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
     let stdout = stdout.lock();
     let mut stdout = BufWriter::with_capacity(32 * 1024, stdout);
                   let mut accum = 0;      
+    let mut accum = 0;
     for (chr, ref_len) in ref_seqs {
-        if let Some(bed_regions) = queries.get(chr) {
-            coverage_arr.resize(*ref_len as usize, 0);
+        if let Some(bed_regions) = queries.get_mut(chr) {
+            
+            // coverage_arr.resize(*ref_len as usize, 0);
+            
             let ref_id = chr_to_ref_id.get(chr).unwrap().unwrap();
+            
             buffers = calc_depth(gbam_file.try_clone().unwrap(), file_meta.clone(), number_of_records, ref_id, &mut coverage_arr, buffers);
-
+            // dbg!(ref_len);
+            
+            // let mut acc = 0;
+            // for slot in (0..*ref_len as usize) {
+            //     acc += coverage_arr[slot];
+            //     coverage_arr[slot] = acc; 
+            // }
+            // let c = Instant::now();
+            bed_regions.sort_unstable();
             let mut acc = 0;
             let now = Instant::now();
             for slot in coverage_arr.iter_mut() {
@@ -150,7 +178,14 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
                     slc[end-i] = tmp;
                 }
             }
+            buffers.iter_mut().for_each(|buf| {buf.increments.sort(); buf.decrements.sort();});
+            let mut view_on_bufs_inc: Vec<(usize, &Vec<usize>)> = buffers.iter().map(|buf| (0, &buf.increments)).collect();
+            let mut view_on_bufs_dec: Vec<(usize, &Vec<usize>)> = buffers.iter().map(|buf| (0, &buf.decrements)).collect();
+            // if(chr == "chrM"){
+            //     dbg!(&bed_regions);
+            // }
             for bed_region in bed_regions {
+                // dbg!(&bed_region);
                 for coord in bed_region.0..=bed_region.1 {
                     if coverage_arr[coord as usize] > 0 {
                         let mut d = coverage_arr[coord as usize];
@@ -205,6 +240,49 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
         }
     }
     dbg!(accum);
+                    let mut found = true;
+                    while found {
+                        found = false;
+                        for (pos, increments) in view_on_bufs_inc.iter_mut() {
+                            if *pos < increments.len() && increments[*pos] <= (coord as usize) {
+                                acc+=1;
+                                found = true;
+                                *pos += 1;
+                            }
+                        }
+                    }
+                    
+                    found = true;
+                    while found {
+                        found = false;
+                        for (pos, decrements) in view_on_bufs_dec.iter_mut() {
+                            if *pos < decrements.len() && decrements[*pos] < (coord as usize) {
+                                acc-=1;
+                                found = true;
+                                *pos += 1;
+                            }
+                        }
+                    }
+                    
+                    assert!(acc >= 0);
+                    if acc > 0 {
+                        printer.write_depth(chr, coord as u64, acc);
+                    }
+                }
+            }
+            // if(chr == "chrM"){
+            //     buffers.iter_mut().for_each(|buf| {dbg!(buf.increments[0]);});
+            // }
+            // accum += c.elapsed().as_millis();
+            // dbg!(c.elapsed());
+            buffers.iter_mut().for_each(|buf| buf.decrements.clear());
+            buffers.iter_mut().for_each(|buf| buf.increments.clear());
+            // buf.decrements.clear();
+            // coverage_arr.clear();
+        }
+    }
+
+    // dbg!(accum);
     // Shouldn't allocate more.
     assert!(coverage_arr.capacity() == longest_chr as usize);
 }
@@ -395,6 +473,17 @@ impl DepthWrite for ConsolePrinter {
 // chrM    15274   268
 // chrM    15275   278
 // chrM    15276   281
+
+/// NEW ONES
+/// 
+// "chrM"  15269   441
+// "chrM"  15270   429
+// "chrM"  15271   424
+// "chrM"  15272   421
+// "chrM"  15273   408
+// "chrM"  15274   281
+// "chrM"  15275   283
+// "chrM"  15276   285
 // Approach as in https://github.com/brentp/mosdepth
 /// Get depth at position. The file should be sorted!
 // pub fn get_regions_depths_with_printer<W: DepthWrite>(
