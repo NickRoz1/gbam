@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::{self, BufRead, Read};
 use std::path::Path;
+use std::{collections::HashMap};
 
 const SEPARATOR: char = '\t';
 
@@ -30,18 +31,18 @@ fn parse_record(s: &str) -> io::Result<(String, u32, u32)> {
     Ok((reference_sequence_name, start, end))
 }
 
-pub fn parse_bed_from_file(path: &Path) -> io::Result<Vec<(String, u32, u32)>> {
+pub fn parse_bed_from_file(path: &Path) -> io::Result<HashMap::<String, Vec<(u32, u32)>>> {
     let mut file = File::open(path)?;
     parse_bed(&mut file)
 }
 
-pub fn parse_bed<R: Read>(source: &mut R) -> io::Result<Vec<(String, u32, u32)>> {
-    let mut res = Vec::new();
+pub fn parse_bed<R: Read>(source: &mut R) -> io::Result<HashMap::<String, Vec<(u32, u32)>>> {
+    let mut res = HashMap::<String, Vec<(u32, u32)>>::new();
     let lines = read_lines(source)?;
 
     for line in lines {
         if let Ok(rec) = parse_record(&line?) {
-            res.push(rec);
+            res.entry(rec.0).or_insert(Vec::new()).push((rec.1, rec.2));
         }
     }
 
@@ -114,7 +115,8 @@ mod tests {
         let mut reader = Cursor::new(source);
         let res = parse_bed(&mut reader).unwrap();
         assert!(res.len() == 2);
-        assert_eq!(res[0], ("chr3".to_owned(), 51289, 19238568));
-        assert_eq!(res[1], ("chrX".to_owned(), 346798, 23689090));
+        assert_eq!(res["chr3"][0], (51289, 19238568));
+        assert_eq!(res["chrX"][0], (346798, 23689090));
+        assert_eq!(res["chrX"][1], (346798, 23689090));
     }
 }

@@ -187,7 +187,3 @@ fn depth(args: Cli) {
     main_depth(gbam_file, args.bed_file.as_ref(), args.query, args.mapq, args.thread_num);
 
 }
-
-fn panic_err() {
-    panic!("The query you entered is incorrect. The format is as following: <ref name>:<position>\ne.g. chr1:1257\n");
-}

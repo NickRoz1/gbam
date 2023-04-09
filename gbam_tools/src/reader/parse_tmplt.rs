@@ -23,6 +23,15 @@ impl ParsingTemplate {
             active_data_fields: Vec::new(),
         }
     }
+
+    /// Create new parsing templates with passed fields set to active
+    pub fn new_with(fields_to_set: &[Fields]) -> Self {
+        let mut empty = Self::new();
+        for field in fields_to_set {
+            empty.set(field, true);
+        }
+        empty
+    }
     /// Set field value
     pub fn set(&mut self, field: &Fields, val: bool) {
         match field_type(field) {

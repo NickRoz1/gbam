@@ -167,11 +167,11 @@ pub(crate) struct FileMeta {
     )]
     field_to_meta: [FieldMeta; FIELDS_NUM],
     sam_header: Vec<u8>,
-    name_to_ref_id: Vec<(String, i32)>,
+    name_to_ref_id: Vec<(String, u32)>,
 }
 
 impl FileMeta {
-    pub fn get_ref_seqs(&self) -> &Vec<(String, i32)> {
+    pub fn get_ref_seqs(&self) -> &Vec<(String, u32)> {
         &self.name_to_ref_id
     }
     pub fn get_sam_header(&self) -> &[u8] {
@@ -272,7 +272,7 @@ impl<'de> Deserialize<'de> for FieldMetaMap {
 }
 
 impl FileMeta {
-    pub fn new(codec: Codecs, ref_seqs: Vec<(String, i32)>, sam_header: Vec<u8>) -> Self {
+    pub fn new(codec: Codecs, ref_seqs: Vec<(String, u32)>, sam_header: Vec<u8>) -> Self {
         let mut map: [FieldMeta; FIELDS_NUM] = Default::default();
         for field in Fields::iterator() {
             map[*field as usize] = FieldMeta::new(field, codec);

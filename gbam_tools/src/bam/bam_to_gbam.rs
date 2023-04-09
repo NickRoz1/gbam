@@ -77,7 +77,7 @@ pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
 /// **tuple.1** -> parsed reference sequences from BAM header.
 ///
 /// **tuple.2** -> offset to reference sequences in tuple.0. It's before n_ref uint32_t.
-fn read_sam_header_and_ref_seqs(reader: &mut Reader) -> (Vec<u8>, Vec<(String, i32)>, usize) {
+fn read_sam_header_and_ref_seqs(reader: &mut Reader) -> (Vec<u8>, Vec<(String, u32)>, usize) {
     let (bytes_of_header, ref_sequences_offset) = reader.read_header().unwrap();
     let sequences = parse_reference_sequences(&bytes_of_header[ref_sequences_offset..]).unwrap();
     (bytes_of_header, sequences, ref_sequences_offset)

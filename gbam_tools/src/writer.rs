@@ -60,7 +60,7 @@ where
         codecs: Vec<Codecs>,
         thread_num: usize,
         collect_stats_for: Vec<Fields>,
-        ref_seqs: Vec<(String, i32)>,
+        ref_seqs: Vec<(String, u32)>,
         sam_header: Vec<u8>,
     ) -> Self {
         inner
@@ -100,7 +100,7 @@ where
         inner: WS,
         codecs: Vec<Codecs>,
         thread_num: usize,
-        ref_seqs: Vec<(String, i32)>,
+        ref_seqs: Vec<(String, u32)>,
         sam_header: Vec<u8>,
     ) -> Self {
         Self::new(
