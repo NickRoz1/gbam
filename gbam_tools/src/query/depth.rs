@@ -158,11 +158,11 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
             // let c = Instant::now();
             bed_regions.sort_unstable();
             let mut acc = 0;
-            let now = Instant::now();
-            for slot in coverage_arr.iter_mut() {
-                acc += *slot;
-                *slot = acc; 
-            }
+           
+            // for slot in coverage_arr.iter_mut() {
+            //     acc += *slot;
+            //     *slot = acc; 
+            // }
             
            
             let mut buffer: [u8; 400] = [0;400];
@@ -184,11 +184,38 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
             // if(chr == "chrM"){
             //     dbg!(&bed_regions);
             // }
+            let now = Instant::now();
             for bed_region in bed_regions {
                 // dbg!(&bed_region);
                 for coord in bed_region.0..=bed_region.1 {
-                    if coverage_arr[coord as usize] > 0 {
-                        let mut d = coverage_arr[coord as usize];
+                    
+                    let mut found = true;
+                    while found {
+                        found = false;
+                        for (pos, increments) in view_on_bufs_inc.iter_mut() {
+                            while *pos < increments.len() && increments[*pos] <= (coord as usize) {
+                                acc+=1;
+                                found = true;
+                                *pos += 1;
+                            }
+                        }
+                    }
+                    
+                    found = true;
+                    while found {
+                        found = false;
+                        for (pos, decrements) in view_on_bufs_dec.iter_mut() {
+                            while *pos < decrements.len() && decrements[*pos] < (coord as usize) {
+                                acc-=1;
+                                found = true;
+                                *pos += 1;
+                            }
+                        }
+                    }
+                    
+                    assert!(acc >= 0);
+                    if acc > 0 {
+                        let mut d = acc;
                         let mut c = coord;
                         assert!(d > 0);
                         buffer[ptr] = '\n' as u8;
@@ -216,64 +243,15 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
 
                         stdout.write_all(&buffer[(ptr+1)..]).unwrap();
                         ptr = 399;
-                        // stdout.write_all("\t".as_bytes()).unwrap();
-                        
-                        
-                        // stdout.write_all("\t".as_bytes()).unwrap();
-                        // stdout.write_i64(coverage_arr[coord as usize]).unwrap();
-                        // stdout.write_all("\n".as_bytes()).unwrap();
-                        // write!(&mut stdout, &chr);
-                        // write!(&mut stdout, '\t');
-                        // write!(&mut stdout, coord);
-                        // write!(&mut stdout, '\t');
-                        // write!(&mut stdout, coverage_arr[coord as usize]);
-                        // write!(&mut stdout, '\n');
-                        // writeln!(&mut stdout, "{:?}\t{}\t{}", chr, coord, coverage_arr[coord as usize]).unwrap();
+                   
                     }
-                    
-                    // printer.write_depth(chr, coord as u64, coverage_arr[coord as usize]);
                 }
             }
             accum += now.elapsed().as_millis();
-
-            coverage_arr.clear();
-        }
-    }
-    dbg!(accum);
-                    let mut found = true;
-                    while found {
-                        found = false;
-                        for (pos, increments) in view_on_bufs_inc.iter_mut() {
-                            if *pos < increments.len() && increments[*pos] <= (coord as usize) {
-                                acc+=1;
-                                found = true;
-                                *pos += 1;
-                            }
-                        }
-                    }
-                    
-                    found = true;
-                    while found {
-                        found = false;
-                        for (pos, decrements) in view_on_bufs_dec.iter_mut() {
-                            if *pos < decrements.len() && decrements[*pos] < (coord as usize) {
-                                acc-=1;
-                                found = true;
-                                *pos += 1;
-                            }
-                        }
-                    }
-                    
-                    assert!(acc >= 0);
-                    if acc > 0 {
-                        printer.write_depth(chr, coord as u64, acc);
-                    }
-                }
-            }
             // if(chr == "chrM"){
             //     buffers.iter_mut().for_each(|buf| {dbg!(buf.increments[0]);});
             // }
-            // accum += c.elapsed().as_millis();
+            
             // dbg!(c.elapsed());
             buffers.iter_mut().for_each(|buf| buf.decrements.clear());
             buffers.iter_mut().for_each(|buf| buf.increments.clear());
@@ -282,7 +260,7 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
         }
     }
 
-    // dbg!(accum);
+    dbg!(accum);
     // Shouldn't allocate more.
     assert!(coverage_arr.capacity() == longest_chr as usize);
 }
