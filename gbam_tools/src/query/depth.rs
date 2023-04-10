@@ -4,7 +4,7 @@ use rust_htslib::bam::buffer;
 use std::ascii::AsciiExt;
 use std::collections::BTreeMap;
 use std::convert::TryInto;
-use std::io::Write;
+use std::io::{Write, BufWriter};
 use std::iter::FromIterator;
 use std::num;
 use std::ops::{Range, RangeInclusive};
@@ -21,7 +21,7 @@ use rayon::prelude::*;
 type Region = RangeInclusive<u32>;
 use std::io::Read;
 
-use byteorder::{LittleEndian, ReadBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 fn panic_err() {
     panic!("The query you entered is incorrect. The format is as following: <ref name>:<position>\ne.g. chr1:1257\n");
@@ -100,6 +100,11 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
     let number_of_records = reader.amount;
     drop(reader);
 
+    // Calculate for whole file.
+    if queries.is_empty() {
+        ref_seqs.iter().for_each(|(chr, len)| {queries.insert(chr.clone(), vec![(0 as u32, len-1)]);});
+    }
+
     let longest_chr = *ref_seqs.iter().map(|(_,len)| len).max().unwrap();
 
     let mut buffers = vec![OperationBuffers::default()];
@@ -112,6 +117,12 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
 
     let printer = ConsolePrinter::new();
 
+    
+ 
+    let stdout = std::io::stdout();
+    let stdout = stdout.lock();
+    let mut stdout = BufWriter::with_capacity(32 * 1024, stdout);
+                  let mut accum = 0;      
     for (chr, ref_len) in ref_seqs {
         if let Some(bed_regions) = queries.get(chr) {
             coverage_arr.resize(*ref_len as usize, 0);
@@ -119,20 +130,81 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
             buffers = calc_depth(gbam_file.try_clone().unwrap(), file_meta.clone(), number_of_records, ref_id, &mut coverage_arr, buffers);
 
             let mut acc = 0;
+            let now = Instant::now();
             for slot in coverage_arr.iter_mut() {
                 acc += *slot;
                 *slot = acc; 
             }
-
-            for bed_region in bed_regions {
-                for coord in bed_region.0..=bed_region.1 {
-                    printer.write_depth(chr, coord as u64, coverage_arr[coord as usize]);
+            
+           
+            let mut buffer: [u8; 400] = [0;400];
+            let mut ptr = 399;
+            let mut chr_name = chr.clone();
+            let end = chr_name.len() - 1;
+            unsafe {
+                let slc = chr_name.as_bytes_mut();
+        
+                for i in 0..end / 2 {
+                    let tmp = slc[i];
+                    slc[i] = slc[end-i];
+                    slc[end-i] = tmp;
                 }
             }
+            for bed_region in bed_regions {
+                for coord in bed_region.0..=bed_region.1 {
+                    if coverage_arr[coord as usize] > 0 {
+                        let mut d = coverage_arr[coord as usize];
+                        let mut c = coord;
+                        assert!(d > 0);
+                        buffer[ptr] = '\n' as u8;
+                        ptr -= 1;
+                        while d > 0 {
+                            buffer[ptr] = '0' as u8+(d%10) as u8;
+                            d/=10;
+                            ptr -= 1;
+                        }
+                        buffer[ptr] = '\t' as u8;
+                        ptr -= 1;
+                        while c > 0 {
+                            buffer[ptr] = '0' as u8+(c%10) as u8;
+                            c/=10;
+                            ptr -= 1;
+                        }
+                        buffer[ptr] = '\t' as u8;
+                        ptr -= 1;
+
+                        for &ch in chr_name.as_bytes() {
+                            buffer[ptr] = ch;
+                            ptr-=1;
+                        }
+                        
+
+                        stdout.write_all(&buffer[(ptr+1)..]).unwrap();
+                        ptr = 399;
+                        // stdout.write_all("\t".as_bytes()).unwrap();
+                        
+                        
+                        // stdout.write_all("\t".as_bytes()).unwrap();
+                        // stdout.write_i64(coverage_arr[coord as usize]).unwrap();
+                        // stdout.write_all("\n".as_bytes()).unwrap();
+                        // write!(&mut stdout, &chr);
+                        // write!(&mut stdout, '\t');
+                        // write!(&mut stdout, coord);
+                        // write!(&mut stdout, '\t');
+                        // write!(&mut stdout, coverage_arr[coord as usize]);
+                        // write!(&mut stdout, '\n');
+                        // writeln!(&mut stdout, "{:?}\t{}\t{}", chr, coord, coverage_arr[coord as usize]).unwrap();
+                    }
+                    
+                    // printer.write_depth(chr, coord as u64, coverage_arr[coord as usize]);
+                }
+            }
+            accum += now.elapsed().as_millis();
 
             coverage_arr.clear();
         }
     }
+    dbg!(accum);
     // Shouldn't allocate more.
     assert!(coverage_arr.capacity() == longest_chr as usize);
 }
