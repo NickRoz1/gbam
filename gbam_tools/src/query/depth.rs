@@ -20,67 +20,65 @@ use std::path::PathBuf;
 use rayon::prelude::*;
 type Region = RangeInclusive<u32>;
 use std::io::Read;
-
+use crossbeam::channel::bounded;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use std::thread;
+use std::thread::JoinHandle;
 
 fn panic_err() {
     panic!("The query you entered is incorrect. The format is as following: <ref name>:<position>\ne.g. chr1:1257\n");
 }
-#[derive(Clone, Default)]
-struct OperationBuffers {
-    pub increments: Vec<usize>,
-    pub decrements: Vec<usize>,
-}
+// #[derive(Clone, Default)]
+// struct OperationBuffers {
+//     pub increments: Vec<usize>,
+//     pub decrements: Vec<usize>,
+// }
 
-fn process_range(mut gbam_reader: Reader, rec_range: Chunk<'_, RangeInclusive<usize>, >, mut buf: OperationBuffers) -> OperationBuffers {
+fn process_range(mut gbam_reader: Reader, rec_range: RangeInclusive<usize>, mut scan_line: Vec<i32>, target_id: i32) -> Vec<i32> {
     let mut rec = GbamRecord::default();
     for idx in rec_range {
         gbam_reader.fill_record(idx, &mut rec);
+        if rec.refid.unwrap() != target_id {
+            continue;
+        }
         let read_start: usize = rec.pos.unwrap().try_into().unwrap();
         let base_cov = rec.cigar.as_ref().unwrap().base_coverage() as usize;
         let read_end = read_start + base_cov;
 
-        buf.increments.push(read_start);
-        buf.decrements.push(read_end);
+        scan_line[read_start] += 1;
+        scan_line[read_end] -= 1;
+        // buf.increments.push(read_start);
+        // buf.decrements.push(read_end);
     }
-    buf
+    scan_line
 }
 
-fn calc_depth(gbam_file: File, file_meta: Arc<FileMeta>, number_of_records: usize, ref_id: i32, coverage_arr: &mut Vec<i64>, buffers: Vec<OperationBuffers>) -> Vec<OperationBuffers> {
+fn calc_depth(gbam_file: File, file_meta: Arc<FileMeta>, number_of_records: usize, ref_id: i32, mut coverage_arr: Vec<i32>, ref_len: usize) -> Vec<i32> {
     let lower_bound = find_leftmost_block(ref_id, file_meta.view_blocks(&Fields::RefID)).expect("RefID was not found in block meta.") as usize;
     let upper_bound = find_rightmost_block(ref_id, file_meta.view_blocks(&Fields::RefID)) as usize;
-    let num_rec = std::cmp::max(0, lower_bound) as usize*file_meta.view_blocks(&Fields::RefID)[0].numitems as usize;
-    let last_rec = std::cmp::min(upper_bound as usize*file_meta.view_blocks(&Fields::RefID)[0].numitems as usize, number_of_records-1);
-    
-    // dbg!(file_meta.view_blocks(&Fields::RefID).len());
-    // dbg!(upper_bound);
-    // dbg!(upper_bound as usize*file_meta.view_blocks(&Fields::RefID).len() as usize);
-    assert!(last_rec >= num_rec);
-    let thread_num = buffers.len();
-    let chunks_size = (last_rec-num_rec+1+thread_num-1)/thread_num;
-    assert!(last_rec < number_of_records);
-    // dbg!(chunks_size);
-    // dbg!(buffers.len());
-    let mut buffers: Vec<OperationBuffers> = (num_rec..=last_rec).chunks(chunks_size).into_iter().zip_eq(buffers.into_iter()).map(|(range, buf)| {
-        process_range(Reader::new_with_meta(gbam_file.try_clone().unwrap(), ParsingTemplate::new_with(&[Fields::RefID, Fields::Pos, Fields::RawCigar]), &file_meta).unwrap(), range, buf)
-    }).collect();
+    let mut first_rec = (lower_bound as usize)*file_meta.view_blocks(&Fields::RefID)[0].numitems as usize;
+    let mut last_rec = std::cmp::min(upper_bound as usize*file_meta.view_blocks(&Fields::RefID)[0].numitems as usize, number_of_records-1);
 
-    for buf in buffers.iter_mut() {
-        for &inc in buf.increments.iter() {
-            if inc < coverage_arr.len(){
-                coverage_arr[inc] += 1;
-            }
-        }
-        for &dec in buf.decrements.iter() {
-            if dec+1 < coverage_arr.len(){
-                coverage_arr[dec+1] -= 1;
-            }
-        }
-        buf.increments.clear();
-        buf.decrements.clear();
+    // let mut temp_reader = Reader::new_with_meta(gbam_file.try_clone().unwrap(), ParsingTemplate::new_with(&[Fields::RefID, Fields::Pos, Fields::RawCigar]), &file_meta).unwrap();
+    // let mut rec = GbamRecord::default();
+    // temp_reader.fill_record(last_rec, &mut rec);
+
+    // let read_start: usize = rec.pos.unwrap().try_into().unwrap();
+    // let base_cov = rec.cigar.as_ref().unwrap().base_coverage() as usize;
+    // let read_end = read_start + base_cov;
+
+    // Loads of page faults here.
+    coverage_arr.resize(ref_len, 0);
+
+    // dbg!("Allocated {}", ref_len);
+
+    let mut coverage = process_range(Reader::new_with_meta(gbam_file.try_clone().unwrap(), ParsingTemplate::new_with(&[Fields::RefID, Fields::Pos, Fields::RawCigar]), &file_meta).unwrap(), first_rec..=last_rec, coverage_arr, ref_id);
+    let mut acc = 0;
+    for slot in coverage.iter_mut() {
+        acc += *slot;
+        *slot = acc; 
     }
-
-    buffers 
+    coverage
 }
 
 pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: Option<String>, mapq: Option<u32>, thread_num: Option<usize>){
@@ -95,7 +93,7 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
 
     let mut reader = Reader::new(gbam_file.try_clone().unwrap(), ParsingTemplate::new()).unwrap();
     let file_meta = reader.file_meta.clone();
-    let ref_seqs = file_meta.get_ref_seqs();
+    let ref_seqs = file_meta.get_ref_seqs().clone();
     let chr_to_ref_id = get_chr_name_mapping(ref_seqs.iter().map(|(chr, _)| chr), &mut reader);
     let number_of_records = reader.amount;
     drop(reader);
@@ -107,44 +105,82 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
 
     let longest_chr = *ref_seqs.iter().map(|(_,len)| len).max().unwrap();
 
-    let mut buffers = vec![OperationBuffers::default()];
+    let mut buffers = vec![Vec::<i32>::new()];
     if thread_num.is_some(){
-        rayon::ThreadPoolBuilder::new().num_threads(thread_num.unwrap()).build_global().unwrap();
-        buffers = vec![OperationBuffers::default(); thread_num.unwrap()];
+        buffers = vec![Vec::<i32>::new();std::cmp::min(thread_num.unwrap(), 8)];
     }
+
+
+    let mut circular_buf_channels: Vec::<Option<JoinHandle<(String, Vec<i32>)>>> = Vec::new();
+    (0..buffers.len()).for_each(|_|circular_buf_channels.push(None));
+
+    let mut idx = 0;
     let mut coverage_arr: Vec<i64> = Vec::new(); 
     coverage_arr.reserve(longest_chr as usize);
 
     let mut printer = ConsolePrinter::new();
+    let mut iter = ref_seqs.iter();
+    let mut accum = 0;     
     
-    let mut accum = 0;      
-    for (chr, ref_len) in ref_seqs {
-        if let Some(bed_regions) = queries.get(chr) {
-            coverage_arr.resize(*ref_len as usize, 0);
-            let ref_id = chr_to_ref_id.get(chr).unwrap().unwrap();
-            buffers = calc_depth(gbam_file.try_clone().unwrap(), file_meta.clone(), number_of_records, ref_id, &mut coverage_arr, buffers);
+    loop {
+        // dbg!(buffers.len()); 
+        if idx == circular_buf_channels.len() {
+            idx = 0;
+        }
+        if circular_buf_channels[idx].is_some() {
+            let (thread_chr, mut coverage_arr) = circular_buf_channels[idx].take().unwrap().join().unwrap();
 
-            let mut acc = 0;
-            let now = Instant::now();
-            for slot in coverage_arr.iter_mut() {
-                acc += *slot;
-                *slot = acc; 
-            }
+            if let Some(bed_regions) = queries.get(&thread_chr) {
+                // coverage_arr.resize(*ref_len as usize, 0);
+                // let ref_id = chr_to_ref_id.get(chr).unwrap().unwrap();
+                // buffers = calc_depth(gbam_file.try_clone().unwrap(), file_meta.clone(), number_of_records, ref_id, &mut coverage_arr, buffers);
+    
 
-            printer.set_chr(chr.clone());
-           
-            for bed_region in bed_regions {
-                for coord in bed_region.0..=bed_region.1 {
-                    if coverage_arr[coord as usize] > 0 {
-                        printer.write_efficient(coord as u64, coverage_arr[coord as usize]);
+                let now = Instant::now();
+
+    
+                printer.set_chr(thread_chr.clone());
+               
+                for bed_region in bed_regions {
+                    for coord in bed_region.0..=bed_region.1 {
+                        if coverage_arr[coord as usize] > 0 {
+                            printer.write_efficient(coord as u64, coverage_arr[coord as usize] as i64);
+                        }
                     }
                 }
+                accum += now.elapsed().as_millis();
+    
+                coverage_arr.clear();
             }
-            accum += now.elapsed().as_millis();
-
-            coverage_arr.clear();
+            
+            buffers.push(coverage_arr);
         }
+
+        let next_chr = iter.next(); 
+        
+        if let Some((chr, ref_len)) = next_chr {
+            let ref_id = chr_to_ref_id.get(chr).unwrap().unwrap();
+            let buf = buffers.pop().unwrap();
+            let meta = file_meta.clone();
+            let file = gbam_file.try_clone().unwrap();
+            let t_chr = chr.clone();
+            let t_ref_len = *ref_len as usize;
+            let handle = thread::spawn(move || {
+                (t_chr, calc_depth(file, meta, number_of_records, ref_id, buf, t_ref_len))
+            });
+    
+            circular_buf_channels[idx] = Some(handle);
+        }
+
+        if buffers.len() == circular_buf_channels.len(){
+            break;
+        }
+
+        idx += 1;
     }
+
+    circular_buf_channels.clear();
+
     dbg!(accum);
     // Shouldn't allocate more.
     assert!(coverage_arr.capacity() == longest_chr as usize);
