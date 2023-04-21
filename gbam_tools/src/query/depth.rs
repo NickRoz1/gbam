@@ -2,6 +2,7 @@ use bam_tools::record::fields::Fields;
 use itertools::{Itertools, Chunk};
 use rust_htslib::bam::buffer;
 use std::ascii::AsciiExt;
+use std::cmp::min;
 use std::collections::BTreeMap;
 use std::convert::TryInto;
 use std::io::{Write, BufWriter, StdoutLock};
@@ -115,8 +116,8 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
     (0..buffers.len()).for_each(|_|circular_buf_channels.push(None));
 
     let mut idx = 0;
-    let mut coverage_arr: Vec<i64> = Vec::new(); 
-    coverage_arr.reserve(longest_chr as usize);
+    // let mut coverage_arr: Vec<i64> = Vec::new(); 
+    // coverage_arr.reserve(longest_chr as usize);
 
     let mut printer = ConsolePrinter::new();
     let mut iter = ref_seqs.iter();
@@ -142,9 +143,13 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
                 printer.set_chr(thread_chr.clone());
                
                 for bed_region in bed_regions {
-                    for coord in bed_region.0..=bed_region.1 {
-                        if coverage_arr[coord as usize] > 0 {
-                            printer.write_efficient(coord as u64, coverage_arr[coord as usize] as i64);
+                    let st = bed_region.0 as usize;
+                    let en = min((bed_region.1+1) as usize, coverage_arr.len());
+                    for coord in st..en {
+                        unsafe {
+                            if coverage_arr.get_unchecked(coord as usize) > &0 {
+                                printer.write_efficient(coord as u64, *coverage_arr.get_unchecked(coord as usize) as i64);
+                            }
                         }
                     }
                 }
@@ -183,7 +188,7 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
 
     dbg!(accum);
     // Shouldn't allocate more.
-    assert!(coverage_arr.capacity() == longest_chr as usize);
+    // assert!(coverage_arr.capacity() == longest_chr as usize);
 }
 
 // TODO: Merge bed regions with tolerance to form super regions. Then do
@@ -343,7 +348,7 @@ impl<'a> ConsolePrinter<'a> {
     pub fn new() -> Self {
         let stdout = std::io::stdout();
         let stdout = stdout.lock();
-        let stdout = BufWriter::with_capacity(32 * 1024, stdout);
+        let stdout = BufWriter::with_capacity(64 * 1024, stdout);
         Self {  
             buffer: [0;400],
             cur_chr: "ERROR IN PROGRAM".to_owned(),
