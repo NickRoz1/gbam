@@ -26,6 +26,8 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::thread;
 use std::thread::JoinHandle;
 use super::int2str::{i32toa_countlut, u32toa_countlut};
+use flate2::Compression;
+use flate2::write::GzEncoder;
 
 fn panic_err() {
     panic!("The query you entered is incorrect. The format is as following: <ref name>:<position>\ne.g. chr1:1257\n");
@@ -89,7 +91,7 @@ fn calc_depth(gbam_file: File, file_meta: Arc<FileMeta>, number_of_records: usiz
     coverage
 }
 
-pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: Option<String>, mapq: Option<u32>, thread_num: Option<usize>){
+pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: Option<String>, mapq: Option<u32>, bed_gz_path: Option<PathBuf>, thread_num: Option<usize>){
     let mut queries = HashMap::<String, Vec<(u32, u32)>>::new();
     if let Some(bed_path) = bed_file {
         queries = bed::parse_bed_from_file(&bed_path).expect("BED file is corrupted.");
@@ -108,7 +110,7 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
 
     // Calculate for whole file.
     if queries.is_empty() {
-        ref_seqs.iter().for_each(|(chr, len)| {queries.insert(chr.clone(), vec![(0 as u32, len-1)]);});
+        ref_seqs.iter().for_each(|(chr, len)| {queries.insert(chr.clone(), vec![(0 as u32, *len)]);});
     }
 
     let longest_chr = *ref_seqs.iter().map(|(_,len)| len).max().unwrap();
@@ -126,10 +128,17 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
     // let mut coverage_arr: Vec<i64> = Vec::new(); 
     // coverage_arr.reserve(longest_chr as usize);
 
-    let mut printer = ConsolePrinter::new();
-    let mut iter = ref_seqs.iter();
-    let mut accum = 0;     
     
+    let mut iter = ref_seqs.iter();
+    let mut accum = 0;  
+    let mut bed_gz_printer = 
+    if bed_gz_path.is_some(){
+        Some(BedGzPrinter::new(bed_gz_path.unwrap()))
+    } else {
+        None
+    };
+    let mut printer = ConsolePrinter::new();
+
     loop {
         // dbg!(buffers.len()); 
         if idx == circular_buf_channels.len() {
@@ -144,22 +153,55 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
                 // buffers = calc_depth(gbam_file.try_clone().unwrap(), file_meta.clone(), number_of_records, ref_id, &mut coverage_arr, buffers);
     
 
-                let now = Instant::now();
+                
                 // printer.set_chr(thread_chr.clone());
-               
-                for bed_region in bed_regions {
-                    let st = bed_region.0 as usize;
-                    let en = min((bed_region.1+1) as usize, coverage_arr.len());
-                    for coord in st..en {
-                        unsafe {
-                            if coverage_arr.get_unchecked(coord as usize) > &0 {
-                                printer.write_efficient(&thread_chr, (coord) as u32, *coverage_arr.get_unchecked(coord as usize));
+                let now = Instant::now();
+                if bed_gz_printer.is_none() {
+                    
+                    for bed_region in bed_regions {
+                        let st = bed_region.0 as usize;
+                        let en = min((bed_region.1) as usize, coverage_arr.len());
+                        for coord in st..en {
+                            unsafe {
+                                if coverage_arr.get_unchecked(coord as usize) > &0 {
+                                    printer.write_efficient(&thread_chr, (coord) as u32, *coverage_arr.get_unchecked(coord as usize));
+                                }
                             }
                         }
                     }
+                    
+                }
+                else {
+                    
+                    for bed_region in bed_regions {
+                        let st = bed_region.0 as u32;
+                        let en = min((bed_region.1) as u32, (coverage_arr.len()) as u32);
+                        let mut prev_coord = None;
+                        let mut prev_depth = None;
+                        
+                        for coord in st..en {
+                            unsafe {
+                                let cur_depth = *coverage_arr.get_unchecked(coord as usize);
+                                // if cur_depth > 0 {
+                                    if prev_coord.is_none(){
+                                        prev_coord = Some(coord);
+                                        prev_depth = Some(cur_depth);
+                                    } 
+                                    else {
+                                        if prev_depth.unwrap() != cur_depth{
+                                            bed_gz_printer.as_mut().unwrap().write_region(&thread_chr, prev_coord.unwrap(), coord, prev_depth.unwrap());
+                                            prev_depth = Some(cur_depth);
+                                            prev_coord = Some(coord);
+                                        }
+                                    }
+                                // }
+                            }
+                        }
+
+                        bed_gz_printer.as_mut().unwrap().write_region(&thread_chr, prev_coord.unwrap() , en , prev_depth.unwrap());                        
+                    }
                 }
                 accum += now.elapsed().as_millis();
-    
                 coverage_arr.clear();
             }
             
@@ -296,51 +338,53 @@ impl<'a> ConsolePrinter<'a> {
     }
 }
 
+// chr1    0       10571   0
+// chr1    10571   10598   1
+// chr1    10598   15904   0
+// chr1    15904   15931   1
+// chr1    15931   16375   0
+// chr1    16375   16402   1
+// chr1    16402   16579   0
+// chr1    16579   16606   4
+// chr1    16606   18816   0
+// chr1    18816   18843   1
+// chr1    18843   19754   0
+// chr1    19754   19781   1
+struct BedGzPrinter{
+    buffer: [u8; 400],
+    compressor: GzEncoder<BufWriter<File>>,
 
-// struct BedGzPrinter{
-//     buffer: [u8; 400],
-//     file: BufWriter<File>,
-//     last_depth: Option<i64>,
-// }
-// impl BedGzPrinter {
-//     pub fn new(path: PathBuf) -> Self {
-//         let mut file = File::create(path).expect("Failed to create depth file.");
-//         Self {  
-//             buffer: [0;400],
-//             file: BufWriter::with_capacity(64 * 1024, file),
-//             last_depth: None
-//         }
-//     }
+}
+impl BedGzPrinter {
+    pub fn new(path: PathBuf) -> Self {
+        let  file = File::create(path).expect("Failed to create depth file.");
+        Self {  
+            buffer: [0;400],
+            compressor: GzEncoder::new(BufWriter::with_capacity(64 * 1024, file), Compression::default()),
+        }
+    }
 
-//     /// Done in reversed direction because we don't know what is the size of integers beforehand.
-//     pub fn write_efficient(&mut self, reversed_chr: &str, mut coord: u64, mut depth: i64){
-//         if self.last_depth.is_none() || self.last_depth.unwrap() != depth {
-
-//         }
-//         let mut ptr = self.buffer.len()-1;
-
-//         self.buffer[ptr] = '\n' as u8;
-//         ptr -= 1;
-//         while depth > 0 {
-//             self.buffer[ptr] = '0' as u8+(depth%10) as u8;
-//             depth/=10;
-//             ptr -= 1;
-//         }
-//         self.buffer[ptr] = '\t' as u8;
-//         ptr -= 1;
-//         while coord > 0 {
-//             self.buffer[ptr] = '0' as u8+(coord%10) as u8;
-//             coord/=10;
-//             ptr -= 1;
-//         }
-//         self.buffer[ptr] = '\t' as u8;
-//         ptr -= 1;
-
-//         for &ch in reversed_chr.as_bytes() {
-//             self.buffer[ptr] = ch;
-//             ptr-=1;
-//         }
-
-//         self.stdout.write_all(&self.buffer[(ptr+1)..]).unwrap();
-//     }
-// }
+    /// Done in reversed direction because we don't know what is the size of integers beforehand.
+    pub fn write_region(&mut self, chr: &str, prev_coord: u32, coord: u32, prev_depth: i32){
+        let mut buff_ptr = self.buffer.as_mut_ptr();
+        let orig: *mut u8 = self.buffer.as_mut_ptr();
+        unsafe {
+            for &ch in chr.as_bytes() {
+                *buff_ptr = ch;
+                buff_ptr = buff_ptr.add(1);
+            }
+            *buff_ptr = '\t' as u8;
+            buff_ptr = buff_ptr.add(1);
+            buff_ptr = u32toa_countlut(prev_coord, buff_ptr);
+            *buff_ptr = '\t' as u8;
+            buff_ptr = buff_ptr.add(1);
+            buff_ptr = u32toa_countlut(coord, buff_ptr);
+            *buff_ptr = '\t' as u8;
+            buff_ptr = buff_ptr.add(1);
+            buff_ptr = i32toa_countlut(prev_depth, buff_ptr);
+            *buff_ptr = '\n' as u8;
+            buff_ptr = buff_ptr.add(1);
+            self.compressor.write_all(&self.buffer[..(buff_ptr as usize - orig as usize)]).unwrap();
+        }
+    }
+}

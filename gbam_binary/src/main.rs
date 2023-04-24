@@ -40,7 +40,7 @@ struct Cli {
     #[structopt(parse(from_os_str))]
     in_path: PathBuf,
     /// The path to write output GBAM file
-    #[structopt(parse(from_os_str))]
+    #[structopt(short, parse(from_os_str))]
     out_path: Option<PathBuf>,
     /// Depth query. Example: chr1:54-54, or chrX:1258-9999
     #[structopt(short, long)]
@@ -184,6 +184,6 @@ fn depth(args: Cli) {
     // );
     let in_path = args.in_path.as_path().to_str().unwrap();
     let gbam_file = File::open(in_path).unwrap();
-    main_depth(gbam_file, args.bed_file.as_ref(), args.query, args.mapq, args.thread_num);
+    main_depth(gbam_file, args.bed_file.as_ref(), args.query, args.mapq, args.out_path, args.thread_num);
 
 }
