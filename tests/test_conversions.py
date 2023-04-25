@@ -4,6 +4,8 @@ from tempfile import NamedTemporaryFile, TemporaryDirectory
 import pytest 
 import gzip
 import shutil
+import os
+import io
 
 cur_file_path = Path(__file__).parent.absolute()
 
@@ -29,6 +31,26 @@ def gen_gbam_file():
     bam_file_sorted_path = NamedTemporaryFile(suffix=".bam")
     subprocess.run(["samtools", "sort", bam_file_path, "-o", bam_file_sorted_path.name]) 
 
+def compare_bam_files(original, result):
+    out_of_original_view = NamedTemporaryFile()
+    out_of_result_view = NamedTemporaryFile()
+    
+    subprocess.check_call(["samtools", "view", original, '-o', out_of_original_view.name], stderr=subprocess.STDOUT)
+    subprocess.check_call(["samtools", "view", result, '-o', out_of_result_view.name], stderr=subprocess.STDOUT)
+
+    assert(os.path.getsize(out_of_result_view.name) > 0)
+    assert(os.path.getsize(out_of_result_view.name) == os.path.getsize(out_of_original_view.name))
+    
+    with io.open(out_of_original_view.name, 'rb') as from_samtools, io.open(out_of_result_view.name, 'rb') as from_gbam:
+        while True:
+            bam_byte = from_samtools.read(4096)
+            gbam_byte = from_gbam.read(4096)
+
+            if not bam_byte:
+                break
+
+            assert(bam_byte == gbam_byte)
+
 def test_bam_to_gbam_to_bam(request):
     bam_file_from_gbam = NamedTemporaryFile(suffix=".bam")
     test_bam_file_path = bam_file_path
@@ -43,11 +65,7 @@ def test_bam_to_gbam_to_bam(request):
         subprocess.run([binary_path, "--convert-to-bam", temp_gbam.name, "-o", bam_file_from_gbam.name]) 
         test_bam_file_path = cli_bam_path
 
-    view_of_original = subprocess.check_output(["samtools", "view", test_bam_file_path.as_posix()], stderr=subprocess.STDOUT)
-    view_of_result = subprocess.check_output(["samtools", "view", bam_file_from_gbam.name], stderr=subprocess.STDOUT)
-
-    assert(len(view_of_original) > 0)
-    assert(view_of_original == view_of_result)
+    compare_bam_files(test_bam_file_path.as_posix(), bam_file_from_gbam.name)
 
 def test_flagstat():
     view_of_original = subprocess.check_output(["samtools", "flagstat", str(bam_file_path)], stderr=subprocess.STDOUT)
@@ -72,12 +90,8 @@ def test_sort(request):
         samtools_sorted_results = NamedTemporaryFile(suffix=".bam")
         subprocess.run(["samtools", "sort", cli_bam_path.as_posix(), "-o", samtools_sorted_results.name]) 
 
-    # On big files will consume a lot of memory. One 1GB BAM can produce 4GB of text with samtools view.
-    view_of_original = subprocess.check_output(["samtools", "view", samtools_sorted_results.name], stderr=subprocess.STDOUT)
-    view_of_result = subprocess.check_output(["samtools", "view", gbam_sorted_results.name], stderr=subprocess.STDOUT)
-
-    assert(len(view_of_original) > 0)
-    assert(view_of_original == view_of_result)
+    compare_bam_files(samtools_sorted_results.name, gbam_sorted_results.name)
+    
 
 
 # Testing against mosdepth.
