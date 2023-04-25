@@ -21,19 +21,29 @@ bam_file_sorted_path = None
 def gen_gbam_file():
     global gbam_file, gbam_file_sorted, bam_file_sorted_path
     gbam_file = NamedTemporaryFile()
+    # Simply convert to GBAM.
     subprocess.run([binary_path, bam_file_path, "-c", "-o", gbam_file.name]) 
     gbam_file_sorted = NamedTemporaryFile()
-    # File is sorted by BAM_PARALLEL
+    # Sort and convert to GBAM.
     subprocess.run([binary_path, bam_file_path, "-c", "-s", "-o", gbam_file_sorted.name]) 
     bam_file_sorted_path = NamedTemporaryFile(suffix=".bam")
     subprocess.run(["samtools", "sort", bam_file_path, "-o", bam_file_sorted_path.name]) 
 
-def test_bam_to_gbam_to_bam():
+def test_bam_to_gbam_to_bam(request):
     bam_file_from_gbam = NamedTemporaryFile(suffix=".bam")
+    test_bam_file_path = bam_file_path
+    cli_bam_path = request.config.getoption("--bam-file-path")
+    
+    if cli_bam_path is None:
+        subprocess.run([binary_path, "--convert-to-bam", gbam_file.name, "-o", bam_file_from_gbam.name]) 
+    else:
+        cli_bam_path = Path(cli_bam_path)
+        temp_gbam = NamedTemporaryFile()
+        subprocess.run([binary_path, cli_bam_path.as_posix(), "-c", "-o", temp_gbam.name]) 
+        subprocess.run([binary_path, "--convert-to-bam", temp_gbam.name, "-o", bam_file_from_gbam.name]) 
+        test_bam_file_path = cli_bam_path
 
-    subprocess.run([binary_path, "--convert-to-bam", gbam_file.name, "-o", bam_file_from_gbam.name]) 
-
-    view_of_original = subprocess.check_output(["samtools", "view", str(bam_file_path)], stderr=subprocess.STDOUT)
+    view_of_original = subprocess.check_output(["samtools", "view", test_bam_file_path.as_posix()], stderr=subprocess.STDOUT)
     view_of_result = subprocess.check_output(["samtools", "view", bam_file_from_gbam.name], stderr=subprocess.STDOUT)
 
     assert(len(view_of_original) > 0)
@@ -42,6 +52,29 @@ def test_bam_to_gbam_to_bam():
 def test_flagstat():
     view_of_original = subprocess.check_output(["samtools", "flagstat", str(bam_file_path)], stderr=subprocess.STDOUT)
     view_of_result = subprocess.check_output([binary_path, "--flagstat", gbam_file.name], stderr=subprocess.STDOUT)
+
+    assert(len(view_of_original) > 0)
+    assert(view_of_original == view_of_result)
+
+
+def test_sort(request):
+    gbam_sorted_results = NamedTemporaryFile(suffix=".bam")
+    samtools_sorted_results = bam_file_sorted_path
+    cli_bam_path = request.config.getoption("--bam-file-path")
+    
+    if cli_bam_path is None:
+        subprocess.run([binary_path, "--convert-to-bam", gbam_file_sorted.name, "-o", gbam_sorted_results.name])
+    else:
+        cli_bam_path = Path(cli_bam_path)
+        temporary_gbam = NamedTemporaryFile()
+        subprocess.run([binary_path, cli_bam_path.as_posix(), "-c", "-s", "-o", temporary_gbam.name]) 
+        subprocess.run([binary_path, "--convert-to-bam", temporary_gbam.name, "-o", gbam_sorted_results.name]) 
+        samtools_sorted_results = NamedTemporaryFile(suffix=".bam")
+        subprocess.run(["samtools", "sort", cli_bam_path.as_posix(), "-o", samtools_sorted_results.name]) 
+
+    # On big files will consume a lot of memory. One 1GB BAM can produce 4GB of text with samtools view.
+    view_of_original = subprocess.check_output(["samtools", "view", samtools_sorted_results.name], stderr=subprocess.STDOUT)
+    view_of_result = subprocess.check_output(["samtools", "view", gbam_sorted_results.name], stderr=subprocess.STDOUT)
 
     assert(len(view_of_original) > 0)
     assert(view_of_original == view_of_result)

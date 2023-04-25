@@ -1,0 +1,2 @@
+def pytest_addoption(parser):
+    parser.addoption("--bam-file-path", action="store", help="Provide BAM test file to perform test on. Currently only test_sort and test_bam_to_gbam_to_bam are using it.")
