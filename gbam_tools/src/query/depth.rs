@@ -9,6 +9,7 @@ use std::io::{Write, BufWriter, StdoutLock};
 use std::iter::FromIterator;
 use std::num;
 use std::ops::{Range, RangeInclusive};
+use std::ptr::read;
 use std::sync::Arc;
 use std::{cmp::Ordering, collections::HashMap, convert::TryFrom, time::Instant};
 use std::fs::File;
@@ -78,7 +79,7 @@ fn calc_depth(gbam_file: File, file_meta: Arc<FileMeta>, number_of_records: usiz
     // let read_end = read_start + base_cov;
 
     // Loads of page faults here.
-    coverage_arr.resize(ref_len, 0);
+    coverage_arr.resize(ref_len+1, 0);
 
     // dbg!("Allocated {}", ref_len);
 
