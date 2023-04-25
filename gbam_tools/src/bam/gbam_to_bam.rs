@@ -40,6 +40,7 @@ pub fn gbam_to_bam(in_path: &str, out_path: &str) {
         record.set_flags(rec.flag.unwrap());
         record.set_mtid(rec.next_ref_id.unwrap());
         record.set_mpos(rec.next_pos.unwrap() as i64);
+        record.set_insert_size(rec.tlen.unwrap() as i64);
         let rec_seq_len = rec.seq.as_ref().unwrap().len();
         let mut qual = rec.qual.as_ref().unwrap().clone();
         if qual.is_empty() {
