@@ -22,7 +22,7 @@ use std::path::{PathBuf, Path};
 use rayon::prelude::*;
 type Region = RangeInclusive<u32>;
 use std::io::Read;
-use crossbeam::channel::bounded;
+use crossbeam::channel::{Receiver, Sender, bounded};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::thread;
 use std::thread::JoinHandle;
@@ -130,8 +130,9 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
     }
 
 
-    let mut circular_buf_channels: Vec::<Option<JoinHandle<(String, Vec<i32>)>>> = Vec::new();
+    let mut circular_buf_channels: Vec::<Option<(Sender<(File, Arc<FileMeta>, usize, i32, Vec<i32>, usize, String)>,Receiver<(String, Vec<i32>)>)>> = Vec::new();
     (0..buffers.len()).for_each(|_|circular_buf_channels.push(None));
+    let mut handles: Vec::<JoinHandle<()>> = Vec::new();
 
     let mut idx = 0;
     // let mut coverage_arr: Vec<i64> = Vec::new(); 
@@ -154,14 +155,14 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
             idx = 0;
         }
         if circular_buf_channels[idx].is_some() {
-            let (thread_chr, mut coverage_arr) = circular_buf_channels[idx].take().unwrap().join().unwrap();
+            let (thread_chr, mut coverage_arr) = circular_buf_channels[idx].as_mut().unwrap().1.recv().unwrap();
 
             if let Some(bed_regions) = queries.get(&thread_chr) {
                 // coverage_arr.resize(*ref_len as usize, 0);
                 // let ref_id = chr_to_ref_id.get(chr).unwrap().unwrap();
                 // buffers = calc_depth(gbam_file.try_clone().unwrap(), file_meta.clone(), number_of_records, ref_id, &mut coverage_arr, buffers);
     
-
+                // 41641770854
                 
                 // printer.set_chr(thread_chr.clone());
                 let now = Instant::now();
@@ -226,11 +227,20 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
             let file = gbam_file.try_clone().unwrap();
             let t_chr = chr.clone();
             let t_ref_len = *ref_len as usize;
-            let handle = thread::spawn(move || {
-                (t_chr, calc_depth(file, meta, number_of_records, ref_id, buf, t_ref_len))
-            });
-    
-            circular_buf_channels[idx] = Some(handle);
+            if circular_buf_channels[idx].is_none() {
+                let (s, r) = bounded(1);
+                let (ready_s, ready_r) = bounded(1);
+                let handle = thread::spawn(move || {
+                    for task  in r {
+                        let (file, meta, number_of_records, ref_id, buf, t_ref_len, t_chr) = task;
+                        ready_s.send((t_chr, calc_depth(file, meta, number_of_records, ref_id, buf, t_ref_len))).unwrap();
+                    } 
+                });
+                circular_buf_channels[idx] = Some((s, ready_r));
+                handles.push(handle);
+            }
+            
+            circular_buf_channels[idx].as_mut().unwrap().0.send((file, meta, number_of_records, ref_id, buf, t_ref_len, t_chr)).unwrap();
         }
 
         if buffers.len() == circular_buf_channels.len(){
@@ -240,7 +250,12 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
         idx += 1;
     }
 
+    // Drop all senders so that threads get closed.
     circular_buf_channels.clear();
+
+    for h in handles {
+        h.join().unwrap();
+    }
 
     dbg!(accum);
     // Shouldn't allocate more.
