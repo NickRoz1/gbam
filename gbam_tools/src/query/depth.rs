@@ -65,10 +65,18 @@ fn process_range(mut gbam_reader: Reader, rec_range: RangeInclusive<usize>, mut 
 }
 
 fn calc_depth(gbam_file: File, file_meta: Arc<FileMeta>, number_of_records: usize, ref_id: i32, mut coverage_arr: Vec<i32>, ref_len: usize) -> Vec<i32> {
-    let lower_bound = find_leftmost_block(ref_id, file_meta.view_blocks(&Fields::RefID)).expect("RefID was not found in block meta.") as usize;
+    coverage_arr.resize(ref_len+1, 0);
+
+    let lower_bound = if let Some(block_num) = find_leftmost_block(ref_id, file_meta.view_blocks(&Fields::RefID)) {
+        block_num as usize
+    }
+    else {
+        // This refid was not found in any block
+        return coverage_arr;
+    };
     let upper_bound = find_rightmost_block(ref_id, file_meta.view_blocks(&Fields::RefID)) as usize;
-    let mut first_rec = (lower_bound as usize)*file_meta.view_blocks(&Fields::RefID)[0].numitems as usize;
-    let mut last_rec = std::cmp::min(upper_bound as usize*file_meta.view_blocks(&Fields::RefID)[0].numitems as usize, number_of_records-1);
+    let first_rec = (lower_bound as usize)*file_meta.view_blocks(&Fields::RefID)[0].numitems as usize;
+    let last_rec = std::cmp::min(upper_bound as usize*file_meta.view_blocks(&Fields::RefID)[0].numitems as usize, number_of_records-1);
 
     // let mut temp_reader = Reader::new_with_meta(gbam_file.try_clone().unwrap(), ParsingTemplate::new_with(&[Fields::RefID, Fields::Pos, Fields::RawCigar]), &file_meta).unwrap();
     // let mut rec = GbamRecord::default();
@@ -79,7 +87,7 @@ fn calc_depth(gbam_file: File, file_meta: Arc<FileMeta>, number_of_records: usiz
     // let read_end = read_start + base_cov;
 
     // Loads of page faults here.
-    coverage_arr.resize(ref_len+1, 0);
+    
 
     // dbg!("Allocated {}", ref_len);
 
@@ -272,7 +280,7 @@ where
 
 fn find_leftmost_block(id: i32, block_metas: &Vec<BlockMeta>) -> Option<i64> {
     let mut left: i64 = -1;
-    let mut right: i64 = block_metas.len() as i64 +1;
+    let mut right: i64 = block_metas.len() as i64;
     while (right-left) > 1 {
         let mid = (left + right) / 2;
         let max_val = &block_metas[mid as usize].stats.as_ref().unwrap().max_value;
@@ -281,7 +289,7 @@ fn find_leftmost_block(id: i32, block_metas: &Vec<BlockMeta>) -> Option<i64> {
             Ordering::Less => left = mid,
         }
     }
-    if block_metas[right as usize].stats.as_ref().unwrap().min_value > id {
+    if right as usize == block_metas.len() || block_metas[right as usize].stats.as_ref().unwrap().min_value > id {
         return None;
     }
     Some(right)
