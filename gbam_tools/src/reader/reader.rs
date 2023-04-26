@@ -33,18 +33,19 @@ impl Reader {
         let inner = inner;
         let mmap = unsafe { Mmap::map(inner.borrow())? };
         let file_meta = verify_and_parse_meta(&mmap)?;
-        Self::new_with_meta(inner, parsing_template, &file_meta)
+        Self::new_with_meta(inner, parsing_template, &Arc::new(file_meta))
     }
 
-    pub(crate) fn new_with_meta(inner: File, parsing_template: ParsingTemplate, file_meta: &FileMeta) -> std::io::Result<Self> {
+    pub(crate) fn new_with_meta(inner: File, parsing_template: ParsingTemplate, file_meta: &Arc<FileMeta>) -> std::io::Result<Self> {
         let inner = Box::new(inner);
         let mmap = Arc::new(unsafe { Mmap::map(inner.borrow())? });
-        verify(&mmap)?;
+        // Consumes up to 16 percent of runtime on big files (20GB).
+        // verify(&mmap)?;
         let amount = file_meta
             .view_blocks(&Fields::RefID)
             .iter()
             .fold(0, |acc, x| acc + x.numitems) as usize;
-        let meta = Arc::new(file_meta.clone());
+        let meta = file_meta.clone();
         Ok(Self {
             columns: init_columns(&mmap, &parsing_template, &meta),
             original_template: parsing_template.clone(),
@@ -55,6 +56,7 @@ impl Reader {
         })
     }
 
+    #[inline(always)]
     pub fn fill_record(&mut self, rec_num: usize, rec: &mut GbamRecord) {
         assert!(rec_num < self.amount);
         for &field in self.parsing_template.get_active_data_fields_iter() {
