@@ -47,7 +47,7 @@ pytest
 # Test sort on user provided file (slow)
 pytest -k test_sort --bam-file-path=/home/test/testing_big_file/test.bam
 
-# Test conversion bam to gbam to bam (preserving correct data)
+# Test conversion bam to gbam to bam (preserving correct data) on user provided file
 pytest -k test_bam_to_gbam_to_bam --bam-file-path=/home/test/testing_big_file/test.bam
 ```
 
