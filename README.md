@@ -39,7 +39,7 @@ time ./target/release/gbam_binary --depth test.sorted.gbam --thread-num 4 > dept
 time ./target/release/gbam_binary --depth test.sorted.gbam --thread-num 4 -o test_data/depth_test.bed.gz
 ```
 
-### To run pytests (substitute bam_file_path with you path to little bam file, test file is not supplied with this repository)
+### To run pytests substitute `bam_file_path` with you path to little bam file, test file is not supplied with this repository
 ```shell
 # Run all tests
 pytest
