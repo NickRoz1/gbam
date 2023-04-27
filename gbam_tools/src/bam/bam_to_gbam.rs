@@ -4,11 +4,13 @@ use bam_tools::parse_reference_sequences;
 use bam_tools::record::bamrawrecord::BAMRawRecord;
 use bam_tools::record::fields::{Fields, FIELDS_NUM};
 use bam_tools::sorting::sort;
+use bam_tools::sorting::sort::TempFilesMode;
 use bam_tools::Reader;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
+use std::str::FromStr;
 
 const MEM_LIMIT: usize = 2000 * MEGA_BYTE_SIZE;
 
@@ -26,7 +28,7 @@ pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
 }
 
 /// Converts BAM file to GBAM file. Sorts BAM file in process. This uses the `bam_parallel` reader.
-pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
+pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs, mut sort_temp_mode: Option<String>) {
     let fin_for_ref_seqs = File::open(in_path).expect("failed");
     let mut reader_for_header_only = Reader::new(fin_for_ref_seqs, 1);
     let (sam_header, ref_seqs, ref_seq_offset) =
@@ -49,6 +51,16 @@ pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
     );
 
     let tmp_dir_path = std::env::temp_dir();
+    if sort_temp_mode.is_none() {
+        sort_temp_mode = Some(String::from_str("file").unwrap());
+    }
+    let tmp_medium_mode = match sort_temp_mode.unwrap().as_str() {
+        "file" => TempFilesMode::RegularFiles,
+        "lz4_file" => TempFilesMode::LZ4CompressedFiles,
+        "ram" => TempFilesMode::InMemoryBlocks,
+        "lz4_ram" => TempFilesMode::InMemoryBlocksLZ4,
+        _ => panic!("Unknown sort_temp_mode mode."),
+    };
 
     sort::sort_bam(
         MEM_LIMIT,
@@ -56,10 +68,10 @@ pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
         &mut writer,
         tmp_dir_path,
         0,
-        1,
-        20,
-        false,
-        sort::SortBy::NameAndMatchMates,
+        4,
+        4,
+        tmp_medium_mode,
+        sort::SortBy::CoordinatesAndStrand,
     )
     .unwrap();
 
