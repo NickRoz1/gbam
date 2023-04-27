@@ -431,41 +431,41 @@ pub(crate) fn calc_crc_for_meta_bytes(bytes: &[u8]) -> u32 {
     hasher.finalize()
 }
 
-#[ignore]
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::reader::parse_tmplt::*;
-    use crate::reader::reader::*;
-    use byteorder::ReadBytesExt;
-    use std::io::Cursor;
-    #[test]
-    fn test_writer() {
-        // let raw_records = vec![BAMRawRecord::default(); 2];
-        // let mut buf: Vec<u8> = vec![0; SIZE_LIMIT];
-        // let out = Cursor::new(&mut buf[..]);
-        // let mut writer = Writer::new(out, Codecs::Gzip, 8);
-        // for rec in raw_records.iter() {
-        //     writer.push_record(rec);
-        // }
-        // let total_bytes_written = writer.finish().unwrap();
-        // buf.resize(total_bytes_written as usize, 0);
+// #[ignore]
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use crate::reader::parse_tmplt::*;
+//     use crate::reader::reader::*;
+//     use byteorder::ReadBytesExt;
+//     use std::io::Cursor;
+//     #[test]
+//     fn test_writer() {
+//         // let raw_records = vec![BAMRawRecord::default(); 2];
+//         // let mut buf: Vec<u8> = vec![0; SIZE_LIMIT];
+//         // let out = Cursor::new(&mut buf[..]);
+//         // let mut writer = Writer::new(out, Codecs::Gzip, 8);
+//         // for rec in raw_records.iter() {
+//         //     writer.push_record(rec);
+//         // }
+//         // let total_bytes_written = writer.finish().unwrap();
+//         // buf.resize(total_bytes_written as usize, 0);
 
-        // let in_cursor = Box::new(Cursor::new(buf));
-        // let mut parsing_template = ParsingTemplate::new();
-        // parsing_template.set_all();
-        // let mut reader = Reader::new(in_cursor, parsing_template).unwrap();
-        // let mut records = reader.records();
-        // let mut it = raw_records.iter();
-        // while let Some(rec) = records.next_rec() {
-        //     let rec_orig = it.next().unwrap();
-        //     let orig_map_q = rec_orig.get_bytes(&Fields::Mapq)[0];
-        //     let orig_pos = rec_orig
-        //         .get_bytes(&Fields::Pos)
-        //         .read_i32::<LittleEndian>()
-        //         .unwrap();
-        //     assert_eq!(rec.pos.unwrap(), orig_pos);
-        //     assert_eq!(rec.mapq.unwrap(), orig_map_q);
-        // }
-    }
-}
+//         // let in_cursor = Box::new(Cursor::new(buf));
+//         // let mut parsing_template = ParsingTemplate::new();
+//         // parsing_template.set_all();
+//         // let mut reader = Reader::new(in_cursor, parsing_template).unwrap();
+//         // let mut records = reader.records();
+//         // let mut it = raw_records.iter();
+//         // while let Some(rec) = records.next_rec() {
+//         //     let rec_orig = it.next().unwrap();
+//         //     let orig_map_q = rec_orig.get_bytes(&Fields::Mapq)[0];
+//         //     let orig_pos = rec_orig
+//         //         .get_bytes(&Fields::Pos)
+//         //         .read_i32::<LittleEndian>()
+//         //         .unwrap();
+//         //     assert_eq!(rec.pos.unwrap(), orig_pos);
+//         //     assert_eq!(rec.mapq.unwrap(), orig_map_q);
+//         // }
+//     }
+// }
