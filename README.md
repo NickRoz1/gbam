@@ -21,17 +21,34 @@ sudo apt-get install libbz2-dev
 
 # Usage
 
-### To convert BAM file to GBAM file
+### Examples
 ```shell
 # Simply convert
-time ./target/release/gbam_binary -c test_data/wgEncodeUwRepliSeqGm12878G1bAlnRep1.bam -o test_data/res.gbam
+time ./target/release/gbam_binary -c test.bam -o test.gbam
 
-#Sort before writing (sort by Name and match mates)
-time ./target/release/gbam_binary -c -s test_data/wgEncodeUwRepliSeqGm12878G1bAlnRep1.bam -o test_data/res.gbam
+# Sort before writing (sort by reference and coordinates (other sort predicates are available, but not implemented in CLI currently))
+time ./target/release/gbam_binary -c -s 1gb.bam -o 1gb.sorted.gbam --sort-temp-mode [lz4_file|file|lz4_ram|ram]
+
+# Collect flag statistics
+time ./target/release/gbam_binary --flagstat test.gbam
+
+# Calculate read depth (only on sorted files)
+time ./target/release/gbam_binary --depth test.sorted.gbam --thread-num 4 > depth_test.txt
+
+# Calculate read depth (only on sorted files) and create bed regions depth gzip file
+time ./target/release/gbam_binary --depth test.sorted.gbam --thread-num 4 -o test_data/depth_test.bed.gz
 ```
-### To run pytests, just run this command
+
+### To run pytests (substitute bam_file_path with you path to little bam file, test file is not supplied with this repository)
 ```shell
+# Run all tests
 pytest
+
+# Test sort on user provided file (slow)
+pytest -k test_sort --bam-file-path=/home/test/testing_big_file/test.bam
+
+# Test conversion bam to gbam to bam (preserving correct data)
+pytest -k test_bam_to_gbam_to_bam --bam-file-path=/home/test/testing_big_file/test.bam
 ```
 
 # Development
