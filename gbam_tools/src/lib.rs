@@ -6,6 +6,13 @@ use std::mem;
 pub mod bam {
     /// BAM to GBAM converter
     pub mod bam_to_gbam;
+    /// GBAM to BAM converter
+    pub mod gbam_to_bam;
+}
+
+pub mod utils {
+    /// BED reader
+    pub mod bed;
 }
 
 pub mod reader {
@@ -16,12 +23,23 @@ pub mod reader {
     pub mod record;
     pub mod records;
 }
+
+#[cfg(not(feature = "python-ffi"))]
+pub mod query {
+    pub mod cigar;
+    pub mod depth;
+    pub mod flagstat;
+    pub mod int2str;
+}
+
+/// Manages parallel compression
+mod compressor;
 /// Meta information for GBAM file
 pub mod meta;
+/// Manages stats collection
+mod stats;
 /// GBAM writer
 pub mod writer;
-
-mod compressor;
 
 // use self::writer::Writer;
 // pub use {ParsingTemplate, Reader};
@@ -35,9 +53,10 @@ const U32_SIZE: usize = mem::size_of::<u32>();
 const U16_SIZE: usize = mem::size_of::<u16>();
 const U8_SIZE: usize = mem::size_of::<u8>();
 const MEGA_BYTE_SIZE: usize = 1_048_576;
+const KILO_BYTE_SIZE: usize = 1_024;
 
 /// 16777216 bytes
-const SIZE_LIMIT: usize = 16 * MEGA_BYTE_SIZE;
+const SIZE_LIMIT: usize = 32 * KILO_BYTE_SIZE;
 static GBAM_MAGIC: &[u8] = b"geeBAM10";
 
 #[cfg(feature = "python-ffi")]

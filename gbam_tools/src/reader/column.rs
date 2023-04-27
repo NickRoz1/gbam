@@ -1,18 +1,15 @@
-use std::{
-    borrow::Borrow,
-    cell::RefCell,
-    collections::{BTreeMap, BTreeSet},
-    io::Result,
-    rc::Rc,
-    sync::Arc,
-};
+use std::{collections::BTreeMap, io::Result, sync::Arc};
 
+use super::reader::generate_block_treemap;
 use super::record::GbamRecord;
+use crate::SIZE_LIMIT;
+// use lz4_flex::decompress_into;
+use lzzzz::{lz4, lz4_hc, lz4f};
 
 use bam_tools::record::fields::Fields;
 use byteorder::{LittleEndian, ReadBytesExt};
 use flate2::write::GzDecoder;
-use lz4::Decoder;
+// use lz4::Decoder;
 use memmap2::Mmap;
 
 use crate::{meta::FileMeta, Codecs};
@@ -35,7 +32,7 @@ impl Inner {
             range_begin: 0,
             range_end: 0,
             field,
-            buffer: Vec::<u8>::new(),
+            buffer: Vec::<u8>::with_capacity(SIZE_LIMIT * 2),
             reader,
         }
     }
@@ -49,7 +46,7 @@ pub trait Column {
 }
 
 /// GBAM file column. Responsible for fetching data.
-pub struct FixedColumn(Inner);
+pub struct FixedColumn(Inner, usize);
 
 impl Column for FixedColumn {
     /// Fetches data into provider record buffer. If item is located outside of
@@ -61,15 +58,15 @@ impl Column for FixedColumn {
 }
 
 impl FixedColumn {
-    pub fn new(inner: Inner) -> Self {
-        Self(inner)
+    pub fn new(inner: Inner, field_size: usize) -> Self {
+        Self(inner, field_size)
     }
     fn get_item(&mut self, item_num: usize) -> &[u8] {
         if let Some(block_num) = self.find_block(item_num) {
             Self::update_buffer(&mut self.0, block_num);
         }
         let rec_num_in_block = item_num - self.0.range_begin;
-        let item_size = self.0.meta.get_field_size(&self.0.field).unwrap() as usize;
+        let item_size = self.1;
         let offset = rec_num_in_block * item_size;
         &self.0.buffer[offset..offset + item_size]
     }
@@ -109,18 +106,7 @@ impl Column for VariableColumn {
 impl VariableColumn {
     pub fn new(inner: Inner, index: FixedColumn) -> Self {
         Self {
-            blocks: inner
-                .meta
-                .view_blocks(&inner.field)
-                .iter()
-                .enumerate()
-                // Prefix sum.
-                .scan(0, |acc, (count, x)| {
-                    let current_chunk = Some((*acc as usize, count));
-                    *acc = *acc + x.numitems;
-                    current_chunk
-                })
-                .collect(),
+            blocks: generate_block_treemap(&inner.meta, &inner.field),
             inner,
             index,
         }
@@ -168,20 +154,24 @@ impl VariableColumn {
 
 /// Fetch and decompress a data block.
 fn fetch_block(inner_column: &mut Inner, block_num: usize) -> Result<()> {
+    // println!("Fetching for {}", inner_column.field);
     let field = &inner_column.field;
     let block_meta = inner_column.meta.view_blocks(field).get(block_num).unwrap();
     let reader = &inner_column.reader;
-    let block_size = inner_column.meta.view_blocks_sizes(field)[block_num as usize];
+    let block_size = block_meta.block_size;
+    let uncompressed_size = block_meta.uncompressed_size;
 
     let data =
         &reader[(block_meta.seekpos as usize)..(block_meta.seekpos + block_size as u64) as usize];
-
-    inner_column.buffer.clear();
+    // inner_column.buffer.clear();
+    // dbg!(uncompressed_size);
+    inner_column.buffer.resize(uncompressed_size as usize, 0);
     let codec = inner_column.meta.get_field_codec(field);
 
     decompress_block(data, &mut inner_column.buffer, codec).expect("Decompression failed.");
     Ok(())
 }
+
 
 fn decompress_block(source: &[u8], dest: &mut Vec<u8>, codec: &Codecs) -> std::io::Result<()> {
     use std::io::Write;
@@ -192,8 +182,7 @@ fn decompress_block(source: &[u8], dest: &mut Vec<u8>, codec: &Codecs) -> std::i
             decoder.try_finish().unwrap();
         }
         Codecs::Lz4 => {
-            let mut decoder = Decoder::new(source)?;
-            std::io::copy(&mut decoder, dest).unwrap();
+            lz4::decompress(&source, dest).unwrap();
         }
     };
     Ok(())

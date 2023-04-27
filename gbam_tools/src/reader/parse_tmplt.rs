@@ -23,6 +23,15 @@ impl ParsingTemplate {
             active_data_fields: Vec::new(),
         }
     }
+
+    /// Create new parsing templates with passed fields set to active
+    pub fn new_with(fields_to_set: &[Fields]) -> Self {
+        let mut empty = Self::new();
+        for field in fields_to_set {
+            empty.set(field, true);
+        }
+        empty
+    }
     /// Set field value
     pub fn set(&mut self, field: &Fields, val: bool) {
         match field_type(field) {
@@ -59,6 +68,7 @@ impl ParsingTemplate {
         self.active_data_fields.iter()
     }
 
+    /// This method exists because list of active fields is stored separately.
     fn set_active(&mut self) {
         self.active_data_fields = self
             .inner
@@ -90,6 +100,15 @@ impl ParsingTemplate {
             .filter(|x| x.is_some())
             .for_each(|e| *e = None);
         self.set_active();
+    }
+
+    pub fn check_if_active(&self, fields: &[Fields]) -> bool {
+        for &field in fields.iter() {
+            if self.inner[field as usize].is_none() {
+                return false;
+            }
+        }
+        true
     }
 }
 

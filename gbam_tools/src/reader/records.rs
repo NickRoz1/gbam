@@ -15,7 +15,7 @@ pub struct Records<'a> {
 impl<'a> Records<'a> {
     pub fn new(reader: &'a mut Reader) -> Self {
         Self {
-            rec_amount: reader.rec_num,
+            rec_amount: reader.amount,
             reader,
             cur_rec: 0,
             buf: GbamRecord::default(),
@@ -68,7 +68,7 @@ impl PyRecords {
         let file = File::open(path).unwrap();
         let reader = Reader::new(file, tmplt).unwrap();
         PyRecords {
-            rec_amount: reader.rec_num,
+            rec_amount: reader.amount,
             reader,
             cur_rec: 0,
             buf: GbamRecord::default(),
