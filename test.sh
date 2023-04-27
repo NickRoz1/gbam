@@ -1,3 +1,5 @@
+# Currently is unused and not tested. Use `pytest` command.
+
 source gbam_tools/env/bin/activate
 cd gbam_tools
 maturin develop --release --cargo-extra-args="--features python-ffi"
