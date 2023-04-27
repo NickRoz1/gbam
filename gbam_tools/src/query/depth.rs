@@ -41,8 +41,7 @@ fn process_range(mut gbam_reader: Reader, rec_range: RangeInclusive<usize>, mut 
         if rec.refid.unwrap() != target_id {
             continue;
         }
-        if (rec.flag.unwrap() & 0b11100000000) != 0 {
-            dbg!("FAIL");
+        if rec.cigar.as_ref().unwrap().0.len() == 0 {
             continue;
         }
         let read_start: usize = rec.pos.unwrap().try_into().unwrap();
@@ -221,12 +220,6 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
         let next_chr = iter.next(); 
         
         if let Some((chr, ref_len)) = next_chr {
-            let ref_id = chr_to_ref_id.get(chr).unwrap().unwrap();
-            let buf = buffers.pop().unwrap();
-            let meta = file_meta.clone();
-            let file = gbam_file.try_clone().unwrap();
-            let t_chr = chr.clone();
-            let t_ref_len = *ref_len as usize;
             if circular_buf_channels[idx].is_none() {
                 let (s, r) = bounded(1);
                 let (ready_s, ready_r) = bounded(1);
@@ -239,7 +232,13 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
                 circular_buf_channels[idx] = Some((s, ready_r));
                 handles.push(handle);
             }
-            
+
+            let ref_id = chr_to_ref_id.get(chr).unwrap().unwrap();
+            let buf = buffers.pop().unwrap();
+            let meta = file_meta.clone();
+            let file = gbam_file.try_clone().unwrap();
+            let t_chr = chr.clone();
+            let t_ref_len = *ref_len as usize;
             circular_buf_channels[idx].as_mut().unwrap().0.send((file, meta, number_of_records, ref_id, buf, t_ref_len, t_chr)).unwrap();
         }
 
