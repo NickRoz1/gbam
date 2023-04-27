@@ -12,8 +12,7 @@ cur_file_path = Path(__file__).parent.absolute()
 test_data_folder = cur_file_path.parent/"test_data"
 binary_path = cur_file_path.parent/"target"/"release"/"gbam_binary"
 
-bam_file_path = test_data_folder/"testing_gbam_to_bam"/"wgEncodeUwRepliSeqGm12878G1bAlnRep1.bam"
-# bam_file_sorted_path = test_data_folder/"testing_gbam_to_bam"/"wgEncodeUwRepliSeqGm12878G1bAlnRep1.sorted.bam"
+bam_file_path = test_data_folder/"little.bam"
 
 gbam_file = None
 gbam_file_sorted = None
@@ -64,6 +63,7 @@ def test_bam_to_gbam_to_bam(request):
         subprocess.run([binary_path, cli_bam_path.as_posix(), "-c", "-o", temp_gbam.name]) 
         subprocess.run([binary_path, "--convert-to-bam", temp_gbam.name, "-o", bam_file_from_gbam.name]) 
         test_bam_file_path = cli_bam_path
+        del temp_gbam
 
     compare_bam_files(test_bam_file_path.as_posix(), bam_file_from_gbam.name)
 
@@ -85,7 +85,7 @@ def test_sort(request):
     else:
         cli_bam_path = Path(cli_bam_path)
         temporary_gbam = NamedTemporaryFile()
-        subprocess.run([binary_path, cli_bam_path.as_posix(), "-c", "-s", "-o", temporary_gbam.name]) 
+        subprocess.run([binary_path, cli_bam_path.as_posix(), "-c", "-s", "-o", temporary_gbam.name, "--sort-temp-mode", "lz4_ram"]) 
         subprocess.run([binary_path, "--convert-to-bam", temporary_gbam.name, "-o", gbam_sorted_results.name]) 
         samtools_sorted_results = NamedTemporaryFile(suffix=".bam")
         subprocess.run(["samtools", "sort", cli_bam_path.as_posix(), "-o", samtools_sorted_results.name]) 
