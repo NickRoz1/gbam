@@ -21,6 +21,9 @@ struct Cli {
     /// Sort BAM file before converting it to GBAM.
     #[structopt(short, long)]
     sort: bool,
+    /// Specify which kind of temporary medium to use while sorting: ram, lz4_ram, file, lz4_file
+    #[structopt(long)]
+    sort_temp_mode: Option<String>,
     /// Determines whether conversion is requested
     #[structopt(short, long)]
     convert_to_gbam: bool,
@@ -87,7 +90,7 @@ fn convert(args: Cli) {
         .to_str()
         .unwrap();
     if args.sort {
-        bam_sort_to_gbam(in_path, out_path, Codecs::Lz4)
+        bam_sort_to_gbam(in_path, out_path, Codecs::Lz4, args.sort_temp_mode)
     } else {
         bam_to_gbam(in_path, out_path, Codecs::Lz4);
     }
@@ -152,38 +155,7 @@ fn test(args: Cli) {
 }
 
 fn depth(args: Cli) {
-    // let mut tmplt = ParsingTemplate::new();
-    // tmplt.set(&Fields::RefID, true);
-    // tmplt.set(&Fields::Pos, true);
-    // tmplt.set(&Fields::RawCigar, true);
-
-    // let in_path = args.in_path.as_path().to_str().unwrap();
-    // // Kept so File won't drop while used by mmap.
-    // let file = File::open(in_path).unwrap();
-    // let mut reader = Reader::new(file, tmplt).unwrap();
-    // let mut queries = Vec::new();
-    // if let Some(bed_path) = args.bed_file {
-    //     queries = bed::parse_bed_from_file(&bed_path).expect("BED file is corrupted.");
-    // } else {
-    //     queries.push(
-    //         bed::parse_region_query_owned(&args.query.unwrap())
-    //             .ok()
-    //             .ok_or_else(|| panic_err())
-    //             .unwrap(),
-    //     );
-    // }
-
-    // if !queries.is_empty() {
-    //     println!("REFID\tPOS\tDEPTH");
-    // }
-    // let now = Instant::now();
-    // get_regions_depths(&mut reader, &queries);
-    // println!(
-    //     "GBAM. Time elapsed querying depth {}ms",
-    //     now.elapsed().as_millis()
-    // );
     let in_path = args.in_path.as_path().to_str().unwrap();
     let gbam_file = File::open(in_path).unwrap();
     main_depth(gbam_file, args.bed_file.as_ref(), args.query, args.mapq, args.out_path, args.thread_num);
-
 }
