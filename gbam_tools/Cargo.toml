@@ -7,7 +7,6 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-zstd = "0.5"
 flate2 = "1.0.1"
 byteorder = "1.2.3"
 bam_tools = {  git = "https://github.com/NickRoz1/bam_parallel" }
@@ -22,6 +21,7 @@ rust-htslib = { version = "*", default-features = false }
 itertools = "0.10.5"
 lzzzz = "1.0.3"
 bitflags = "2.0.2"
+crossbeam = "0.8.2"
 
 [dependencies.pyo3]
 version = "0.13.2"
