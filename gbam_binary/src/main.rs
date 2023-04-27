@@ -4,16 +4,15 @@ use gbam_tools::{
     bam::bam_to_gbam::bam_sort_to_gbam,
     bam::gbam_to_bam::gbam_to_bam,
     query::depth::main_depth,
-    reader::{parse_tmplt::ParsingTemplate, reader::Reader, records::Records},
-    utils::bed,
+    reader::{parse_tmplt::ParsingTemplate, reader::Reader},
     {bam_to_gbam, Codecs},
     query::flagstat::collect_stats,
 };
 
-use memmap2::Mmap;
+
 use std::path::PathBuf;
 use std::time::Instant;
-use std::{borrow::Borrow, fs::File};
+use std::fs::File;
 use structopt::StructOpt;
 
 #[derive(StructOpt)]
@@ -141,6 +140,7 @@ fn test(args: Cli) {
     let mut reader = Reader::new(file, tmplt).unwrap();
     let mut records = reader.records();
     let now = Instant::now();
+    #[allow(unused_mut)]
     let mut u = 0;
     #[allow(unused_variables)]
     while let Some(rec) = records.next_rec() {

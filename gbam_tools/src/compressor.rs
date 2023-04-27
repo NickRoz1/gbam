@@ -9,7 +9,7 @@ use flate2::Compression;
 use std::io::Write;
 
 // use lz4_flex::block::{compress_into, get_maximum_output_size};
-use lzzzz::{lz4, lz4_hc, lz4f};
+use lzzzz::lz4;
 
 use crate::writer::BlockInfo;
 
@@ -114,7 +114,7 @@ impl Compressor {
     }
 }
 
-pub fn compress(mut source: &[u8], mut dest: Vec<u8>, codec: Codecs) -> Vec<u8> {
+pub fn compress(source: &[u8], mut dest: Vec<u8>, codec: Codecs) -> Vec<u8> {
     let compressed_bytes = match codec {
         Codecs::Gzip => {
             let mut encoder = GzEncoder::new(dest, Compression::default());
@@ -122,14 +122,6 @@ pub fn compress(mut source: &[u8], mut dest: Vec<u8>, codec: Codecs) -> Vec<u8> 
             encoder.finish()
         }
         Codecs::Lz4 => {
-            // let default_compression: u32 = 4;
-            // let mut encoder = EncoderBuilder::new()
-            //     .level(default_compression)
-            //     .build(dest)
-            //     .unwrap();
-            // std::io::copy(&mut source, &mut encoder).unwrap();
-            // let (_output, result) = encoder.finish();
-            // dest.resize(get_maximum_output_size(source.len()), 0);
             dest.clear();
             let res = lz4::compress_to_vec(source, &mut dest, lz4::ACC_LEVEL_DEFAULT);
             match res {

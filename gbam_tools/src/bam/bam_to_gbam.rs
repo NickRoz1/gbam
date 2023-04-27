@@ -7,7 +7,6 @@ use bam_tools::sorting::sort;
 use bam_tools::sorting::sort::TempFilesMode;
 use bam_tools::Reader;
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::str::FromStr;
@@ -68,7 +67,6 @@ pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs, mut sort_t
         &mut writer,
         tmp_dir_path,
         0,
-        4,
         4,
         tmp_medium_mode,
         sort::SortBy::CoordinatesAndStrand,

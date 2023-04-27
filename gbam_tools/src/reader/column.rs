@@ -3,13 +3,10 @@ use std::{collections::BTreeMap, io::Result, sync::Arc};
 use super::reader::generate_block_treemap;
 use super::record::GbamRecord;
 use crate::SIZE_LIMIT;
-// use lz4_flex::decompress_into;
-use lzzzz::{lz4, lz4_hc, lz4f};
-
+use lzzzz::{lz4};
 use bam_tools::record::fields::Fields;
 use byteorder::{LittleEndian, ReadBytesExt};
 use flate2::write::GzDecoder;
-// use lz4::Decoder;
 use memmap2::Mmap;
 
 use crate::{meta::FileMeta, Codecs};
@@ -42,7 +39,7 @@ impl Inner {
 /// columns also require parsing of additional fixed sized fields columns.
 pub trait Column {
     // Fills GbamRecord field with data from corresponding BAM record.
-    fn fill_record_field(&mut self, item_num: usize, rec: &mut GbamRecord) -> ();
+    fn fill_record_field(&mut self, item_num: usize, rec: &mut GbamRecord) ;
 }
 
 /// GBAM file column. Responsible for fetching data.
@@ -52,7 +49,7 @@ impl Column for FixedColumn {
     /// Fetches data into provider record buffer. If item is located outside of
     /// currently loaded data block, the new block will be loaded and
     /// decompressed.
-    fn fill_record_field(&mut self, item_num: usize, rec: &mut GbamRecord) -> () {
+    fn fill_record_field(&mut self, item_num: usize, rec: &mut GbamRecord) {
         rec.parse_from_bytes(&self.0.field.clone(), self.get_item(item_num));
     }
 }
@@ -98,7 +95,7 @@ pub struct VariableColumn {
 }
 
 impl Column for VariableColumn {
-    fn fill_record_field(&mut self, item_num: usize, rec: &mut GbamRecord) -> () {
+    fn fill_record_field(&mut self, item_num: usize, rec: &mut GbamRecord) {
         rec.parse_from_bytes(&self.inner.field.clone(), self.get_item(item_num));
     }
 }
@@ -182,7 +179,7 @@ fn decompress_block(source: &[u8], dest: &mut Vec<u8>, codec: &Codecs) -> std::i
             decoder.try_finish().unwrap();
         }
         Codecs::Lz4 => {
-            lz4::decompress(&source, dest).unwrap();
+            lz4::decompress(source, dest).unwrap();
         }
     };
     Ok(())

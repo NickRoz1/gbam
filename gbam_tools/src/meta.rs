@@ -103,10 +103,12 @@ impl Stat {
     }
 
     /// Checks if it's in reset state.
+    #[allow(dead_code)]
     pub fn is_reset(&self) -> bool {
         (self.min_value == std::i32::MAX) && (self.max_value == std::i32::MIN)
     }
 
+    #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.min_value = std::i32::MAX;
         self.max_value = std::i32::MIN;
@@ -174,6 +176,8 @@ impl FileMeta {
     pub fn get_ref_seqs(&self) -> &Vec<(String, u32)> {
         &self.name_to_ref_id
     }
+
+    #[allow(dead_code)]
     pub fn get_sam_header(&self) -> &[u8] {
         &self.sam_header[..]
     }

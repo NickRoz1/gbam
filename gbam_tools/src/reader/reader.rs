@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::{borrow::Borrow, fs::File, rc::Rc};
+use std::{borrow::Borrow, fs::File};
 
 use bam_tools::record::fields::{
     field_type, var_size_field_to_index, FieldType, Fields, FIELDS_NUM,
@@ -25,7 +25,7 @@ pub struct Reader {
     pub amount: usize,
     pub(crate) file_meta: Arc<FileMeta>,
     // Kept so File won't drop while used by mmap.
-    inner: Box<File>,
+    _inner: Box<File>,
 }
 
 impl Reader {
@@ -36,9 +36,9 @@ impl Reader {
         Self::new_with_meta(inner, parsing_template, &Arc::new(file_meta))
     }
 
-    pub(crate) fn new_with_meta(inner: File, parsing_template: ParsingTemplate, file_meta: &Arc<FileMeta>) -> std::io::Result<Self> {
-        let inner = Box::new(inner);
-        let mmap = Arc::new(unsafe { Mmap::map(inner.borrow())? });
+    pub(crate) fn new_with_meta(_inner: File, parsing_template: ParsingTemplate, file_meta: &Arc<FileMeta>) -> std::io::Result<Self> {
+        let _inner = Box::new(_inner);
+        let mmap = Arc::new(unsafe { Mmap::map(_inner.borrow())? });
         // Consumes up to 16 percent of runtime on big files (20GB).
         // verify(&mmap)?;
         let amount = file_meta
@@ -52,7 +52,7 @@ impl Reader {
             parsing_template,
             file_meta: meta,
             amount,
-            inner,
+            _inner,
         })
     }
 
@@ -118,12 +118,13 @@ fn init_col(field: Fields, mmap: &Arc<Mmap>, meta: &Arc<FileMeta>) -> Box<dyn Co
     }
 }
 
+#[allow(dead_code)]
 fn verify(mmap: &Mmap) -> std::io::Result<()>{
     let file_info_bytes = &mmap[0..FILE_INFO_SIZE];
-    let file_info = FileInfo::from(&file_info_bytes[..]);
+    let file_info = FileInfo::from(file_info_bytes);
     // Read file meta
     let buf = &mmap[file_info.seekpos as usize..];
-    if calc_crc_for_meta_bytes(&buf[..]) != file_info.crc32 {
+    if calc_crc_for_meta_bytes(buf) != file_info.crc32 {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "Metadata JSON was damaged.",
@@ -133,10 +134,10 @@ fn verify(mmap: &Mmap) -> std::io::Result<()>{
 }
 fn verify_and_parse_meta(mmap: &Mmap) -> std::io::Result<FileMeta> {
     let file_info_bytes = &mmap[0..FILE_INFO_SIZE];
-    let file_info = FileInfo::from(&file_info_bytes[..]);
+    let file_info = FileInfo::from(file_info_bytes);
     // Read file meta
     let buf = &mmap[file_info.seekpos as usize..];
-    if calc_crc_for_meta_bytes(&buf[..]) != file_info.crc32 {
+    if calc_crc_for_meta_bytes(buf) != file_info.crc32 {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "Metadata JSON was damaged.",
@@ -154,7 +155,7 @@ pub(crate) fn generate_block_treemap(meta: &FileMeta, field: &Fields) -> BTreeMa
         // Prefix sum.
         .scan(0, |acc, (count, x)| {
             let current_chunk = Some((*acc as usize, count));
-            *acc = *acc + x.numitems;
+            *acc += x.numitems;
             current_chunk
         })
         .collect()

@@ -1,15 +1,11 @@
 use crate::reader::record::GbamRecord;
 use crate::reader::reader::Reader;
-use crate::reader::records::Records;
 use bitflags::bitflags;
-use itertools::Itertools;
 use std::fmt;
 use rayon::prelude::*;
 use std::fs::File;
 use std::str;
-use std::io::Write;
 use std::string::String;
-use std::time::Instant;
 use bam_tools::record::fields::Fields;
 use crate::reader::parse_tmplt::ParsingTemplate;
 
@@ -93,8 +89,7 @@ fn percent(n: i64, total: i64) -> String
 {   
 
     if total != 0 {
-        // dbg!(n, total, ((n as f64) / ((total as f64) * 100.0)));
-        format!("{:.2}%", (n as f64) / ((total as f64)) * 100.0)
+        format!("{:.2}%", (n as f64) / (total as f64) * 100.0)
     } 
     else {
        String::from("N/A")
@@ -203,7 +198,7 @@ pub fn collect_stats(file: File) {
 
         stats
 
-    }).reduce(|| Stats::default(), |mut a, b| {a.add(&b); a});
+    }).reduce(Stats::default, |mut a, b| {a.add(&b); a});
 
     println!("{file_stats}");
 }

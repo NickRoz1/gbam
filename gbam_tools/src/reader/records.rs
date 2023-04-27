@@ -1,5 +1,4 @@
-use super::{parse_tmplt::ParsingTemplate, reader::Reader, record::GbamRecord};
-use std::fs::File;
+use super::{reader::Reader, record::GbamRecord};
 
 #[cfg(feature = "python-ffi")]
 use pyo3::prelude::*;

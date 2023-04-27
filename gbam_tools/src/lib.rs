@@ -19,6 +19,7 @@ pub mod reader {
     mod column;
     pub mod parse_tmplt;
     /// GBAM reader
+    #[allow(clippy::module_inception)]
     pub mod reader;
     pub mod record;
     pub mod records;
@@ -45,13 +46,10 @@ pub mod writer;
 // pub use {ParsingTemplate, Reader};
 use self::writer::Writer;
 pub use bam::bam_to_gbam::{bam_sort_to_gbam, bam_to_gbam};
-use compressor::{CompressTask, Compressor};
 pub use meta::Codecs;
 
 const U64_SIZE: usize = mem::size_of::<u64>();
 const U32_SIZE: usize = mem::size_of::<u32>();
-const U16_SIZE: usize = mem::size_of::<u16>();
-const U8_SIZE: usize = mem::size_of::<u8>();
 const MEGA_BYTE_SIZE: usize = 1_048_576;
 const KILO_BYTE_SIZE: usize = 1_024;
 

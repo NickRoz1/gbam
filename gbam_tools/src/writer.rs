@@ -8,8 +8,6 @@ use bam_tools::record::fields::{
 use byteorder::{LittleEndian, WriteBytesExt, ReadBytesExt};
 use crc32fast::Hasher;
 use std::borrow::Cow;
-use std::cmp::Ordering;
-use std::collections::HashMap;
 use std::convert::TryInto;
 use std::io::{Seek, SeekFrom, Write};
 
@@ -70,7 +68,7 @@ where
         let mut columns = Vec::new();
 
         let mut count = 0;
-        for field in Fields::iterator().filter(|f| is_data_field(*f)) {
+        for field in Fields::iterator().filter(|f| is_data_field(f)) {
             let stat_collector = collect_stats_for.iter().find(|f| *f == field).and(Some(Stat::default()));
             let col = match field_type(field) {
                 FieldType::FixedSized => {
@@ -122,7 +120,7 @@ where
             // variable sized columns also have index columns (fixed size)
             // inside and they might also come full and request flushing
             // simultaneously with containing variable sized field column.
-            while let WriteStatus::Full(inner) = col.write_record_field(&record) {
+            while let WriteStatus::Full(inner) = col.write_record_field(record) {
                 flush_field_buffer(
                     &mut self.inner,
                     &mut self.file_meta,
@@ -155,14 +153,14 @@ where
             }
         }
 
-        let meta_start_pos = self.inner.seek(SeekFrom::Current(0))?;
+        let meta_start_pos = self.inner.stream_position()?;
         // Write meta
         let main_meta = serde_json::to_string(&self.file_meta).unwrap();
         let main_meta_bytes = main_meta.as_bytes();
         let crc32 = calc_crc_for_meta_bytes(main_meta_bytes);
         self.inner.write_all(main_meta_bytes)?;
 
-        let total_bytes_written = self.inner.seek(SeekFrom::Current(0))?;
+        let total_bytes_written = self.inner.stream_position()?;
         // Revert back to the beginning of the file
         self.inner.seek(SeekFrom::Start(0)).unwrap();
         let file_meta = FileInfo::new([1, 0], meta_start_pos, crc32);
@@ -189,7 +187,7 @@ fn flush_field_buffer<WS: Write + Seek>(
 
     let data = std::mem::replace(old_buffer, completed_task.buf);
 
-    let codec = *file_meta.get_field_codec(&field);
+    let codec = *file_meta.get_field_codec(field);
 
     compressor.compress_block(
         OrderingKey::Key(inner.block_num),
@@ -230,7 +228,7 @@ fn generate_meta<S: Seek>(
     block_info: &mut BlockInfo,
     block_size: u32,
 ) -> BlockMeta {
-    let seekpos = writer.seek(SeekFrom::Current(0)).unwrap();
+    let seekpos = writer.stream_position().unwrap();
     BlockMeta {
         seekpos,
         numitems: block_info.numitems,
@@ -268,7 +266,7 @@ impl Inner {
     }
     pub fn write_data(&mut self, data: &[u8]) -> WriteStatus {
         // At this point everything should be flushed.
-        debug_assert!(!self.flush_required(&data));
+        debug_assert!(!self.flush_required(data));
 
         if self.buffer.len() < SIZE_LIMIT {
             self.buffer.resize(std::cmp::max(data.len(), SIZE_LIMIT), 0);
@@ -404,8 +402,7 @@ where
     /// TODO: Implement a proper trait and use it instead of Write in bam_sorting.
     /// Write trait implementation is made to allow passing Write trait objects to sort function in BAM parallel.
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        assert!(buf.len() > 0);
-        // println!("Current record size is: {}", buf.len());
+        assert!(!buf.is_empty());
         let wrapper = BAMRawRecord(Cow::Borrowed(buf));
         self.push_record(&wrapper);
         Ok(buf.len())

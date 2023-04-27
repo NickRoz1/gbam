@@ -1,10 +1,7 @@
-use std::{fmt::Display, slice::Iter};
+use std::{slice::Iter};
 
-use bam_tools::record::bamrawrecord::decode_cigar;
 use byteorder::ByteOrder;
-use byteorder::LittleEndian;
 use byteorder::WriteBytesExt;
-use std::io::Write;
 
 #[derive(Debug, Clone)]
 pub struct Op(pub u32);
@@ -16,14 +13,11 @@ impl Op {
     /// True if operation is one of M, =, X, D, N
     pub fn is_consuming_reference(&self) -> bool {
         let op = self.0 & 0xF;
-        match op {
-            0 | 2 | 3 | 7 | 8 => true,
-            _ => false,
-        }
+        matches!(op, 0 | 2 | 3 | 7 | 8)
     }
     /// Length of operator
     pub fn length(&self) -> u32 {
-        return self.0 >> 4;
+        self.0 >> 4
     }
 
     /// Type of operator itself

@@ -1,7 +1,4 @@
-use std::{
-    io::Write,
-    time::{Duration, Instant},
-};
+use std::io::Write;
 
 use itertools::Itertools;
 #[cfg(feature = "python-ffi")]
@@ -18,7 +15,7 @@ use std::mem;
 use crate::{query::cigar::Cigar, query::cigar::Op, U32_SIZE};
 
 #[cfg(not(feature = "python-ffi"))]
-#[derive(Debug)]
+#[derive(Debug, Default)]
 /// Represents a GBAM record in which some fields may be omitted.
 pub struct GbamRecord {
     /// Reference sequence ID
@@ -132,7 +129,7 @@ impl GbamRecord {
             Fields::RawSequence => self.seq = Some(decode_seq(bytes)),
             Fields::RawQual => self.qual = Some(bytes.to_vec()),
             Fields::RawTags => self.tags = Some(bytes.to_vec()),
-            _ => panic!("Not yet covered type: {}", field.to_string()),
+            _ => panic!("Not yet covered type: {}", field),
         }
     }
 
@@ -214,7 +211,7 @@ impl GbamRecord {
         let (mut read_name, unsized_data) =
             unsized_data.split_at_mut(self.read_name.as_ref().unwrap().len());
         read_name
-            .write_all(&self.read_name.as_ref().unwrap())
+            .write_all(self.read_name.as_ref().unwrap())
             .unwrap();
         let (cigar, unsized_data) =
             unsized_data.split_at_mut(self.cigar.as_ref().unwrap().0.len() * mem::size_of::<u32>());
@@ -229,10 +226,10 @@ impl GbamRecord {
             .unwrap();
         let (mut qual, mut unsized_data) =
             unsized_data.split_at_mut(self.qual.as_ref().unwrap().len());
-        qual.write_all(&self.qual.as_ref().unwrap()).unwrap();
+        qual.write_all(self.qual.as_ref().unwrap()).unwrap();
         assert!(unsized_data.len() == self.tags.as_ref().unwrap().len());
         unsized_data
-            .write_all(&self.tags.as_ref().unwrap())
+            .write_all(self.tags.as_ref().unwrap())
             .unwrap();
     }
 
@@ -241,27 +238,7 @@ impl GbamRecord {
         let n_byte = self.tags.as_ref().unwrap().len();
 
         bytes.reserve(n_byte + bytes.len());
-        bytes.write_all(&self.tags.as_ref().unwrap()).unwrap();
-    }
-}
-
-impl Default for GbamRecord {
-    fn default() -> Self {
-        GbamRecord {
-            refid: None,
-            pos: None,
-            mapq: None,
-            bin: None,
-            flag: None,
-            next_ref_id: None,
-            next_pos: None,
-            tlen: None,
-            read_name: None,
-            cigar: None,
-            seq: None,
-            qual: None,
-            tags: None,
-        }
+        bytes.write_all(self.tags.as_ref().unwrap()).unwrap();
     }
 }
 

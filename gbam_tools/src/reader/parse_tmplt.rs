@@ -2,7 +2,7 @@
 use pyo3::prelude::*;
 
 use bam_tools::record::fields::{
-    field_type, is_data_field, var_size_field_to_index, FieldType, Fields, DATA_FIELDS_NUM,
+    field_type, is_data_field, var_size_field_to_index, FieldType, Fields,
     FIELDS_NUM,
 };
 
@@ -58,8 +58,7 @@ impl ParsingTemplate {
     pub fn get_active_fields_iter<'a>(&'a self) -> impl Iterator<Item = &'a Fields> {
         self.inner
             .iter()
-            .filter(|x| x.is_some())
-            .map(|x| x.as_ref().unwrap())
+            .filter_map(|x| x.as_ref())
     }
 
     /// Get iterator over data fields (no index fields) currently requested for parsing

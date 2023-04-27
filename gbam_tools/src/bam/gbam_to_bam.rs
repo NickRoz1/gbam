@@ -26,7 +26,7 @@ pub fn gbam_to_bam(in_path: &str, out_path: &str) {
 
     let mut records_it = Records::new(&mut reader);
 
-    let mut out = bam::Writer::from_path(&out_path, &bam_header, bam::Format::Bam).unwrap();
+    let mut out = bam::Writer::from_path(out_path, &bam_header, bam::Format::Bam).unwrap();
     out.set_threads(4).unwrap();
 
     let mut cigar_buf = Vec::new();
@@ -44,7 +44,7 @@ pub fn gbam_to_bam(in_path: &str, out_path: &str) {
         let rec_seq_len = rec.seq.as_ref().unwrap().len();
         let mut qual = rec.qual.as_ref().unwrap().clone();
         if qual.is_empty() {
-            qual = vec![255 as u8; rec_seq_len];
+            qual = vec![255; rec_seq_len];
         }
 
         cigar_buf.clear();
@@ -60,7 +60,7 @@ pub fn gbam_to_bam(in_path: &str, out_path: &str) {
         record.set(
             &rec.read_name.as_ref().unwrap()[..rec.read_name.as_ref().unwrap().len() - 1],
             Some(&bam_cigar),
-            &rec.seq.as_ref().unwrap().as_bytes(),
+            rec.seq.as_ref().unwrap().as_bytes(),
             &qual[..],
         );
 
