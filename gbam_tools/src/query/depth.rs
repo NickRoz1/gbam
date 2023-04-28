@@ -53,7 +53,7 @@ fn process_range(mut gbam_reader: Reader, rec_range: RangeInclusive<usize>, mut 
     scan_line
 }
 
-fn calc_depth(gbam_file: File, file_meta: Arc<FileMeta>, number_of_records: usize, ref_id: i32, mut coverage_arr: Vec<i32>, ref_len: usize) -> Vec<i32> {
+fn calc_depth(gbam_file: File, file_meta: Arc<FileMeta>, index_file: Option<Arc<Vec<u32>>>, number_of_records: usize, ref_id: i32, mut coverage_arr: Vec<i32>, ref_len: usize) -> Vec<i32> {
     coverage_arr.resize(ref_len+1, 0);
 
     let lower_bound = if let Some(block_num) = find_leftmost_block(ref_id, file_meta.view_blocks(&Fields::RefID)) {
@@ -80,7 +80,7 @@ fn calc_depth(gbam_file: File, file_meta: Arc<FileMeta>, number_of_records: usiz
 
     // dbg!("Allocated {}", ref_len);
 
-    let mut coverage = process_range(Reader::new_with_meta(gbam_file.try_clone().unwrap(), ParsingTemplate::new_with(&[Fields::RefID, Fields::Pos, Fields::RawCigar, Fields::Flags]), &file_meta).unwrap(), first_rec..=last_rec, coverage_arr, ref_id);
+    let mut coverage = process_range(Reader::new_with_meta(gbam_file.try_clone().unwrap(), ParsingTemplate::new_with(&[Fields::RefID, Fields::Pos, Fields::RawCigar, Fields::Flags]), &file_meta, index_file).unwrap(), first_rec..=last_rec, coverage_arr, ref_id);
     let mut acc = 0;
     for slot in coverage.iter_mut() {
         acc += *slot;
@@ -89,7 +89,7 @@ fn calc_depth(gbam_file: File, file_meta: Arc<FileMeta>, number_of_records: usiz
     coverage
 }
 
-pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: Option<String>, _mapq: Option<u32>, bed_gz_path: Option<PathBuf>, thread_num: Option<usize>){
+pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, index_file: Option<Arc<Vec<u32>>>, bed_cli_request: Option<String>, _mapq: Option<u32>, bed_gz_path: Option<PathBuf>, thread_num: Option<usize>){
     let mut queries = HashMap::<String, Vec<(u32, u32)>>::new();
     if let Some(bed_path) = bed_file {
         queries = bed::parse_bed_from_file(bed_path).expect("BED file is corrupted.");
@@ -115,7 +115,7 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
         buffers = vec![Vec::<i32>::new();std::cmp::min(thread_num.unwrap(), 8)];
     }
 
-    type VectorOfSendersAndReceivers = Vec::<Option<(Sender<(File, Arc<FileMeta>, usize, i32, Vec<i32>, usize, String)>,Receiver<(String, Vec<i32>)>)>>;
+    type VectorOfSendersAndReceivers = Vec::<Option<(Sender<(File, Arc<FileMeta>, Option<Arc<Vec<u32>>>, usize, i32, Vec<i32>, usize, String)>,Receiver<(String, Vec<i32>)>)>>;
     let mut circular_buf_channels = VectorOfSendersAndReceivers::new();
     (0..buffers.len()).for_each(|_|circular_buf_channels.push(None));
     let mut handles: Vec::<JoinHandle<()>> = Vec::new();
@@ -210,8 +210,8 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
                 let (ready_s, ready_r) = bounded(1);
                 let handle = thread::spawn(move || {
                     for task  in r {
-                        let (file, meta, number_of_records, ref_id, buf, t_ref_len, t_chr) = task;
-                        ready_s.send((t_chr, calc_depth(file, meta, number_of_records, ref_id, buf, t_ref_len))).unwrap();
+                        let (file, meta, index_file, number_of_records, ref_id, buf, t_ref_len, t_chr) = task;
+                        ready_s.send((t_chr, calc_depth(file, meta, index_file, number_of_records, ref_id, buf, t_ref_len))).unwrap();
                     } 
                 });
                 circular_buf_channels[idx] = Some((s, ready_r));
@@ -222,9 +222,10 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
             let buf = buffers.pop().unwrap();
             let meta = file_meta.clone();
             let file = gbam_file.try_clone().unwrap();
+            let index = index_file.as_ref().map(|f| f.clone());
             let t_chr = chr.clone();
             let t_ref_len = *ref_len as usize;
-            circular_buf_channels[idx].as_mut().unwrap().0.send((file, meta, number_of_records, ref_id, buf, t_ref_len, t_chr)).unwrap();
+            circular_buf_channels[idx].as_mut().unwrap().0.send((file, meta, index, number_of_records, ref_id, buf, t_ref_len, t_chr)).unwrap();
         }
 
         if buffers.len() == circular_buf_channels.len(){

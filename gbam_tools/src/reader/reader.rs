@@ -5,6 +5,7 @@ use std::{borrow::Borrow, fs::File};
 use bam_tools::record::fields::{
     field_type, var_size_field_to_index, FieldType, Fields, FIELDS_NUM,
 };
+use byteorder::LittleEndian;
 use memmap2::Mmap;
 
 use crate::meta::{FileInfo, FileMeta, FILE_INFO_SIZE, BlockMeta};
@@ -28,6 +29,7 @@ pub struct Reader {
     pub file_meta: Arc<FileMeta>,
     // Kept so File won't drop while used by mmap.
     _inner: Box<File>,
+    index_mapping: Option<Arc<Vec<u32>>>,
 }
 
 impl Reader {
@@ -35,10 +37,10 @@ impl Reader {
         let inner = inner;
         let mmap = unsafe { Mmap::map(inner.borrow())? };
         let file_meta = verify_and_parse_meta(&mmap)?;
-        Self::new_with_meta(inner, parsing_template, &Arc::new(file_meta))
+        Self::new_with_meta(inner, parsing_template, &Arc::new(file_meta), None)
     }
 
-    pub(crate) fn new_with_meta(_inner: File, parsing_template: ParsingTemplate, file_meta: &Arc<FileMeta>) -> std::io::Result<Self> {
+    pub(crate) fn new_with_meta(_inner: File, parsing_template: ParsingTemplate, file_meta: &Arc<FileMeta>, index_mapping: Option<Arc<Vec<u32>>>) -> std::io::Result<Self> {
         let _inner = Box::new(_inner);
         let mmap = Arc::new(unsafe { Mmap::map(_inner.borrow())? });
         // Consumes up to 16 percent of runtime on big files (20GB).
@@ -48,6 +50,7 @@ impl Reader {
             .iter()
             .fold(0, |acc: u64, x| acc + u64::from(x.numitems))).unwrap();
         let meta = file_meta.clone();
+
         Ok(Self {
             columns: init_columns(&mmap, &parsing_template, &meta),
             original_template: parsing_template.clone(),
@@ -55,11 +58,15 @@ impl Reader {
             file_meta: meta,
             amount,
             _inner,
+            index_mapping: index_mapping.clone(),
         })
     }
 
     #[inline(always)]
-    pub fn fill_record(&mut self, rec_num: usize, rec: &mut GbamRecord) {
+    pub fn fill_record(&mut self, mut rec_num: usize, rec: &mut GbamRecord) {
+        if let Some(index_map) = &self.index_mapping {
+            rec_num = index_map[rec_num] as usize;
+        }
         assert!(rec_num < self.amount);
         for &field in self.parsing_template.get_active_data_fields_iter() {
             self.columns[field as usize]

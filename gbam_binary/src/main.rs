@@ -64,9 +64,15 @@ struct Cli {
     /// View header
     #[structopt(short, long)]
     header: bool,
-    /// View file in binary format. Can be pied to samtools view.
+    /// View file in binary format. Can be piped to samtools view. `gbam_binary -v test_data/1gb.gbam | samtools view`
     #[structopt(short, long)]
     view: bool
+    /// When sorting and converting file, only sort the indices of records but not the data itself.
+    #[structopt(long)]
+    index_sort: bool,
+    /// Index file for use in Depth.
+    #[structopt(long, parse(from_os_str))]
+    index_file: Option<PathBuf>,
 }
 
 /// Limited wrapper of `gbam_tools` converts BAM file to GBAM
@@ -106,7 +112,7 @@ fn convert(args: Cli, full_command: String) {
         .to_str()
         .unwrap();
     if args.sort {
-        bam_sort_to_gbam(in_path, out_path, Codecs::Lz4, args.sort_temp_mode, args.temp_dir, full_command);
+        bam_sort_to_gbam(in_path, out_path, Codecs::Lz4, args.sort_temp_mode, args.temp_dir, full_command, args.index_sort);
     } else {
         bam_to_gbam(in_path, out_path, Codecs::Lz4, full_command);
     }
@@ -143,7 +149,25 @@ fn flagstat(args: Cli) {
 
     let file = File::open(in_path).unwrap();
 
-    collect_stats(file);
+    let index_mapping = args.index_file.map(|p| {
+        let index_file = File::open(p.as_path()).unwrap();
+        
+        let size = index_file.metadata().unwrap().len();
+        let mut r = std::io::BufReader::new(index_file);
+        let mut arr = Vec::<u32>::new();
+        
+        assert!(size as usize%std::mem::size_of::<u32>() == 0);
+        arr.reserve(size as usize /std::mem::size_of::<u32>());
+        
+        dbg!(size);
+        for _ in 0..(size as usize/std::mem::size_of::<u32>()) {
+            arr.push(byteorder::ReadBytesExt::read_u32::<byteorder::LittleEndian>(&mut r).unwrap());
+        }
+
+        std::sync::Arc::new(arr)
+    });
+
+    collect_stats(file, index_mapping);
 }
 
 fn test(args: Cli) {
@@ -174,7 +198,7 @@ fn test(args: Cli) {
 fn depth(args: Cli) {
     let in_path = args.in_path.as_path().to_str().unwrap();
     let gbam_file = File::open(in_path).unwrap();
-    main_depth(gbam_file, args.bed_file.as_ref(), args.query, args.mapq, args.out_path, args.thread_num);
+    main_depth(gbam_file, args.bed_file.as_ref(), None, args.query, args.mapq, args.out_path, args.thread_num);
 }
 
 fn view_header(args: Cli){
