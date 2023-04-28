@@ -37,32 +37,29 @@ fn count_decimal_digit32(num: u32) -> usize {
 /// Make sure buffer can actually fit u32 integer
 pub unsafe fn u32toa_countlut(mut value: u32, mut buffer: *mut u8) -> *mut u8 {
     let digit = count_decimal_digit32(value);
-    unsafe {
-        buffer = buffer.add(digit);
-
-        // ptr is right after the number in the buffer, you can place space/tab here.
-        while value >= 100 {
-            let i = ((value % 100) << 1) as usize;
-            value /= 100;
-            buffer = buffer.offset(-1);
-            *buffer = G_DIGITS_LUT[i + 1] as u8;
-            buffer =  buffer.offset(-1);
-            *buffer = G_DIGITS_LUT[i] as u8;
-        }
-
-        if value < 10 {
-            buffer = buffer.offset(-1);
-            *buffer = value as u8 + b'0';
-        }
-        else {
-            let i = (value << 1) as usize;
-            buffer = buffer.offset(-1);
-            *buffer = G_DIGITS_LUT[i + 1] as u8;
-            buffer = buffer.offset(-1);
-            *buffer = G_DIGITS_LUT[i] as u8;
-        }
-        buffer.add(digit)
+    buffer = buffer.add(digit);
+    // ptr is right after the number in the buffer, you can place space/tab here.
+    while value >= 100 {
+        let i = ((value % 100) << 1) as usize;
+        value /= 100;
+        buffer = buffer.offset(-1);
+        *buffer = G_DIGITS_LUT[i + 1] as u8;
+        buffer =  buffer.offset(-1);
+        *buffer = G_DIGITS_LUT[i] as u8;
     }
+
+    if value < 10 {
+        buffer = buffer.offset(-1);
+        *buffer = value as u8 + b'0';
+    }
+    else {
+        let i = (value << 1) as usize;
+        buffer = buffer.offset(-1);
+        *buffer = G_DIGITS_LUT[i + 1] as u8;
+        buffer = buffer.offset(-1);
+        *buffer = G_DIGITS_LUT[i] as u8;
+    }
+    buffer.add(digit)
 }
 
 /// # Safety
@@ -70,10 +67,8 @@ pub unsafe fn u32toa_countlut(mut value: u32, mut buffer: *mut u8) -> *mut u8 {
 pub unsafe fn i32toa_countlut(value: i32, mut buffer: *mut u8) -> *mut u8 {
     let mut u:u32 = value as u32;
     if value < 0 {
-        unsafe {
-            *buffer = b'-';
-            buffer = buffer.add(1);
-        }
+        *buffer = b'-';
+        buffer = buffer.add(1);
         u = !u + 1;
     }
     u32toa_countlut(u, buffer)
