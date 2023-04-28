@@ -129,7 +129,9 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
     let mut accum = 0;  
     let mut bed_gz_printer = bed_gz_path.map(BedGzPrinter::new);
 
-    let mut printer = ConsolePrinter::new();
+    let st = std::io::stdout();
+    let lock = st.lock();
+    let mut printer = ConsolePrinter::new(lock);
 
     loop {
         // dbg!(buffers.len()); 
@@ -309,16 +311,15 @@ fn find_rightmost_block(id: i32, block_metas: &Vec<BlockMeta>) -> i64 {
 
 struct ConsolePrinter<'a> {
     buffer: [u8; 400],
-    stdout: BufWriter<StdoutLock<'a>>,
+    stdout: BufWriter<StdoutLock<'a>>
+ 
 }
 impl<'a> ConsolePrinter<'a> {
-    pub fn new() -> Self {
-        let stdout = std::io::stdout();
-        let stdout = stdout.lock();
-        let stdout = BufWriter::with_capacity(64 * 1024, stdout);
+    pub fn new(stdout_lock: StdoutLock<'a>) -> Self {
+        let stdout = BufWriter::with_capacity(64 * 1024, stdout_lock);
         Self {  
             buffer: [0;400],
-            stdout
+            stdout,
         }
     }
 

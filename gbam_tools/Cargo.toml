@@ -17,7 +17,7 @@ crc32fast = "1.2.1"
 rayon = "1.7.0"
 flume = "0.10.5"
 memmap2 = "0.3.0"
-rust-htslib = { version = "*", default-features = false }
+rust-htslib = { version = "0.39.0", default-features = false }
 itertools = "0.10.5"
 lzzzz = "1.0.3"
 bitflags = "2.0.2"
