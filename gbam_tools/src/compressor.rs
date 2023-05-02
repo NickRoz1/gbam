@@ -134,6 +134,11 @@ pub fn compress(source: &[u8], mut dest: Vec<u8>, codec: Codecs) -> Vec<u8> {
                     "Compression error",
                 )),
             }
+        },
+        Codecs::NoCompression => {
+            dest.clear();
+            dest.extend_from_slice(source);
+            Ok(dest)
         }
     };
     compressed_bytes.unwrap()

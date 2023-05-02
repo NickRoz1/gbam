@@ -181,6 +181,10 @@ fn decompress_block(source: &[u8], dest: &mut Vec<u8>, codec: &Codecs) -> std::i
         Codecs::Lz4 => {
             lz4::decompress(source, dest).unwrap();
         }
+        Codecs::NoCompression => {
+            dest.clear();
+            dest.extend_from_slice(source);
+        }
     };
     Ok(())
 }

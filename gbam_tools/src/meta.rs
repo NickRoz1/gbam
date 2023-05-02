@@ -81,12 +81,14 @@ impl Into<Vec<u8>> for FileInfo {
 
 /// Type of encoding used in GBAM writer
 /// TODO: use MessagePack or another compact form of serialization.
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub enum Codecs {
     /// Gzip encoding
     Gzip,
     /// LZ4 encoding
     Lz4,
+    /// No compression
+    NoCompression,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
