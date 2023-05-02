@@ -2,7 +2,7 @@ use bam_tools::record::fields::Fields;
 use std::cmp::min;
 use std::convert::TryInto;
 use std::io::{Write, BufWriter, StdoutLock};
-use std::ops::RangeInclusive;
+use std::ops::{RangeInclusive, Range};
 use std::sync::Arc;
 use std::{cmp::Ordering, collections::HashMap, time::Instant};
 use std::fs::File;
@@ -24,7 +24,7 @@ fn panic_err() {
     panic!("The query you entered is incorrect. The format is as following: <ref name>:<position>\ne.g. chr1:1257\n");
 }
 
-fn process_range(mut gbam_reader: Reader, rec_range: RangeInclusive<usize>, mut scan_line: Vec<i32>, target_id: i32) -> Vec<i32> {
+fn process_range(mut gbam_reader: Reader, rec_range: Range<usize>, mut scan_line: Vec<i32>, target_id: i32) -> Vec<i32> {
     let mut rec = GbamRecord::default();
     for idx in rec_range {
         gbam_reader.fill_record(idx, &mut rec);
@@ -56,16 +56,37 @@ fn process_range(mut gbam_reader: Reader, rec_range: RangeInclusive<usize>, mut 
 fn calc_depth(gbam_file: File, file_meta: Arc<FileMeta>, index_file: Option<Arc<Vec<u32>>>, number_of_records: usize, ref_id: i32, mut coverage_arr: Vec<i32>, ref_len: usize) -> Vec<i32> {
     coverage_arr.resize(ref_len+1, 0);
 
-    let lower_bound = if let Some(block_num) = find_leftmost_block(ref_id, file_meta.view_blocks(&Fields::RefID)) {
-        block_num as usize
+    // let lower_bound = if let Some(block_num) = find_leftmost_block(ref_id, file_meta.view_blocks(&Fields::RefID)) {
+    //     block_num as usize
+    // }
+    // else {
+    //     // This refid was not found in any block
+    //     return coverage_arr;
+    // };
+    // let upper_bound = find_rightmost_block(ref_id, file_meta.view_blocks(&Fields::RefID)) as usize;
+    let mut first_rec:usize = 0;
+    let mut reader = Reader::new_with_meta(gbam_file.try_clone().unwrap(), ParsingTemplate::new_with(&[Fields::RefID]), &file_meta, index_file.clone()).unwrap();
+    let mut last_rec:usize=  reader.amount;
+    
+    let mut buf = GbamRecord::default();
+    while(last_rec - first_rec > 1){
+        let mid: usize = (first_rec + last_rec)/2;
+        reader.fill_record(mid, &mut buf);
+        if buf.refid.unwrap() >= ref_id {
+            last_rec = mid;
+        }
+        else{
+            first_rec = mid;
+        }
     }
-    else {
-        // This refid was not found in any block
+    first_rec += 1;
+    reader.fill_record(first_rec, &mut buf);
+    if buf.refid.unwrap() != ref_id {
         return coverage_arr;
-    };
-    let upper_bound = find_rightmost_block(ref_id, file_meta.view_blocks(&Fields::RefID)) as usize;
-    let first_rec = (lower_bound)*file_meta.view_blocks(&Fields::RefID)[0].numitems as usize;
-    let last_rec = std::cmp::min(upper_bound*file_meta.view_blocks(&Fields::RefID)[0].numitems as usize, number_of_records-1);
+    }
+
+
+    // let last_rec = std::cmp::min(upper_bound*file_meta.view_blocks(&Fields::RefID)[0].numitems as usize, number_of_records-1);
 
     // let mut temp_reader = Reader::new_with_meta(gbam_file.try_clone().unwrap(), ParsingTemplate::new_with(&[Fields::RefID, Fields::Pos, Fields::RawCigar]), &file_meta).unwrap();
     // let mut rec = GbamRecord::default();
@@ -80,7 +101,7 @@ fn calc_depth(gbam_file: File, file_meta: Arc<FileMeta>, index_file: Option<Arc<
 
     // dbg!("Allocated {}", ref_len);
 
-    let mut coverage = process_range(Reader::new_with_meta(gbam_file.try_clone().unwrap(), ParsingTemplate::new_with(&[Fields::RefID, Fields::Pos, Fields::RawCigar, Fields::Flags]), &file_meta, index_file).unwrap(), first_rec..=last_rec, coverage_arr, ref_id);
+    let mut coverage = process_range(Reader::new_with_meta(gbam_file.try_clone().unwrap(), ParsingTemplate::new_with(&[Fields::RefID, Fields::Pos, Fields::RawCigar, Fields::Flags]), &file_meta, index_file).unwrap(), first_rec..reader.amount, coverage_arr, ref_id);
     let mut acc = 0;
     for slot in coverage.iter_mut() {
         acc += *slot;

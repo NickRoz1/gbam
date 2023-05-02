@@ -1,5 +1,6 @@
 // use gbam_tools::bam_to_gbam;
 use bam_tools::record::fields::Fields;
+use byteorder::{ReadBytesExt, LittleEndian};
 use gbam_tools::{
     bam::bam_to_gbam::bam_sort_to_gbam,
     bam::gbam_to_bam::gbam_to_bam,
@@ -11,7 +12,7 @@ use gbam_tools::{
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use std::{path::PathBuf, io::{BufWriter, Write}};
+use std::{path::PathBuf, convert::TryInto, io::{BufWriter, Write}};
 use std::time::Instant;
 use std::fs::File;
 use structopt::StructOpt;
@@ -198,7 +199,21 @@ fn test(args: Cli) {
 fn depth(args: Cli) {
     let in_path = args.in_path.as_path().to_str().unwrap();
     let gbam_file = File::open(in_path).unwrap();
-    main_depth(gbam_file, args.bed_file.as_ref(), None, args.query, args.mapq, args.out_path, args.thread_num);
+    if let Some(index) = args.index_file {
+        let file = File::open(index).unwrap();
+        let size = file.metadata().unwrap().len();
+        let mut f = std::io::BufReader::new(file);
+        let mut res = vec![0 as u32; (size/(std::mem::size_of::<u32>() as u64)).try_into().unwrap()];
+
+        for slot in &mut res {
+            *slot = f.read_u32::<LittleEndian>().unwrap();
+        }
+
+        main_depth(gbam_file, args.bed_file.as_ref(), Some(std::sync::Arc::new(res)), args.query, args.mapq, args.out_path, args.thread_num);
+    }
+    else{
+        main_depth(gbam_file, args.bed_file.as_ref(), None, args.query, args.mapq, args.out_path, args.thread_num);
+    }
 }
 
 fn view_header(args: Cli){
