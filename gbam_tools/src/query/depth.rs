@@ -24,19 +24,19 @@ fn panic_err() {
     panic!("The query you entered is incorrect. The format is as following: <ref name>:<position>\ne.g. chr1:1257\n");
 }
 
-fn process_range(mut gbam_reader: Reader, rec_range: Range<usize>, mut scan_line: Vec<i32>, target_id: i32) -> Vec<i32> {
-    let mut rec = GbamRecord::default();
+fn process_range(preparsed_records: Arc<Vec<DepthUnit>>, index_file: Option<Arc<Vec<u32>>>, rec_range: Range<usize>, mut scan_line: Vec<i32>, target_id: i32) -> Vec<i32> {
+    // let mut rec = GbamRecord::default();
     for idx in rec_range {
-        gbam_reader.fill_record(idx, &mut rec);
-        if rec.refid.unwrap() != target_id {
+        let rec = preparsed_records[index_file.as_ref().unwrap()[idx] as usize];
+        if rec.refid != target_id {
             continue;
         }
-        if rec.cigar.as_ref().unwrap().0.is_empty() {
+        if rec.cigar == 0 {
             continue;
         }
-        let read_start: usize = rec.pos.unwrap().try_into().unwrap();
-        let mut base_cov = rec.cigar.as_ref().unwrap().base_coverage() as usize;
-        if(rec.flag.unwrap() & 0b11100000100) != 0 {
+        let read_start: usize = rec.pos as usize;
+        let mut base_cov = rec.cigar as usize;
+        if(rec.flag & 0b11100000100) != 0 {
             base_cov = 0;
         }
         if base_cov == 0 {
@@ -53,7 +53,7 @@ fn process_range(mut gbam_reader: Reader, rec_range: Range<usize>, mut scan_line
     scan_line
 }
 
-fn calc_depth(gbam_file: File, file_meta: Arc<FileMeta>, index_file: Option<Arc<Vec<u32>>>, number_of_records: usize, ref_id: i32, mut coverage_arr: Vec<i32>, ref_len: usize) -> Vec<i32> {
+fn calc_depth(preparsed_records: Arc<Vec<DepthUnit>>, file_meta: Arc<FileMeta>, index_file: Option<Arc<Vec<u32>>>, number_of_records: usize, ref_id: i32, mut coverage_arr: Vec<i32>, ref_len: usize) -> Vec<i32> {
     coverage_arr.resize(ref_len+1, 0);
 
     // let lower_bound = if let Some(block_num) = find_leftmost_block(ref_id, file_meta.view_blocks(&Fields::RefID)) {
@@ -65,14 +65,14 @@ fn calc_depth(gbam_file: File, file_meta: Arc<FileMeta>, index_file: Option<Arc<
     // };
     // let upper_bound = find_rightmost_block(ref_id, file_meta.view_blocks(&Fields::RefID)) as usize;
     let mut first_rec:usize = 0;
-    let mut reader = Reader::new_with_meta(gbam_file.try_clone().unwrap(), ParsingTemplate::new_with(&[Fields::RefID]), &file_meta, index_file.clone()).unwrap();
-    let mut last_rec:usize=  reader.amount;
     
-    let mut buf = GbamRecord::default();
+    let mut last_rec:usize=  preparsed_records.len();
+    
+  
     while(last_rec - first_rec > 1){
         let mid: usize = (first_rec + last_rec)/2;
-        reader.fill_record(mid, &mut buf);
-        if buf.refid.unwrap() >= ref_id {
+        let buf = preparsed_records[index_file.as_ref().unwrap()[mid] as usize];
+        if buf.refid >= ref_id {
             last_rec = mid;
         }
         else{
@@ -80,8 +80,9 @@ fn calc_depth(gbam_file: File, file_meta: Arc<FileMeta>, index_file: Option<Arc<
         }
     }
     first_rec += 1;
-    reader.fill_record(first_rec, &mut buf);
-    if buf.refid.unwrap() != ref_id {
+    let amount = preparsed_records.len();
+
+    if first_rec == amount || preparsed_records[index_file.as_ref().unwrap()[first_rec] as usize].refid != ref_id {
         return coverage_arr;
     }
 
@@ -101,13 +102,21 @@ fn calc_depth(gbam_file: File, file_meta: Arc<FileMeta>, index_file: Option<Arc<
 
     // dbg!("Allocated {}", ref_len);
 
-    let mut coverage = process_range(Reader::new_with_meta(gbam_file.try_clone().unwrap(), ParsingTemplate::new_with(&[Fields::RefID, Fields::Pos, Fields::RawCigar, Fields::Flags]), &file_meta, index_file).unwrap(), first_rec..reader.amount, coverage_arr, ref_id);
+    let mut coverage = process_range(preparsed_records, index_file, first_rec..amount, coverage_arr, ref_id);
     let mut acc = 0;
     for slot in coverage.iter_mut() {
         acc += *slot;
         *slot = acc; 
     }
     coverage
+}
+
+#[derive(Default, Clone, Copy)]
+struct DepthUnit {
+    refid: i32,
+    pos: i32,
+    cigar: u32,
+    flag: u16,
 }
 
 pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, index_file: Option<Arc<Vec<u32>>>, bed_cli_request: Option<String>, _mapq: Option<u32>, bed_gz_path: Option<PathBuf>, thread_num: Option<usize>){
@@ -136,7 +145,7 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, index_file: Optio
         buffers = vec![Vec::<i32>::new();std::cmp::min(thread_num.unwrap(), 8)];
     }
 
-    type VectorOfSendersAndReceivers = Vec::<Option<(Sender<(File, Arc<FileMeta>, Option<Arc<Vec<u32>>>, usize, i32, Vec<i32>, usize, String)>,Receiver<(String, Vec<i32>)>)>>;
+    type VectorOfSendersAndReceivers= Vec::<Option<(Sender<(Arc<Vec<DepthUnit>>, Arc<FileMeta>, Option<Arc<Vec<u32>>>, usize, i32, Vec<i32>, usize, String)>,Receiver<(String, Vec<i32>)>)>>;
     let mut circular_buf_channels = VectorOfSendersAndReceivers::new();
     (0..buffers.len()).for_each(|_|circular_buf_channels.push(None));
     let mut handles: Vec::<JoinHandle<()>> = Vec::new();
@@ -153,6 +162,24 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, index_file: Optio
     let st = std::io::stdout();
     let lock = st.lock();
     let mut printer = ConsolePrinter::new(lock);
+
+    let mut temp: Reader = Reader::new_with_meta(gbam_file.try_clone().unwrap(), ParsingTemplate::new_with(&[Fields::RefID, Fields::Pos, Fields::RawCigar, Fields::Flags]), &file_meta, None).unwrap();
+    dbg!(temp.amount);
+    let mut preparsed = vec![DepthUnit::default();temp.amount];
+
+    let mut it = temp.records();
+    let mut var_i = 0;
+    while let Some(rec) = it.next_rec() {
+        preparsed[var_i].refid = rec.refid.unwrap();
+        preparsed[var_i].pos = rec.pos.unwrap();
+        preparsed[var_i].cigar = rec.cigar.as_ref().unwrap().base_coverage();
+        preparsed[var_i].flag = rec.flag.unwrap();
+        var_i += 1;
+    }   
+
+    let arc_of_records = Arc::new(preparsed);
+
+    dbg!("Finished parsing all records to RAM buffer.");
 
     loop {
         // dbg!(buffers.len()); 
@@ -231,8 +258,8 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, index_file: Optio
                 let (ready_s, ready_r) = bounded(1);
                 let handle = thread::spawn(move || {
                     for task  in r {
-                        let (file, meta, index_file, number_of_records, ref_id, buf, t_ref_len, t_chr) = task;
-                        ready_s.send((t_chr, calc_depth(file, meta, index_file, number_of_records, ref_id, buf, t_ref_len))).unwrap();
+                        let (preparsed, meta, index_file, number_of_records, ref_id, buf, t_ref_len, t_chr) = task;
+                        ready_s.send((t_chr, calc_depth(preparsed, meta, index_file, number_of_records, ref_id, buf, t_ref_len))).unwrap();
                     } 
                 });
                 circular_buf_channels[idx] = Some((s, ready_r));
@@ -246,7 +273,7 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, index_file: Optio
             let index = index_file.as_ref().map(|f| f.clone());
             let t_chr = chr.clone();
             let t_ref_len = *ref_len as usize;
-            circular_buf_channels[idx].as_mut().unwrap().0.send((file, meta, index, number_of_records, ref_id, buf, t_ref_len, t_chr)).unwrap();
+            circular_buf_channels[idx].as_mut().unwrap().0.send((arc_of_records.clone(), meta, index, number_of_records, ref_id, buf, t_ref_len, t_chr)).unwrap();
         }
 
         if buffers.len() == circular_buf_channels.len(){
