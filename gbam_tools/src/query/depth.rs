@@ -64,25 +64,25 @@ fn calc_depth(preparsed_records: Arc<Vec<DepthUnit>>, file_meta: Arc<FileMeta>, 
     //     return coverage_arr;
     // };
     // let upper_bound = find_rightmost_block(ref_id, file_meta.view_blocks(&Fields::RefID)) as usize;
-    let mut first_rec:usize = 0;
+    let mut first_rec:i64 = -1;
     
-    let mut last_rec:usize=  preparsed_records.len();
+    let mut last_rec:i64=  preparsed_records.len() as i64;
     
   
     while(last_rec - first_rec > 1){
-        let mid: usize = (first_rec + last_rec)/2;
+        let mid: usize = ((first_rec + last_rec)/2) as usize;
         let buf = preparsed_records[index_file.as_ref().unwrap()[mid] as usize];
-        if buf.refid >= ref_id {
-            last_rec = mid;
+        if buf.refid >= ref_id || buf.refid == -1 {
+            last_rec = mid as i64;
         }
         else{
-            first_rec = mid;
+            first_rec = mid as i64;
         }
     }
     first_rec += 1;
     let amount = preparsed_records.len();
 
-    if first_rec == amount || preparsed_records[index_file.as_ref().unwrap()[first_rec] as usize].refid != ref_id {
+    if first_rec as usize == amount || preparsed_records[index_file.as_ref().unwrap()[first_rec as usize] as usize].refid != ref_id {
         return coverage_arr;
     }
 
@@ -102,7 +102,7 @@ fn calc_depth(preparsed_records: Arc<Vec<DepthUnit>>, file_meta: Arc<FileMeta>, 
 
     // dbg!("Allocated {}", ref_len);
 
-    let mut coverage = process_range(preparsed_records, index_file, first_rec..amount, coverage_arr, ref_id);
+    let mut coverage = process_range(preparsed_records, index_file, first_rec as usize..amount, coverage_arr, ref_id);
     let mut acc = 0;
     for slot in coverage.iter_mut() {
         acc += *slot;
