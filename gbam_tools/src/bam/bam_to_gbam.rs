@@ -9,7 +9,10 @@ use bam_tools::Reader;
 use std::borrow::Cow;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
+use std::path::PathBuf;
 use std::str::FromStr;
+use tempdir::TempDir;
+
 
 const MEM_LIMIT: usize = 2000 * MEGA_BYTE_SIZE;
 
@@ -27,7 +30,7 @@ pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs) {
 }
 
 /// Converts BAM file to GBAM file. Sorts BAM file in process. This uses the `bam_parallel` reader.
-pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs, mut sort_temp_mode: Option<String>) {
+pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs, mut sort_temp_mode: Option<String>, temp_dir: Option<PathBuf>) {
     let fin_for_ref_seqs = File::open(in_path).expect("failed");
     let mut reader_for_header_only = Reader::new(fin_for_ref_seqs, 1);
     let (sam_header, ref_seqs, ref_seq_offset) =
@@ -49,7 +52,7 @@ pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs, mut sort_t
         Vec::from(only_text),
     );
 
-    let tmp_dir_path = std::env::temp_dir();
+    let tmp_dir_path = temp_dir.map_or(std::env::temp_dir(), |path| path);
     if sort_temp_mode.is_none() {
         sort_temp_mode = Some(String::from_str("file").unwrap());
     }
@@ -61,11 +64,13 @@ pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs, mut sort_t
         _ => panic!("Unknown sort_temp_mode mode."),
     };
 
+    let dir = TempDir::new_in(tmp_dir_path, "BAM sort temporary directory.").unwrap();
+
     sort::sort_bam(
         MEM_LIMIT,
         buf_reader,
         &mut writer,
-        tmp_dir_path,
+        &dir,
         0,
         4,
         tmp_medium_mode,

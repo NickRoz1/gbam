@@ -22,6 +22,7 @@ itertools = "0.10.5"
 lzzzz = "1.0.3"
 bitflags = "2.0.2"
 crossbeam = "0.8.2"
+tempdir = "0.3.7"
 
 [dependencies.pyo3]
 version = "0.13.2"

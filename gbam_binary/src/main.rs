@@ -55,7 +55,10 @@ struct Cli {
     mapq: Option<u32>,
     /// Depth query. Number of threads to use. WARNING: each thread will attempt to allocate up to 1GB.
     #[structopt(long)]
-    thread_num: Option<usize>
+    thread_num: Option<usize>,
+    /// Sort temp directory.
+    #[structopt(long, parse(from_os_str))]
+    temp_dir: Option<PathBuf>,
 }
 
 /// Limited wrapper of `gbam_tools` converts BAM file to GBAM
@@ -89,7 +92,7 @@ fn convert(args: Cli) {
         .to_str()
         .unwrap();
     if args.sort {
-        bam_sort_to_gbam(in_path, out_path, Codecs::Lz4, args.sort_temp_mode)
+        bam_sort_to_gbam(in_path, out_path, Codecs::Lz4, args.sort_temp_mode, args.temp_dir);
     } else {
         bam_to_gbam(in_path, out_path, Codecs::Lz4);
     }
