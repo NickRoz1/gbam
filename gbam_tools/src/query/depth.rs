@@ -29,7 +29,7 @@ fn process_range(preparsed_records: Arc<Vec<DepthUnit>>, index_file: Option<Arc<
     for idx in rec_range {
         let rec = preparsed_records[index_file.as_ref().unwrap()[idx] as usize];
         if rec.refid != target_id {
-            continue;
+            break;
         }
         if rec.cigar == 0 {
             continue;
