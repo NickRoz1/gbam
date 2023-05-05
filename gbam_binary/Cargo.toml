@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 gbam_tools = { path = "../gbam_tools"}
-bam_tools = { git = "https://github.com/NickRoz1/bam_parallel" }
+bam_tools = {  git = "https://github.com/NickRoz1/bam_parallel", branch = "feature/index_sort"}
 byteorder = "1.2.3"
 structopt = "0.3.21"
 memmap2 = "0.3.0"
