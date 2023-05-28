@@ -142,33 +142,8 @@ fn flagstat(args: Cli) {
         .to_str()
         .expect("Couldn't parse input path.");
 
-    let mut tmplt = ParsingTemplate::new();
-    tmplt.set(&Fields::Flags, true);
-    tmplt.set(&Fields::RefID, true);
-    tmplt.set(&Fields::NextRefID, true);
-    tmplt.set(&Fields::Mapq, true);
-
     let file = File::open(in_path).unwrap();
-
-    let index_mapping = args.index_file.map(|p| {
-        let index_file = File::open(p.as_path()).unwrap();
-        
-        let size = index_file.metadata().unwrap().len();
-        let mut r = std::io::BufReader::new(index_file);
-        let mut arr = Vec::<u32>::new();
-        
-        assert!(size as usize%std::mem::size_of::<u32>() == 0);
-        arr.reserve(size as usize /std::mem::size_of::<u32>());
-        
-        dbg!(size);
-        for _ in 0..(size as usize/std::mem::size_of::<u32>()) {
-            arr.push(byteorder::ReadBytesExt::read_u32::<byteorder::LittleEndian>(&mut r).unwrap());
-        }
-
-        std::sync::Arc::new(arr)
-    });
-
-    collect_stats(file, index_mapping);
+    collect_stats(file);
 }
 
 fn test(args: Cli) {
