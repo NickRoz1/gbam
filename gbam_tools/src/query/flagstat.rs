@@ -189,7 +189,7 @@ pub fn collect_stats(file: File) {
         tmplt.set(&Fields::NextRefID, true);
         tmplt.set(&Fields::Mapq, true);
     
-        let mut reader = Reader::new_with_meta(file.try_clone().unwrap(), tmplt, &file_meta).unwrap();
+        let mut reader = Reader::new_with_meta(file.try_clone().unwrap(), tmplt, &file_meta, None).unwrap();
 
         for rec_num in records_range {
             reader.fill_record(rec_num, &mut rec);
