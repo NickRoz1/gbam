@@ -268,8 +268,9 @@ impl Inner {
         // At this point everything should be flushed.
         debug_assert!(!self.flush_required(data));
 
-        if self.buffer.len() < SIZE_LIMIT {
-            self.buffer.resize(std::cmp::max(data.len(), SIZE_LIMIT), 0);
+        let limit = std::cmp::max(data.len(), SIZE_LIMIT);
+        if self.buffer.len() < limit {
+            self.buffer.resize(limit, 0);
         }
 
         self.buffer[self.offset..self.offset + data.len()].clone_from_slice(data);
