@@ -28,14 +28,14 @@ def gen_gbam_file():
     # Sort and convert to GBAM.
     subprocess.run([binary_path, bam_file_path, "-c", "-s", "-o", gbam_file_sorted.name]) 
     bam_file_sorted_path = NamedTemporaryFile(suffix=".bam")
-    subprocess.run(["samtools", "sort", bam_file_path, "-o", bam_file_sorted_path.name]) 
+    subprocess.run(["samtools", "sort", "-@ 8", bam_file_path, "-o", bam_file_sorted_path.name]) 
 
 def compare_bam_files(original, result):
     out_of_original_view = NamedTemporaryFile()
     out_of_result_view = NamedTemporaryFile()
     
-    subprocess.check_call(["samtools", "view", original, '-o', out_of_original_view.name], stderr=subprocess.STDOUT)
-    subprocess.check_call(["samtools", "view", result, '-o', out_of_result_view.name], stderr=subprocess.STDOUT)
+    subprocess.check_call(["samtools", "view", "-@ 8", original, '-o', out_of_original_view.name], stderr=subprocess.STDOUT)
+    subprocess.check_call(["samtools", "view", "-@ 8", result, '-o', out_of_result_view.name], stderr=subprocess.STDOUT)
 
     assert(os.path.getsize(out_of_result_view.name) > 0)
     assert(os.path.getsize(out_of_result_view.name) == os.path.getsize(out_of_original_view.name))
