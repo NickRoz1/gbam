@@ -30,7 +30,7 @@ def gen_gbam_file(request):
     subprocess.run([binary_path, bam_file_path, "-c", "-o", gbam_file.name]) 
     gbam_file_sorted = NamedTemporaryFile()
     # Sort and convert to GBAM.
-    subprocess.run([binary_path, bam_file_path, "-c", "-s", "-o", gbam_file_sorted.name]) 
+    subprocess.run([binary_path, bam_file_path, "-c", "-s", "-o", gbam_file_sorted.name, "--index-sort"]) 
     bam_file_sorted_path = NamedTemporaryFile(suffix=".bam")
     subprocess.run(["samtools", "sort", "-@ 8", bam_file_path, "-o", bam_file_sorted_path.name]) 
 
@@ -117,7 +117,7 @@ def test_depth():
 
     subprocess.check_call(['mosdepth', '-x', mosdepth_prefix, bam_file_path.name], cwd=temp_dir.name)
     bed_gz = NamedTemporaryFile()
-    subprocess.check_call([binary_path, gbam_file_sorted.name, '-d', '-o', bed_gz.name])
+    subprocess.check_call([binary_path, gbam_file_sorted.name, '-d', '-o', bed_gz.name, '--index-file', gbam_file_sorted.name + '.gbai'])
     
     with gzip.open(bed_gz, "rb") as gbam_res, gzip.open(mosdepth_file, "rb") as mosdepth_res:
         # Read the decompressed data from both files
