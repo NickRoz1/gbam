@@ -44,6 +44,9 @@ time ./target/release/gbam_binary --depth test.sorted.gbam --thread-num 4 -o tes
 # Run all tests
 pytest
 
+# To run all correctness test on a specific file path
+pytest --use-custom-file=/home/test/testing_big_file/test.bam
+
 # Test sort on user provided file (slow)
 pytest -k test_sort --bam-file-path=/home/test/testing_big_file/test.bam
 

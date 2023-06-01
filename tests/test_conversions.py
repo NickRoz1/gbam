@@ -19,8 +19,10 @@ gbam_file_sorted = None
 bam_file_sorted_path = None
 
 @pytest.fixture(scope='module', autouse=True)
-def gen_gbam_file():
-    global gbam_file, gbam_file_sorted, bam_file_sorted_path
+def gen_gbam_file(request):
+    global gbam_file, gbam_file_sorted, bam_file_sorted_path, bam_file_path
+    if request.config.getoption("--use-custom-file") is not None:
+        bam_file_path = Path(request.config.getoption("--use-custom-file"))
     gbam_file = NamedTemporaryFile()
     # Simply convert to GBAM.
     subprocess.run([binary_path, bam_file_path, "-c", "-o", gbam_file.name]) 
