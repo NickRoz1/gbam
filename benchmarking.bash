@@ -52,7 +52,7 @@ echo "--------------------------------------------------------------------------
 
 echo "---------------------------------------------------------------------------------------------------------------"
 echo ""
-echo "Benchmark gbam depth versus samtools and sambamba depth... (sambamba is disabled by default due to taking too long to complete)"
+echo "Benchmark gbam depth versus samtools and sambamba depth..."
 echo ""
 echo ""
 echo "---------------------------------------------------------------------------------------------------------------"
