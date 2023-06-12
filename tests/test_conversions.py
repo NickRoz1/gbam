@@ -7,6 +7,8 @@ import shutil
 import os
 import io
 
+with_depth = pytest.mark.skipif("not config.getoption('with_depth')")
+
 cur_file_path = Path(__file__).parent.absolute()
 
 test_data_folder = cur_file_path.parent/"test_data"
@@ -97,6 +99,7 @@ def test_sort(request):
 
 
 # Testing against mosdepth.
+@with_depth
 def test_depth():    
     temp_dir = TemporaryDirectory()
     dir_path = Path(temp_dir.name)

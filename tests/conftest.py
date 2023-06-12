@@ -5,3 +5,5 @@ def pytest_addoption(parser):
     parser.addoption(
         "--use-custom-file", action="store", default=bam_file_path, help="Provide a full path to a file you want to use to run all tests on."
     )
+    parser.addoption('--depth_test', action='store_true', dest="with_depth",
+                 default=False, help="Enable depth test.")
