@@ -47,7 +47,7 @@ impl Reader {
         let _inner: Box<File> = Box::new(_inner);
         
         let mmap = Arc::new(unsafe { MmapOptions::new().map(&_copy)? });
-        mmap.advise(memmap2::Advice::Sequential)?;
+        mmap.advise(memmap2::Advice::WillNeed)?;
         // Consumes up to 16 percent of runtime on big files (20GB).
         // verify(&mmap)?;
         let amount = usize::try_from(file_meta
