@@ -6,6 +6,7 @@ use bam_tools::record::fields::{
     field_type, var_size_field_to_index, FieldType, Fields, FIELDS_NUM,
 };
 use byteorder::LittleEndian;
+use memmap2::MmapOptions;
 use memmap2::Mmap;
 
 use crate::meta::{FileInfo, FileMeta, FILE_INFO_SIZE, BlockMeta};
@@ -42,7 +43,7 @@ impl Reader {
 
     pub(crate) fn new_with_meta(_inner: File, parsing_template: ParsingTemplate, file_meta: &Arc<FileMeta>, index_mapping: Option<Arc<Vec<u32>>>) -> std::io::Result<Self> {
         let _inner = Box::new(_inner);
-        let mmap = Arc::new(unsafe { Mmap::map(_inner.borrow())? });
+        let mmap = Arc::new(unsafe { MmapOptions::new().populate().map(_inner.borrow())? });
         // Consumes up to 16 percent of runtime on big files (20GB).
         // verify(&mmap)?;
         let amount = usize::try_from(file_meta
