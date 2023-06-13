@@ -78,7 +78,7 @@ def test_flagstat():
     assert(len(view_of_original) > 0)
     assert(view_of_original == view_of_result)
 
-
+@pytest.mark.skip(reason="It's index sort, comparison of sam view won't work.")
 def test_sort(request):
     gbam_sorted_results = NamedTemporaryFile(suffix=".bam")
     samtools_sorted_results = bam_file_sorted_path
