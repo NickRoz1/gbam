@@ -52,6 +52,7 @@ impl Reader {
             .fold(0, |acc: u64, x| acc + u64::from(x.numitems))).unwrap();
         let meta = file_meta.clone();
 
+        dbg!("Mmap is successfully created.");
         Ok(Self {
             columns: init_columns(&mmap, &parsing_template, &meta),
             original_template: parsing_template.clone(),
