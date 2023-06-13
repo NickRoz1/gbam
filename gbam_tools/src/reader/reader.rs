@@ -46,7 +46,8 @@ impl Reader {
         let _copy = _inner.try_clone()?;
         let _inner: Box<File> = Box::new(_inner);
         
-        let mmap = Arc::new(unsafe { MmapOptions::new().populate().map(&_copy)? });
+        let mmap = Arc::new(unsafe { MmapOptions::new().map(&_copy)? });
+        mmap.advise(memmap2::Advice::Sequential)?;
         // Consumes up to 16 percent of runtime on big files (20GB).
         // verify(&mmap)?;
         let amount = usize::try_from(file_meta
