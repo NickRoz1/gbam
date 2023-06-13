@@ -42,6 +42,7 @@ impl Reader {
     }
 
     pub(crate) fn new_with_meta(_inner: File, parsing_template: ParsingTemplate, file_meta: &Arc<FileMeta>, index_mapping: Option<Arc<Vec<u32>>>) -> std::io::Result<Self> {
+        dbg!("Creating mmap.");
         let _inner = Box::new(_inner);
         let mmap = Arc::new(unsafe { MmapOptions::new().populate().map(_inner.borrow())? });
         // Consumes up to 16 percent of runtime on big files (20GB).
