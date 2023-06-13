@@ -169,16 +169,20 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, index_file: Optio
 
     let mut it = temp.records();
     let mut var_i = 0;
+    let mut how_much_time_spent_in_filling_the_record = 0;  
     while let Some(rec) = it.next_rec() {
+        let now = Instant::now();
         if var_i % 100_000 == 0{
             dbg!("Processed records:");
-            dbg!(var_i*100_000);
+            dbg!(var_i);
+            dbg!(how_much_time_spent_in_filling_the_record);
         }
         preparsed[var_i].refid = rec.refid.unwrap();
         preparsed[var_i].pos = rec.pos.unwrap();
         preparsed[var_i].cigar = rec.cigar.as_ref().unwrap().base_coverage();
         preparsed[var_i].flag = rec.flag.unwrap();
         var_i += 1;
+        how_much_time_spent_in_filling_the_record += now.elapsed().as_millis();
     }   
 
     let arc_of_records = Arc::new(preparsed);
