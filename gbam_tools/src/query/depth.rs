@@ -19,6 +19,7 @@ use std::thread::JoinHandle;
 use super::int2str::{i32toa_countlut, u32toa_countlut};
 use flate2::Compression;
 use flate2::write::GzEncoder;
+use libc::{mlockall, MCL_FUTURE};
 
 #[allow(dead_code)]
 fn panic_err() {
@@ -168,6 +169,13 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, index_file: Optio
     dbg!(temp.amount);
     let mut preparsed = vec![DepthUnit::default();temp.amount];
 
+    unsafe{
+        let res = mlockall(MCL_FUTURE);
+        if res == -1 {
+            panic!("Mlock failed.");
+        }
+    }
+    
     let prefault_mmap = temp.mmap.clone();
     let thread_meta = file_meta.clone();
     let prefault_handle = thread::spawn(move || {
