@@ -230,7 +230,7 @@ pub fn main_depth(mut gbam_file: File, bed_file: Option<&PathBuf>, index_file: O
         decompressed_buf.resize(block.uncompressed_size as usize, 0);
         read_manual.seek(SeekFrom::Start(block.seekpos)).unwrap();
         read_manual.read_exact(&mut buf).unwrap();
-        decompress_block(&buf, &mut decompressed_buf, codec).unwrap();
+        // decompress_block(&buf, &mut decompressed_buf, codec).unwrap();
         
         while read_currently < available_in_block {
             let the_cigar_end = indices[read_in_total];
@@ -243,8 +243,8 @@ pub fn main_depth(mut gbam_file: File, bed_file: Option<&PathBuf>, index_file: O
                 dbg!("Processed records:");
                 dbg!(var_i);
             }
-            let actual_cigar = &decompressed_buf[the_cigar_begin..the_cigar_end];
-            parse_cigar(actual_cigar, &mut cigar_buf);
+            // let actual_cigar = &decompressed_buf[the_cigar_begin..the_cigar_end];
+            // parse_cigar(actual_cigar, &mut cigar_buf);
 
             preparsed[var_i].cigar = cigar_buf.base_coverage();
             var_i += 1;
