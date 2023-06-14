@@ -167,6 +167,15 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, index_file: Optio
     dbg!(temp.amount);
     let mut preparsed = vec![DepthUnit::default();temp.amount];
 
+    let prefault_mmap = temp.mmap.clone();
+    let thread_meta = file_meta.clone();
+    let prefault_handle = thread::spawn(move || {
+        for block in thread_meta.view_blocks(&Fields::RawCigar){
+            for i in block.seekpos..(block.seekpos+block.block_size as u64){
+                prefault_mmap[i as usize];
+            }
+        }
+    });
     let mut it = temp.records();
     let mut var_i = 0;
     let mut how_much_time_spent_in_filling_the_record = 0;  
@@ -298,6 +307,7 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, index_file: Optio
         h.join().unwrap();
     }
 
+    prefault_handle.join().unwrap();
     dbg!(accum);
     // Shouldn't allocate more.
     // assert!(coverage_arr.capacity() == longest_chr as usize);

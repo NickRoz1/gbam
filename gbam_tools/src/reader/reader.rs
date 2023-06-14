@@ -31,6 +31,7 @@ pub struct Reader {
     // Kept so File won't drop while used by mmap.
     _inner: Box<File>,
     index_mapping: Option<Arc<Vec<u32>>>,
+    pub mmap: Arc<Mmap>
 }
 
 impl Reader {
@@ -46,7 +47,7 @@ impl Reader {
         let _copy = _inner.try_clone()?;
         let _inner: Box<File> = Box::new(_inner);
         
-        let mmap = Arc::new(unsafe { MmapOptions::new().populate().map(&_copy)? });
+        let mmap = Arc::new(unsafe { MmapOptions::new().map(&_copy)? });
         // mmap.advise(memmap2::Advice::WillNeed)?;
         // Consumes up to 16 percent of runtime on big files (20GB).
         // verify(&mmap)?;
@@ -64,6 +65,7 @@ impl Reader {
             file_meta: meta,
             amount,
             _inner,
+            mmap,
             index_mapping: index_mapping.clone(),
         })
     }
