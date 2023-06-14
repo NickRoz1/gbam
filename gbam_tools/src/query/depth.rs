@@ -179,10 +179,10 @@ pub fn main_depth(mut gbam_file: File, bed_file: Option<&PathBuf>, index_file: O
     
     while let Some(rec) = it.next_rec() {
      
-        if var_i % 100_000 == 0{
-            dbg!("Processed records:");
-            dbg!(var_i);
-        }
+        // if var_i % 100_000 == 0{
+        //     dbg!("Processed records:");
+        //     dbg!(var_i);
+        // }
         preparsed[var_i].refid = rec.refid.unwrap();
         preparsed[var_i].pos = rec.pos.unwrap();
         // preparsed[var_i].cigar = rec.cigar.as_ref().unwrap().base_coverage();
@@ -236,7 +236,11 @@ pub fn main_depth(mut gbam_file: File, bed_file: Option<&PathBuf>, index_file: O
             if read_currently > 0 {
                 the_cigar_begin = indices[read_in_total-1];
             }
-
+            
+            if var_i % 100_000 == 0{
+                dbg!("Processed records:");
+                dbg!(var_i);
+            }
             let actual_cigar = &decompressed_buf[the_cigar_begin..the_cigar_end];
             parse_cigar(actual_cigar, &mut cigar_buf);
 
