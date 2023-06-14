@@ -122,6 +122,14 @@ struct DepthUnit {
 }
 
 pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, index_file: Option<Arc<Vec<u32>>>, bed_cli_request: Option<String>, _mapq: Option<u32>, bed_gz_path: Option<PathBuf>, thread_num: Option<usize>){
+    unsafe{
+        let res = mlockall(MCL_FUTURE);
+        if res == -1 {
+            panic!("Mlock failed.");
+        }
+    }
+    
+    
     let mut queries = HashMap::<String, Vec<(u32, u32)>>::new();
     if let Some(bed_path) = bed_file {
         queries = bed::parse_bed_from_file(bed_path).expect("BED file is corrupted.");
@@ -169,13 +177,7 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, index_file: Optio
     dbg!(temp.amount);
     let mut preparsed = vec![DepthUnit::default();temp.amount];
 
-    unsafe{
-        let res = mlockall(MCL_FUTURE);
-        if res == -1 {
-            panic!("Mlock failed.");
-        }
-    }
-    
+
     let prefault_mmap = temp.mmap.clone();
     let thread_meta = file_meta.clone();
     let prefault_handle = thread::spawn(move || {
