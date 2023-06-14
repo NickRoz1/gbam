@@ -1,13 +1,16 @@
 use bam_tools::record::fields::Fields;
+use byteorder::ReadBytesExt;
 use std::arch::asm;
 use std::cmp::min;
 use std::convert::TryInto;
-use std::io::{Write, BufWriter, StdoutLock};
+use std::io::{Write, BufWriter, StdoutLock, Seek, Read};
 use std::ops::{RangeInclusive, Range};
 use std::sync::Arc;
 use std::{cmp::Ordering, collections::HashMap, time::Instant};
 use std::fs::File;
+use crate::query::cigar::Cigar;
 use crate::reader::parse_tmplt::ParsingTemplate;
+use crate::reader::record::parse_cigar;
 use crate::utils::bed;
 /// This module provides function for fast querying of read depth.
 use crate::meta::{BlockMeta, FileMeta};
@@ -19,7 +22,8 @@ use std::thread::JoinHandle;
 use super::int2str::{i32toa_countlut, u32toa_countlut};
 use flate2::Compression;
 use flate2::write::GzEncoder;
-use libc::{mlockall, MCL_FUTURE};
+use std::io::SeekFrom;
+use crate::reader::column::decompress_block;
 
 #[allow(dead_code)]
 fn panic_err() {
@@ -121,15 +125,7 @@ struct DepthUnit {
     flag: u16,
 }
 
-pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, index_file: Option<Arc<Vec<u32>>>, bed_cli_request: Option<String>, _mapq: Option<u32>, bed_gz_path: Option<PathBuf>, thread_num: Option<usize>){
-    unsafe{
-        let res = mlockall(MCL_FUTURE);
-        if res == -1 {
-            panic!("Mlock failed.");
-        }
-    }
-    
-    
+pub fn main_depth(mut gbam_file: File, bed_file: Option<&PathBuf>, index_file: Option<Arc<Vec<u32>>>, bed_cli_request: Option<String>, _mapq: Option<u32>, bed_gz_path: Option<PathBuf>, thread_num: Option<usize>){    
     let mut queries = HashMap::<String, Vec<(u32, u32)>>::new();
     if let Some(bed_path) = bed_file {
         queries = bed::parse_bed_from_file(bed_path).expect("BED file is corrupted.");
@@ -173,41 +169,84 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, index_file: Optio
     let lock = st.lock();
     let mut printer = ConsolePrinter::new(lock);
 
-    let mut temp: Reader = Reader::new_with_meta(gbam_file.try_clone().unwrap(), ParsingTemplate::new_with(&[Fields::RefID, Fields::Pos, Fields::RawCigar, Fields::Flags]), &file_meta, None).unwrap();
+    let mut temp: Reader = Reader::new_with_meta(gbam_file.try_clone().unwrap(), ParsingTemplate::new_with(&[Fields::RefID, Fields::Pos, Fields::Flags]), &file_meta, None).unwrap();
     dbg!(temp.amount);
     let mut preparsed = vec![DepthUnit::default();temp.amount];
 
-
-    let prefault_mmap = temp.mmap.clone();
-    let thread_meta = file_meta.clone();
-    let prefault_handle = thread::spawn(move || {
-        for block in thread_meta.view_blocks(&Fields::RawCigar){
-            for i in block.seekpos..(block.seekpos+block.block_size as u64){
-                if prefault_mmap[i as usize] == 0 {
-                    unsafe{
-                        asm!("nop");
-                    }
-                }
-            }
-        }
-    });
     let mut it = temp.records();
     let mut var_i = 0;
-    let mut how_much_time_spent_in_filling_the_record = 0;  
+    let mut now = Instant::now();
+    
     while let Some(rec) = it.next_rec() {
-        let now = Instant::now();
+     
         if var_i % 100_000 == 0{
             dbg!("Processed records:");
             dbg!(var_i);
-            dbg!(how_much_time_spent_in_filling_the_record);
         }
         preparsed[var_i].refid = rec.refid.unwrap();
         preparsed[var_i].pos = rec.pos.unwrap();
-        preparsed[var_i].cigar = rec.cigar.as_ref().unwrap().base_coverage();
+        // preparsed[var_i].cigar = rec.cigar.as_ref().unwrap().base_coverage();
         preparsed[var_i].flag = rec.flag.unwrap();
         var_i += 1;
-        how_much_time_spent_in_filling_the_record += now.elapsed().as_millis();
     }   
+
+    dbg!("Took to fill with fixed sized fields:");
+    dbg!(now.elapsed().as_millis());
+    
+    now = Instant::now();
+    
+    
+    let mut buf = Vec::new();
+    let mut decompressed_buf = Vec::new();
+
+    let codec = file_meta.get_field_codec(&Fields::NCigar);
+    let mut indices = Vec::new();
+    for block in file_meta.view_blocks(&Fields::NCigar){
+        let available_in_block = block.numitems;
+        buf.resize(block.block_size as usize, 0);
+        decompressed_buf.resize(block.uncompressed_size as usize, 0);
+        gbam_file.seek(SeekFrom::Start(block.seekpos)).unwrap();
+        gbam_file.read_exact(&mut buf).unwrap();
+        decompress_block(&buf, &mut decompressed_buf, codec).unwrap();
+        let mut slice = &decompressed_buf[..];
+        for _ in 0..available_in_block {
+            // dbg!(slice.len());
+            indices.push(slice.read_u32::<byteorder::LittleEndian>().unwrap() as usize);
+        }
+    }
+
+    assert!(temp.amount == indices.len());
+    let codec = file_meta.get_field_codec(&Fields::RawCigar);
+
+    let mut read_in_total = 0;
+    let mut cigar_buf = Cigar::new(Vec::new());
+    var_i = 0;
+    for block in file_meta.view_blocks(&Fields::RawCigar){
+        let available_in_block = block.numitems;
+        let mut read_currently = 0;
+        buf.resize(block.block_size as usize, 0);
+        decompressed_buf.resize(block.uncompressed_size as usize, 0);
+        gbam_file.seek(SeekFrom::Start(block.seekpos)).unwrap();
+        gbam_file.read_exact(&mut buf).unwrap();
+        decompress_block(&buf, &mut decompressed_buf, codec).unwrap();
+        
+        while read_currently < available_in_block {
+            let the_cigar_end = indices[read_in_total];
+            let mut the_cigar_begin = 0;
+            if read_currently > 0 {
+                the_cigar_begin = indices[read_in_total-1];
+            }
+
+            let actual_cigar = &decompressed_buf[the_cigar_begin..the_cigar_end];
+            parse_cigar(actual_cigar, &mut cigar_buf);
+
+            preparsed[var_i].cigar = cigar_buf.base_coverage();
+            var_i += 1;
+            read_currently += 1;
+            read_in_total += 1;
+        }
+        
+    }
 
     let arc_of_records = Arc::new(preparsed);
 
@@ -322,7 +361,6 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, index_file: Optio
         h.join().unwrap();
     }
 
-    prefault_handle.join().unwrap();
     dbg!(accum);
     // Shouldn't allocate more.
     // assert!(coverage_arr.capacity() == longest_chr as usize);

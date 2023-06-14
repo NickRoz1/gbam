@@ -16,13 +16,14 @@ pub mod utils {
 }
 
 pub mod reader {
-    mod column;
+    pub(crate) mod column;
     pub mod parse_tmplt;
     /// GBAM reader
     #[allow(clippy::module_inception)]
     pub mod reader;
     pub mod record;
     pub mod records;
+
 }
 
 #[cfg(not(feature = "python-ffi"))]
