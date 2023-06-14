@@ -1,9 +1,10 @@
+use bam_tools::MEGA_BYTE_SIZE;
 use bam_tools::record::fields::Fields;
 use byteorder::ReadBytesExt;
 use std::arch::asm;
 use std::cmp::min;
 use std::convert::TryInto;
-use std::io::{Write, BufWriter, StdoutLock, Seek, Read};
+use std::io::{Write, BufWriter, StdoutLock, Seek, Read, BufReader};
 use std::ops::{RangeInclusive, Range};
 use std::sync::Arc;
 use std::{cmp::Ordering, collections::HashMap, time::Instant};
@@ -201,12 +202,13 @@ pub fn main_depth(mut gbam_file: File, bed_file: Option<&PathBuf>, index_file: O
 
     let codec = file_meta.get_field_codec(&Fields::NCigar);
     let mut indices = Vec::new();
+    let mut read_manual = BufReader::with_capacity(MEGA_BYTE_SIZE, gbam_file.try_clone().unwrap());
     for block in file_meta.view_blocks(&Fields::NCigar){
         let available_in_block = block.numitems;
         buf.resize(block.block_size as usize, 0);
         decompressed_buf.resize(block.uncompressed_size as usize, 0);
-        gbam_file.seek(SeekFrom::Start(block.seekpos)).unwrap();
-        gbam_file.read_exact(&mut buf).unwrap();
+        read_manual.seek(SeekFrom::Start(block.seekpos)).unwrap();
+        read_manual.read_exact(&mut buf).unwrap();
         decompress_block(&buf, &mut decompressed_buf, codec).unwrap();
         let mut slice = &decompressed_buf[..];
         for _ in 0..available_in_block {
@@ -226,8 +228,8 @@ pub fn main_depth(mut gbam_file: File, bed_file: Option<&PathBuf>, index_file: O
         let mut read_currently = 0;
         buf.resize(block.block_size as usize, 0);
         decompressed_buf.resize(block.uncompressed_size as usize, 0);
-        gbam_file.seek(SeekFrom::Start(block.seekpos)).unwrap();
-        gbam_file.read_exact(&mut buf).unwrap();
+        read_manual.seek(SeekFrom::Start(block.seekpos)).unwrap();
+        read_manual.read_exact(&mut buf).unwrap();
         decompress_block(&buf, &mut decompressed_buf, codec).unwrap();
         
         while read_currently < available_in_block {
