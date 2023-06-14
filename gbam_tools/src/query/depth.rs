@@ -1,4 +1,5 @@
 use bam_tools::record::fields::Fields;
+use std::arch::asm;
 use std::cmp::min;
 use std::convert::TryInto;
 use std::io::{Write, BufWriter, StdoutLock};
@@ -172,7 +173,11 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, index_file: Optio
     let prefault_handle = thread::spawn(move || {
         for block in thread_meta.view_blocks(&Fields::RawCigar){
             for i in block.seekpos..(block.seekpos+block.block_size as u64){
-                prefault_mmap[i as usize];
+                if prefault_mmap[i as usize] == 0 {
+                    unsafe{
+                        asm!("nop");
+                    }
+                }
             }
         }
     });
