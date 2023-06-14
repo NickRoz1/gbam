@@ -93,7 +93,7 @@ pub enum Codecs {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 /// Currently block stats only for RefID or POS are supported.
-pub(crate) struct Stat {
+pub struct Stat {
     pub min_value: i32,
     pub max_value: i32,
 }
@@ -127,7 +127,7 @@ impl Default for Stat {
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
-pub(crate) struct BlockMeta {
+pub struct BlockMeta {
     pub seekpos: u64,
     pub numitems: u32,
     pub block_size: u32,
@@ -136,7 +136,7 @@ pub(crate) struct BlockMeta {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub(crate) struct FieldMeta {
+pub struct FieldMeta {
     item_size: Option<u32>, // NONE for variable sized fields
     codec: Codecs,
     blocks: Vec<BlockMeta>,
@@ -163,7 +163,7 @@ impl Default for FieldMeta {
 }
 
 #[derive(Deserialize, Serialize, Clone)]
-pub(crate) struct FileMeta {
+pub struct FileMeta {
     // Improvised hashmap for speed
     #[serde(
         deserialize_with = "from_str",
