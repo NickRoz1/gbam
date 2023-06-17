@@ -202,7 +202,8 @@ pub fn main_depth(mut gbam_file: File, bed_file: Option<&PathBuf>, index_file: O
 
     let codec = file_meta.get_field_codec(&Fields::NCigar);
     let mut indices = Vec::new();
-    let mut read_manual = BufReader::with_capacity(MEGA_BYTE_SIZE, gbam_file.try_clone().unwrap());
+    // let mut read_manual = BufReader::with_capacity(MEGA_BYTE_SIZE, gbam_file.try_clone().unwrap());
+    let mut read_manual = gbam_file.try_clone().unwrap();
     for block in file_meta.view_blocks(&Fields::NCigar){
         let available_in_block = block.numitems;
         buf.resize(block.block_size as usize, 0);
