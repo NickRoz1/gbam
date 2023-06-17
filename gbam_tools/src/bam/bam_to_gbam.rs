@@ -109,7 +109,7 @@ fn get_bam_reader_gbam_writer(
     let buf_reader = BufReader::new(fin);
     let buf_writer = BufWriter::new(fout);
 
-    let mut bgzf_reader = Reader::new(buf_reader, 1);
+    let mut bgzf_reader = Reader::new(buf_reader, 4);
 
     let (sam_header, ref_seqs, ref_seq_offset) = read_sam_header_and_ref_seqs(&mut bgzf_reader);
 
