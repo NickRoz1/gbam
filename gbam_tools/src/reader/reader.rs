@@ -23,7 +23,7 @@ pub struct Reader {
     pub parsing_template: ParsingTemplate,
     original_template: ParsingTemplate,
     pub amount: usize,
-    pub(crate) file_meta: Arc<FileMeta>,
+    pub file_meta: Arc<FileMeta>,
     // Kept so File won't drop while used by mmap.
     _inner: Box<File>,
 }
