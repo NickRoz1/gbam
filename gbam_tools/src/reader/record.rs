@@ -257,6 +257,11 @@ impl GbamRecord {
             Option::from(alignment_start + self.alignment_span() - 1)
         })
     }
+
+    pub fn is_reverse_complemented(&self) -> bool {
+        let flag = self.flag.unwrap();
+        (flag & rust_htslib::htslib::BAM_FREVERSE as u16) == rust_htslib::htslib::BAM_FREVERSE as u16
+    }
 }
 
 impl std::fmt::Display for GbamRecord {
