@@ -70,3 +70,11 @@ impl Cigar {
 //         write!(f, "{}", decode_cigar(&self.0[..]))
 //     }
 // }
+
+impl std::fmt::Display for Cigar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.ops().try_for_each(|op| {
+            write!(f, "{}{}", op.length(), op.op_type())
+        })
+    }
+}
