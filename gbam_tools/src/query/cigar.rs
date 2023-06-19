@@ -15,6 +15,11 @@ impl Op {
         let op = self.0 & 0xF;
         matches!(op, 0 | 2 | 3 | 7 | 8)
     }
+    /// Returns whether the operation kind causes the alignment to consume the read.
+    pub fn consumes_read(&self) -> bool {
+        let op = self.0 & 0xF;
+        matches!(op, 0 | 1 | 4 | 7 | 8)
+    }
     /// Length of operator
     pub fn length(&self) -> u32 {
         self.0 >> 4
@@ -55,6 +60,21 @@ impl Cigar {
         count
     }
 
+    /// Calculates the read length.
+    ///
+    /// This sums the lengths of the CIGAR operations that consume the read, i.e., alignment
+    /// matches (`M`), insertions to the reference (`I`), soft clips (`S`), sequence matches (`=`),
+    /// and sequence mismatches (`X`).
+    pub fn read_length(&self) -> u32 {
+        let mut count = 0;
+        for op in self.ops() {
+            if op.consumes_read() {
+                count += op.length();
+            }
+        }
+        count
+    }
+
     pub fn ops(&self) -> Iter<Op> {
         self.0.iter()
     }
@@ -70,3 +90,11 @@ impl Cigar {
 //         write!(f, "{}", decode_cigar(&self.0[..]))
 //     }
 // }
+
+impl std::fmt::Display for Cigar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.ops().try_for_each(|op| {
+            write!(f, "{}{}", op.length(), op.op_type())
+        })
+    }
+}

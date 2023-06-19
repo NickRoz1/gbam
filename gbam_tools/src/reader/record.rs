@@ -240,6 +240,28 @@ impl GbamRecord {
         bytes.reserve(n_byte + bytes.len());
         bytes.write_all(self.tags.as_ref().unwrap()).unwrap();
     }
+
+    /// Returns the alignment span.
+    pub fn alignment_span(&self) -> u32 {
+        self.cigar.as_ref().unwrap().base_coverage()
+    }
+
+    /// Returns the alignment start.
+    pub fn alignment_start(&self) -> Option<u32> {
+        Option::from(self.pos.unwrap() as u32)
+    }
+
+    /// Calculates the end position.
+    pub fn alignment_end(&self) -> Option<u32> {
+        self.alignment_start().and_then(|alignment_start| {
+            Option::from(alignment_start + self.alignment_span() - 1)
+        })
+    }
+
+    pub fn is_reverse_complemented(&self) -> bool {
+        let flag = self.flag.unwrap();
+        (flag & rust_htslib::htslib::BAM_FREVERSE as u16) == rust_htslib::htslib::BAM_FREVERSE as u16
+    }
 }
 
 impl std::fmt::Display for GbamRecord {
