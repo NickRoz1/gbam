@@ -47,6 +47,7 @@ pub mod writer;
 use self::writer::Writer;
 pub use bam::bam_to_gbam::{bam_sort_to_gbam, bam_to_gbam};
 pub use meta::Codecs;
+pub use bam_tools::record::fields::Fields;
 
 const U64_SIZE: usize = mem::size_of::<u64>();
 const U32_SIZE: usize = mem::size_of::<u32>();
