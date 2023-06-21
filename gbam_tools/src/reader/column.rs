@@ -165,7 +165,10 @@ fn fetch_block(inner_column: &mut Inner, block_num: usize) -> Result<()> {
     inner_column.buffer.resize(uncompressed_size as usize, 0);
     let codec = inner_column.meta.get_field_codec(field);
 
-    decompress_block(data, &mut inner_column.buffer, codec).expect("Decompression failed.");
+    if uncompressed_size > 0 {
+        decompress_block(data, &mut inner_column.buffer, codec).expect("Decompression failed.");
+    }
+    
     Ok(())
 }
 
