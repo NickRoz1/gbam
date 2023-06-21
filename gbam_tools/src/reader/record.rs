@@ -126,7 +126,9 @@ impl GbamRecord {
             Fields::RawCigar => {
                 parse_cigar(bytes, self.cigar.get_or_insert(Cigar::new(Vec::new())));
             }
-            Fields::RawSequence => self.seq = Some(decode_seq(bytes)),
+            Fields::RawSequence => {
+                decode_seq(bytes, self.seq.get_or_insert(String::new()))
+            },
             Fields::RawQual => self.qual = Some(bytes.to_vec()),
             Fields::RawTags => self.tags = Some(bytes.to_vec()),
             _ => panic!("Not yet covered type: {}", field),
