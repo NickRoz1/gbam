@@ -9,6 +9,7 @@ use gbam_tools::{
     query::flagstat::collect_stats,
 };
 
+use byteorder::{LittleEndian, ReadBytesExt};
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -59,6 +60,9 @@ struct Cli {
     /// Sort temp directory.
     #[structopt(long, parse(from_os_str))]
     temp_dir: Option<PathBuf>,
+    /// View header
+    #[structopt(short, long)]
+    header: bool,
 }
 
 /// Limited wrapper of `gbam_tools` converts BAM file to GBAM
@@ -75,6 +79,8 @@ fn main() {
         convert_to_bam(args);
     } else if args.flagstat {
         flagstat(args);
+    } else if args.header {
+        view_header(args);
     }
 }
 
@@ -161,4 +167,16 @@ fn depth(args: Cli) {
     let in_path = args.in_path.as_path().to_str().unwrap();
     let gbam_file = File::open(in_path).unwrap();
     main_depth(gbam_file, args.bed_file.as_ref(), args.query, args.mapq, args.out_path, args.thread_num);
+}
+
+fn view_header(args: Cli){
+    let file = File::open(args.in_path.as_path().to_str().unwrap()).unwrap();
+    let reader = Reader::new(file, ParsingTemplate::new()).unwrap();
+    
+    let header_len = (&reader.file_meta.get_sam_header()[..std::mem::size_of::<u32>()]).read_u32::<LittleEndian>().unwrap() as usize;
+    let header_bytes = reader.file_meta.get_sam_header()[std::mem::size_of::<u32>()..std::mem::size_of::<u32>()+header_len].to_owned();
+    let header = 
+        String::from_utf8(header_bytes).unwrap();
+   
+    println!("{}", header);
 }
