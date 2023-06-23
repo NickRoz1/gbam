@@ -5,7 +5,7 @@ use gbam_tools::{
     bam::bam_to_gbam::bam_sort_to_gbam,
     bam::gbam_to_bam::gbam_to_bam,
     query::depth::main_depth,
-    reader::{parse_tmplt::ParsingTemplate, reader::Reader},
+    reader::{parse_tmplt::ParsingTemplate, reader::Reader, record::GbamRecord},
     {bam_to_gbam, Codecs},
     query::flagstat::collect_stats,
 };
@@ -17,6 +17,8 @@ use std::time::Instant;
 use std::fs::File;
 use structopt::StructOpt;
 use std::env;
+
+use rayon::prelude::*;
 
 #[derive(StructOpt)]
 struct Cli {
@@ -35,6 +37,9 @@ struct Cli {
     /// Perform the test
     #[structopt(short, long)]
     test: bool,
+    /// Fetch cigar in parallel for testing purposes.
+    #[structopt(short, long)]
+    parallel_cigar_fetch: bool,
     /// Get depth at position.
     #[structopt(short, long)]
     depth: bool,
@@ -86,6 +91,8 @@ fn main() {
         convert(args, full_command);
     } else if args.test {
         test(args);
+    } else if args.parallel_cigar_fetch {
+        test_parallel_cigar_fetch(args);
     } else if args.depth {
         depth(args);
     } else if args.convert_to_bam {
@@ -148,8 +155,6 @@ fn flagstat(args: Cli) {
 
 fn test(args: Cli) {
     let mut tmplt = ParsingTemplate::new();
-    tmplt.set(&Fields::RefID, true);
-    tmplt.set(&Fields::Pos, true);
     tmplt.set(&Fields::RawCigar, true);
 
     let file = File::open(args.in_path.as_path().to_str().unwrap()).unwrap();
@@ -157,11 +162,11 @@ fn test(args: Cli) {
     let mut reader = Reader::new(file, tmplt).unwrap();
     let mut records = reader.records();
     let now = Instant::now();
-    #[allow(unused_mut)]
+
     let mut u = 0;
     #[allow(unused_variables)]
     while let Some(rec) = records.next_rec() {
-        // u += rec.cigar.as_ref().unwrap().as_bytes().len();
+        u += rec.cigar.as_ref().unwrap().base_coverage();
     }
     println!("Record count {}", u);
     println!(
@@ -169,6 +174,34 @@ fn test(args: Cli) {
         now.elapsed().as_millis()
     );
     drop(records);
+}
+
+fn test_parallel_cigar_fetch(args: Cli) {
+    let file = File::open(args.in_path.as_path().to_str().unwrap()).unwrap();
+    let temp_reader = Reader::new(file.try_clone().unwrap(), ParsingTemplate::new()).unwrap();
+    let file_meta = temp_reader.file_meta;
+    let total_records = temp_reader.amount;
+    let now = Instant::now();
+    
+    (0..total_records).into_par_iter().chunks(500_000).for_each(|records_range| {
+        let mut rec =  GbamRecord::default();
+        let mut tmplt = ParsingTemplate::new();
+        tmplt.set(&Fields::RawCigar, true);
+    
+        let mut reader = Reader::new_with_meta(file.try_clone().unwrap(), tmplt, &file_meta, None).unwrap();
+
+        let mut collector = Vec::with_capacity(records_range.len());
+
+        for rec_num in records_range {
+            reader.fill_record(rec_num, &mut rec);
+            collector.push(rec.cigar.as_ref().unwrap().base_coverage());
+        }
+    });
+
+    println!(
+        "Fetching CIGAR in parallel took: {}",
+        now.elapsed().as_millis()
+    );
 }
 
 fn depth(args: Cli) {

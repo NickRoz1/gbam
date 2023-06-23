@@ -12,3 +12,4 @@ bam_tools = {  git = "https://github.com/NickRoz1/bam_parallel", branch = "featu
 byteorder = "1.2.3"
 structopt = "0.3.21"
 memmap2 = "0.3.0"
+rayon = "1.7.0"
