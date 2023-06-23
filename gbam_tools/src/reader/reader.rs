@@ -43,7 +43,6 @@ impl Reader {
     }
 
     pub fn new_with_meta(_inner: File, parsing_template: ParsingTemplate, file_meta: &Arc<FileMeta>, index_mapping: Option<Arc<Vec<u32>>>) -> std::io::Result<Self> {
-        dbg!("Creating mmap.");
         let _copy = _inner.try_clone()?;
         let _inner: Box<File> = Box::new(_inner);
         

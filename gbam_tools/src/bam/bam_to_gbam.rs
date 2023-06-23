@@ -82,7 +82,7 @@ pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs, mut sort_t
         &mut writer,
         &dir,
         0,
-        4,
+        8,
         tmp_medium_mode,
         index_file,
         sort::SortBy::CoordinatesAndStrand,
