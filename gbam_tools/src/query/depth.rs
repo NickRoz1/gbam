@@ -170,10 +170,10 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, index_file: Optio
     let mut it = temp.records();
     let mut var_i = 0;
     while let Some(rec) = it.next_rec() {
-        if var_i % 100_000 == 0{
-            dbg!("Processed records:");
-            dbg!(var_i*100_000);
-        }
+        // if var_i % 100_000 == 0{
+        //     dbg!("Processed records:");
+        //     dbg!(var_i*100_000);
+        // }
         preparsed[var_i].refid = rec.refid.unwrap();
         preparsed[var_i].pos = rec.pos.unwrap();
         preparsed[var_i].cigar = rec.cigar.as_ref().unwrap().base_coverage();
