@@ -55,7 +55,7 @@ const MEGA_BYTE_SIZE: usize = 1_048_576;
 const KILO_BYTE_SIZE: usize = 1_024;
 
 /// 16777216 bytes
-const SIZE_LIMIT: usize = 32 * KILO_BYTE_SIZE;
+const SIZE_LIMIT: usize = 8 * MEGA_BYTE_SIZE;
 static GBAM_MAGIC: &[u8] = b"geeBAM10";
 
 #[cfg(feature = "python-ffi")]
