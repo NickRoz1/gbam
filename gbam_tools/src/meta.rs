@@ -13,27 +13,31 @@ use std::collections::HashMap;
 use std::io::Write;
 
 /// Holds data related to GBAM file: gbam version, seekpos to meta.
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub(crate) struct FileInfo {
     pub magic: String,
     pub gbam_version: [u32; 2],
     pub seekpos: u64,
     pub crc32: u32,
+    pub is_sorted: bool,
+    pub creation_command: String,
 }
 
 impl FileInfo {
-    pub fn new(gbam_version: [u32; 2], seekpos: u64, crc32: u32) -> Self {
+    pub fn new(gbam_version: [u32; 2], seekpos: u64, crc32: u32, full_command: String, is_sorted: bool) -> Self {
         FileInfo {
             magic: String::from_utf8(GBAM_MAGIC.to_owned()).unwrap(),
             gbam_version,
             seekpos,
             crc32,
+            creation_command: full_command,
+            is_sorted
         }
     }
 }
 
 /// Should be enough for JSON.
-pub const FILE_INFO_SIZE: usize = 200;
+pub const FILE_INFO_SIZE: usize = 1000;
 
 /// Type of encoding used in GBAM writer
 /// TODO: use MessagePack or another compact form of serialization.

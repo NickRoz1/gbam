@@ -43,6 +43,7 @@ pub struct Writer<WS>
 where
     WS: Write + Seek,
 {
+    file_info: FileInfo,
     file_meta: FileMeta,
     columns: Vec<Box<dyn Column>>,
     compressor: Compressor,
@@ -60,6 +61,8 @@ where
         collect_stats_for: Vec<Fields>,
         ref_seqs: Vec<(String, u32)>,
         sam_header: Vec<u8>,
+        full_command: String,
+        is_sorted: bool,
     ) -> Self {
         inner
             .seek(SeekFrom::Start((FILE_INFO_SIZE) as u64))
@@ -91,6 +94,7 @@ where
             inner,
             compressor: Compressor::new(thread_num),
             columns,
+            file_info: FileInfo::new([1, 0], 0, 0, full_command, is_sorted),
         }
     }
 
@@ -100,6 +104,8 @@ where
         thread_num: usize,
         ref_seqs: Vec<(String, u32)>,
         sam_header: Vec<u8>,
+        full_command: String,
+        is_sorted: bool,
     ) -> Self {
         Self::new(
             inner,
@@ -108,6 +114,8 @@ where
             Vec::new(),
             ref_seqs,
             sam_header,
+            full_command,
+            is_sorted
         )
     }
 
@@ -165,7 +173,9 @@ where
         self.inner.seek(SeekFrom::Start(0)).unwrap();
         self.inner.write_all(&[0;FILE_INFO_SIZE]);
         self.inner.seek(SeekFrom::Start(0)).unwrap();
-        let file_info = FileInfo::new([1, 0], meta_start_pos, crc32);
+        let file_info = & mut self.file_info;
+        file_info.seekpos = meta_start_pos;
+        file_info.crc32 = crc32;
         let file_info_bytes = serde_json::to_string(&file_info).unwrap();
         self.inner.write_all(file_info_bytes.as_bytes())?;
         Ok(total_bytes_written)

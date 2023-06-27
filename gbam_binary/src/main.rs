@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 use std::fs::File;
 use structopt::StructOpt;
+use std::env;
 
 #[derive(StructOpt)]
 struct Cli {
@@ -69,8 +70,10 @@ struct Cli {
 /// file. Also limited tests may be run.
 fn main() {
     let args = Cli::from_args();
+    let arguments_strings: Vec<String> = env::args().collect();
+    let full_command = arguments_strings.join(" ");
     if args.convert_to_gbam {
-        convert(args);
+        convert(args, full_command);
     } else if args.test {
         test(args);
     } else if args.depth {
@@ -84,7 +87,7 @@ fn main() {
     }
 }
 
-fn convert(args: Cli) {
+fn convert(args: Cli, full_command: String) {
     let in_path = args
         .in_path
         .as_path()
@@ -98,9 +101,9 @@ fn convert(args: Cli) {
         .to_str()
         .unwrap();
     if args.sort {
-        bam_sort_to_gbam(in_path, out_path, Codecs::Lz4, args.sort_temp_mode, args.temp_dir);
+        bam_sort_to_gbam(in_path, out_path, Codecs::Lz4, args.sort_temp_mode, args.temp_dir, full_command);
     } else {
-        bam_to_gbam(in_path, out_path, Codecs::Lz4);
+        bam_to_gbam(in_path, out_path, Codecs::Lz4, full_command);
     }
 }
 
