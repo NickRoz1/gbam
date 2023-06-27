@@ -13,7 +13,9 @@ use std::collections::HashMap;
 use std::io::Write;
 
 /// Holds data related to GBAM file: gbam version, seekpos to meta.
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub(crate) struct FileInfo {
+    pub magic: String,
     pub gbam_version: [u32; 2],
     pub seekpos: u64,
     pub crc32: u32,
@@ -22,6 +24,7 @@ pub(crate) struct FileInfo {
 impl FileInfo {
     pub fn new(gbam_version: [u32; 2], seekpos: u64, crc32: u32) -> Self {
         FileInfo {
+            magic: String::from_utf8(GBAM_MAGIC.to_owned()).unwrap(),
             gbam_version,
             seekpos,
             crc32,
@@ -29,55 +32,8 @@ impl FileInfo {
     }
 }
 
-/// The GBAM magic size is 8 bytes (U64_SIZE).
-#[cfg(not(feature = "python-ffi"))]
-pub const FILE_INFO_SIZE: usize = U64_SIZE + U32_SIZE * 2 + U64_SIZE + U32_SIZE;
-#[cfg(feature = "python-ffi")]
-pub const FILE_INFO_SIZE: usize = 28;
-
-impl From<&[u8]> for FileInfo {
-    fn from(bytes: &[u8]) -> Self {
-        assert!(
-            bytes.len() == FILE_INFO_SIZE,
-            "Not enough bytes to form file info struct.",
-        );
-        if &bytes[..U64_SIZE] != GBAM_MAGIC {
-            panic!("The file GBAM_MAGIC is not correct. Are you trying to open GBAM file or BAM file?");
-        }
-        let mut ver1 = &bytes[U64_SIZE..];
-        let mut ver2 = &bytes[U64_SIZE + U32_SIZE..];
-        let mut seekpos = &bytes[U64_SIZE + 2 * U32_SIZE..];
-        let mut crc32 = &bytes[U64_SIZE + 2 * U32_SIZE + U64_SIZE..];
-        FileInfo {
-            gbam_version: [
-                ver1.read_u32::<LittleEndian>()
-                    .expect("file info is damaged: unable to read GBAM version."),
-                ver2.read_u32::<LittleEndian>()
-                    .expect("file info is damaged: unable to read GBAM version."),
-            ],
-            seekpos: seekpos
-                .read_u64::<LittleEndian>()
-                .expect("file info is damaged: unable to read seekpos."),
-            crc32: crc32
-                .read_u32::<LittleEndian>()
-                .expect("file info is damaged: unable to read crc32."),
-        }
-    }
-}
-
-#[allow(clippy::from_over_into)]
-impl Into<Vec<u8>> for FileInfo {
-    fn into(self) -> Vec<u8> {
-        let mut res = Vec::<u8>::new();
-        res.write_all(GBAM_MAGIC).unwrap();
-        for val in self.gbam_version.iter() {
-            res.write_u32::<LittleEndian>(*val).unwrap();
-        }
-        res.write_u64::<LittleEndian>(self.seekpos).unwrap();
-        res.write_u32::<LittleEndian>(self.crc32).unwrap();
-        res
-    }
-}
+/// Should be enough for JSON.
+pub const FILE_INFO_SIZE: usize = 200;
 
 /// Type of encoding used in GBAM writer
 /// TODO: use MessagePack or another compact form of serialization.

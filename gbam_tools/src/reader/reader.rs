@@ -118,10 +118,16 @@ fn init_col(field: Fields, mmap: &Arc<Mmap>, meta: &Arc<FileMeta>) -> Box<dyn Co
     }
 }
 
+fn parse_file_info(mmap: &Mmap) -> FileInfo {
+    let file_info_bytes = &mmap[0..FILE_INFO_SIZE];
+    let end_of_json = file_info_bytes.iter().position(|&r| r == 0).unwrap();
+    let file_info_str = String::from_utf8(file_info_bytes[..end_of_json].to_owned()).unwrap();
+    serde_json::from_str(&file_info_str).expect("File meta json string was damaged.")
+}
+
 #[allow(dead_code)]
 fn verify(mmap: &Mmap) -> std::io::Result<()>{
-    let file_info_bytes = &mmap[0..FILE_INFO_SIZE];
-    let file_info = FileInfo::from(file_info_bytes);
+    let file_info = parse_file_info(mmap);
     // Read file meta
     let buf = &mmap[file_info.seekpos as usize..];
     if calc_crc_for_meta_bytes(buf) != file_info.crc32 {
@@ -133,8 +139,7 @@ fn verify(mmap: &Mmap) -> std::io::Result<()>{
     Ok(())
 }
 fn verify_and_parse_meta(mmap: &Mmap) -> std::io::Result<FileMeta> {
-    let file_info_bytes = &mmap[0..FILE_INFO_SIZE];
-    let file_info = FileInfo::from(file_info_bytes);
+    let file_info = parse_file_info(mmap);
     // Read file meta
     let buf = &mmap[file_info.seekpos as usize..];
     if calc_crc_for_meta_bytes(buf) != file_info.crc32 {
