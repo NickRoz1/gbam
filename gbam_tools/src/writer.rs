@@ -163,9 +163,11 @@ where
         let total_bytes_written = self.inner.stream_position()?;
         // Revert back to the beginning of the file
         self.inner.seek(SeekFrom::Start(0)).unwrap();
-        let file_meta = FileInfo::new([1, 0], meta_start_pos, crc32);
-        let file_meta_bytes = &Into::<Vec<u8>>::into(file_meta)[..];
-        self.inner.write_all(file_meta_bytes)?;
+        self.inner.write_all(&[0;FILE_INFO_SIZE]);
+        self.inner.seek(SeekFrom::Start(0)).unwrap();
+        let file_info = FileInfo::new([1, 0], meta_start_pos, crc32);
+        let file_info_bytes = serde_json::to_string(&file_info).unwrap();
+        self.inner.write_all(file_info_bytes.as_bytes())?;
         Ok(total_bytes_written)
     }
 }
