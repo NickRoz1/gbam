@@ -8,9 +8,12 @@
 # export LIB_CLANGPATH=/gnu/store/w3nzdwg7fx6442qjfscds5va11znxi0b-clang-10.0.0/lib
 # cargo build
 
-~/.config/guix/current/bin/guix environment -C --network guix rust --ad-hoc python python-pip nss-certs openssl git gcc-toolchain clang vim which python-cffi
-
 # and run this to get the Python interface
 echo pip install --user maturin
 echo env CC=gcc ~/.local/bin/maturin build
 # or just cargo for the Rust part
+echo env CC=gcc cargo build --release
+
+guix shell -C -D --network guix rust python python-pip nss-certs openssl git gcc-toolchain clang vim which python-cffi rust-cargo coreutils glibc:static cmake make --share=$HOME/.cargo
+
+
