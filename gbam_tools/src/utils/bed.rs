@@ -7,7 +7,7 @@ const SEPARATOR: char = '\t';
 
 /// Source: https://github.com/zaeleus/noodles/blob/90e70874eaa6dd41ac8339933d6dd95bd98080c2/noodles-tabix/examples/tabix_write.rs#L24
 fn parse_record(s: &str) -> io::Result<(String, u32, u32)> {
-    let mut components = s.splitn(3, SEPARATOR);
+    let mut components = s.split(SEPARATOR);
 
     let reference_sequence_name = components
         .next()
@@ -41,9 +41,8 @@ pub fn parse_bed<R: Read>(source: &mut R) -> io::Result<HashMap::<String, Vec<(u
     let lines = read_lines(source)?;
 
     for line in lines {
-        if let Ok(rec) = parse_record(&line?) {
-            res.entry(rec.0).or_insert(Vec::new()).push((rec.1, rec.2));
-        }
+        let rec = parse_record(&line?)?; 
+        res.entry(rec.0).or_insert(Vec::new()).push((rec.1, rec.2));
     }
 
     Ok(res)
