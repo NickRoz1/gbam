@@ -18,6 +18,7 @@ use std::thread::JoinHandle;
 use super::int2str::{i32toa_countlut, u32toa_countlut};
 use flate2::Compression;
 use flate2::write::GzEncoder;
+use rayon::prelude::*;
 
 #[allow(dead_code)]
 fn panic_err() {
@@ -163,23 +164,23 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, index_file: Optio
     let lock = st.lock();
     let mut printer = ConsolePrinter::new(lock);
 
-    let mut temp: Reader = Reader::new_with_meta(gbam_file.try_clone().unwrap(), ParsingTemplate::new_with(&[Fields::RefID, Fields::Pos, Fields::RawCigar, Fields::Flags]), &file_meta, None).unwrap();
-    dbg!(temp.amount);
-    let mut preparsed = vec![DepthUnit::default();temp.amount];
+    let mut preparsed = vec![DepthUnit::default(); number_of_records];
 
-    let mut it = temp.records();
-    let mut var_i = 0;
-    while let Some(rec) = it.next_rec() {
-        // if var_i % 100_000 == 0{
-        //     dbg!("Processed records:");
-        //     dbg!(var_i*100_000);
-        // }
-        preparsed[var_i].refid = rec.refid.unwrap();
-        preparsed[var_i].pos = rec.pos.unwrap();
-        preparsed[var_i].cigar = rec.cigar.as_ref().unwrap().base_coverage();
-        preparsed[var_i].flag = rec.flag.unwrap();
-        var_i += 1;
-    }   
+    preparsed.par_iter_mut().zip(0..number_of_records).chunks(500_000).for_each(|records_range| {
+        let mut rec =  GbamRecord::default();
+        let mut tmplt = ParsingTemplate::new();
+        tmplt.set(&Fields::RawCigar, true);
+    
+        let mut reader = Reader::new_with_meta(gbam_file.try_clone().unwrap(), ParsingTemplate::new_with(&[Fields::RefID, Fields::Pos, Fields::RawCigar, Fields::Flags]), &file_meta, None).unwrap();
+
+        for (dest, rec_num) in records_range {
+            reader.fill_record(rec_num, &mut rec);
+            dest.refid = rec.refid.unwrap();
+            dest.pos = rec.pos.unwrap();
+            dest.cigar = rec.cigar.as_ref().unwrap().base_coverage();
+            dest.flag = rec.flag.unwrap();
+        }
+    });
 
     let arc_of_records = Arc::new(preparsed);
 
