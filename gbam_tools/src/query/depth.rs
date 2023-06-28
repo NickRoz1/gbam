@@ -166,7 +166,7 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, index_file: Optio
 
     let mut preparsed = vec![DepthUnit::default(); number_of_records];
 
-    preparsed.par_iter_mut().zip(0..number_of_records).chunks(500_000).for_each(|records_range| {
+    preparsed.par_iter_mut().zip(0..number_of_records).chunks(2_000_000).for_each(|records_range| {
         let mut rec =  GbamRecord::default();
         let mut tmplt = ParsingTemplate::new();
         tmplt.set(&Fields::RawCigar, true);
