@@ -218,7 +218,7 @@ fn test_file_uncompressed_size_fetch(args: Cli) {
         return;
     }
 
-    let mut reader = std::io::BufReader::new(file);
+    let mut reader = file;
     
 
     let mut buf: [u8; 1000] = [0; 1000];
