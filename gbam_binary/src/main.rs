@@ -12,7 +12,7 @@ use gbam_tools::{
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use std::{path::PathBuf, convert::TryInto, io::{BufWriter, Write}};
+use std::{path::PathBuf, convert::TryInto, io::{Read, Seek}, io::{BufWriter, Write}};
 use std::time::Instant;
 use std::fs::File;
 use structopt::StructOpt;
@@ -79,6 +79,9 @@ struct Cli {
     /// Index file for use in Depth.
     #[structopt(long, parse(from_os_str))]
     index_file: Option<PathBuf>,
+    /// Calculate uncompressed size of BAM file.
+    #[structopt(long)]
+    calc_uncompressed_size: bool,
 }
 
 /// Limited wrapper of `gbam_tools` converts BAM file to GBAM
@@ -103,6 +106,8 @@ fn main() {
         view_header(args);
     } else if args.view {
         view_file(args);
+    } else if args.calc_uncompressed_size {
+        test_file_uncompressed_size_fetch(args);
     }
 }
 
@@ -202,6 +207,43 @@ fn test_parallel_cigar_fetch(args: Cli) {
         "Fetching CIGAR in parallel took: {}",
         now.elapsed().as_millis()
     );
+}
+
+fn test_file_uncompressed_size_fetch(args: Cli) {
+    let file = File::open(args.in_path.as_path().to_str().unwrap()).unwrap();
+
+    let file_sz = file.metadata().unwrap().len();
+    if file_sz == 0 {
+        println!("File is empty.");
+        return;
+    }
+
+    let mut reader = std::io::BufReader::new(file);
+    
+
+    let mut buf: [u8; 1000] = [0; 1000];
+    const OFFEST_IN_BGZF_FILE_TILL_BLOCK_SIZE_VALUE : usize = 128/8;
+    let mut total_uncrompressed_size_of_file : usize = 0;
+    const ERR : &str = "Couldn't parse the bgzf block.";
+    loop {
+        let cur_reader_pos = reader.seek(std::io::SeekFrom::Current(0)).unwrap();
+        if file_sz == cur_reader_pos {
+            break;
+        }
+        if file_sz-cur_reader_pos == 28 {
+            break;
+        }
+        reader.read_exact(&mut buf[..OFFEST_IN_BGZF_FILE_TILL_BLOCK_SIZE_VALUE]).expect(ERR); 
+        let block_size = reader.read_u16::<LittleEndian>().expect(ERR)+1;
+        let uncompressed_info_start = cur_reader_pos+block_size as u64 - std::mem::size_of::<u32>() as u64;
+        assert!(uncompressed_info_start < file_sz);
+        reader.seek(std::io::SeekFrom::Start(uncompressed_info_start)).unwrap();
+        let uncompressed_block_size = reader.read_u32::<LittleEndian>().expect(ERR);
+        total_uncrompressed_size_of_file += uncompressed_block_size as usize;
+        
+    }
+
+    println!("Total uncompressed size of file is: {}", total_uncrompressed_size_of_file);
 }
 
 fn depth(args: Cli) {
