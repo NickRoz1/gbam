@@ -5,7 +5,7 @@ use itertools::Itertools;
 use pyo3::prelude::*;
 
 use bam_tools::record::{
-    bamrawrecord::{decode_seq},
+    bamrawrecord::{decode_seq, put_sequence},
     fields::Fields,
 };
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
@@ -168,7 +168,7 @@ impl GbamRecord {
             + mem::size_of::<i32>() * 3
             + self.cigar.as_ref().unwrap().0.len() * mem::size_of::<u32>()
             + self.read_name.as_ref().unwrap().len()
-            + self.seq.as_ref().unwrap().len()
+            + (self.seq.as_ref().unwrap().len()+1)/2
             + self.qual.as_ref().unwrap().len()
             + self.tags.as_ref().unwrap().len();
 
@@ -223,9 +223,9 @@ impl GbamRecord {
             .ops()
             .zip_eq(cigar.chunks_mut(mem::size_of::<u32>()))
             .for_each(|(op, mut buf)| buf.write_u32::<LittleEndian>(op.0).unwrap());
-        let (mut seq, unsized_data) = unsized_data.split_at_mut(self.seq.as_ref().unwrap().len());
-        seq.write_all(self.seq.as_ref().unwrap().as_bytes())
-            .unwrap();
+        let seq_len = (self.seq.as_ref().unwrap().len()+1)/2;
+        let (mut seq, unsized_data) = unsized_data.split_at_mut(seq_len);
+        put_sequence(&mut seq, self.seq.as_ref().unwrap().len(), self.seq.as_ref().unwrap()).unwrap();
         let (mut qual, mut unsized_data) =
             unsized_data.split_at_mut(self.qual.as_ref().unwrap().len());
         qual.write_all(self.qual.as_ref().unwrap()).unwrap();
@@ -233,6 +233,7 @@ impl GbamRecord {
         unsized_data
             .write_all(self.tags.as_ref().unwrap())
             .unwrap();
+        assert!(unsized_data.len() == 0);
     }
 
     /// Write tags into a byte buffer.
