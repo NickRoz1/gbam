@@ -11,7 +11,7 @@ use gbam_tools::{
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use std::path::PathBuf;
+use std::{path::PathBuf, io::{BufWriter, Write}};
 use std::time::Instant;
 use std::fs::File;
 use structopt::StructOpt;
@@ -64,6 +64,9 @@ struct Cli {
     /// View header
     #[structopt(short, long)]
     header: bool,
+    /// View file in binary format. Can be pied to samtools view.
+    #[structopt(short, long)]
+    view: bool
 }
 
 /// Limited wrapper of `gbam_tools` converts BAM file to GBAM
@@ -84,6 +87,8 @@ fn main() {
         flagstat(args);
     } else if args.header {
         view_header(args);
+    } else if args.view {
+        view_file(args);
     }
 }
 
@@ -182,4 +187,29 @@ fn view_header(args: Cli){
         String::from_utf8(header_bytes).unwrap();
    
     println!("{}", header);
+}
+
+fn view_file(args: Cli){
+    let file = File::open(args.in_path.as_path().to_str().unwrap()).unwrap();
+    let mut template = ParsingTemplate::new();
+    template.set_all();
+    let mut reader = Reader::new(file, template).unwrap();
+
+
+    let st = std::io::stdout();
+    let lock = st.lock();
+    let mut stdout = BufWriter::with_capacity(64 * 1024, lock);
+
+    const BAM_MAGIC: &[u8; 4] = b"BAM\x01";
+    stdout.write_all(BAM_MAGIC).unwrap();
+    stdout.write_all(reader.file_meta.get_sam_header()).unwrap();
+    
+    let mut records = reader.records();
+    let mut buf = Vec::new();
+    while let Some(rec) = records.next_rec() {
+        rec.convert_to_bytes(&mut buf);
+        if stdout.write_all(&buf).is_err() {
+            break;
+        }
+    }
 }
