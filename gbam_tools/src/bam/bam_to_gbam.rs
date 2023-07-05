@@ -34,9 +34,9 @@ pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs, mut sort_t
     let fin_for_ref_seqs = File::open(in_path).expect("failed");
     
     let mut reader_for_header_only = Reader::new(fin_for_ref_seqs, 1, None);
-    let (sam_header, ref_seqs, ref_seq_offset) =
+    let (sam_header, ref_seqs, _) =
         read_sam_header_and_ref_seqs(&mut reader_for_header_only);
-    let only_text = &sam_header[..ref_seq_offset];
+
 
     let fin = File::open(in_path).expect("failed");
     let fout = File::create(out_path).expect("failed");
@@ -52,7 +52,7 @@ pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs, mut sort_t
         8,
         vec![Fields::RefID],
         ref_seqs,
-        Vec::from(only_text),
+        sam_header,
         full_command,
         true
     );
@@ -120,9 +120,7 @@ fn get_bam_reader_gbam_writer(
 
     let mut bgzf_reader = Reader::new(buf_reader, 4, Some(file_size));
 
-    let (sam_header, ref_seqs, ref_seq_offset) = read_sam_header_and_ref_seqs(&mut bgzf_reader);
-
-    let only_text = &sam_header[..ref_seq_offset];
+    let (sam_header, ref_seqs, _) = read_sam_header_and_ref_seqs(&mut bgzf_reader);
 
     let writer = Writer::new(
         buf_writer,
@@ -130,7 +128,7 @@ fn get_bam_reader_gbam_writer(
         8,
         vec![Fields::RefID],
         ref_seqs,
-        Vec::from(only_text),
+        sam_header,
         full_command,
         false,
     );
