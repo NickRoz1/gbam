@@ -265,6 +265,11 @@ impl GbamRecord {
         let flag = self.flag.unwrap();
         (flag & rust_htslib::htslib::BAM_FREVERSE as u16) == rust_htslib::htslib::BAM_FREVERSE as u16
     }
+
+    pub fn is_unmapped(&self) -> bool {
+        let flag = self.flag.unwrap();
+        (flag & rust_htslib::htslib::BAM_FUNMAP as u16) == rust_htslib::htslib::BAM_FUNMAP as u16
+    }
 }
 
 impl std::fmt::Display for GbamRecord {
