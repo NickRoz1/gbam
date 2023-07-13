@@ -214,7 +214,7 @@ fn flush_field_buffer<WS: Write + Seek>(
 fn write_data_and_update_meta<WS: Write + Seek>(
     writer: &mut WS,
     file_meta: &mut FileMeta,
-    key: u32,
+    key: u64,
     task: &mut CompressTask,
 ) {
     let compressed_size = task.buf.len();
@@ -262,7 +262,7 @@ struct Inner {
     offset: usize,
     field: Fields,
     rec_count: u32,
-    block_num: u32,
+    block_num: u64,
 }
 
 impl Inner {

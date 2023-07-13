@@ -14,7 +14,7 @@ use lzzzz::lz4;
 use crate::writer::BlockInfo;
 
 pub(crate) enum OrderingKey {
-    Key(u32),
+    Key(u64),
     UnusedBlock,
 }
 
