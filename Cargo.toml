@@ -7,4 +7,3 @@ members = [
 
 [profile.release]
 debug = true
-overflow-checks = true
