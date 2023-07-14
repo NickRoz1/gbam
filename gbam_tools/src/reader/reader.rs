@@ -17,6 +17,8 @@ use super::{
     records::Records,
 };
 
+use std::convert::TryFrom;
+
 pub struct Reader {
     // Instead of hashmap. Empty columns will contain None.
     pub columns: Vec<Option<Box<dyn Column + Send>>>,
@@ -41,10 +43,10 @@ impl Reader {
         let mmap = Arc::new(unsafe { Mmap::map(_inner.borrow())? });
         // Consumes up to 16 percent of runtime on big files (20GB).
         // verify(&mmap)?;
-        let amount = file_meta
+        let amount = usize::try_from(file_meta
             .view_blocks(&Fields::RefID)
             .iter()
-            .fold(0, |acc, x| acc + x.numitems) as usize;
+            .fold(0, |acc: u64, x| acc + x.numitems as u64)).unwrap();
         let meta = file_meta.clone();
         Ok(Self {
             columns: init_columns(&mmap, &parsing_template, &meta),
