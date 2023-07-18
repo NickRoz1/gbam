@@ -7,7 +7,7 @@ use bam_tools::record::fields::{
 };
 use memmap2::Mmap;
 
-use crate::meta::{FileInfo, FileMeta, FILE_INFO_SIZE};
+use crate::meta::{FileInfo, FileMeta, FILE_INFO_SIZE, BlockMeta};
 use crate::writer::calc_crc_for_meta_bytes;
 
 use super::{
@@ -160,9 +160,9 @@ pub(crate) fn generate_block_treemap(meta: &FileMeta, field: &Fields) -> BTreeMa
         .iter()
         .enumerate()
         // Prefix sum.
-        .scan(0, |acc, (count, x)| {
-            let current_chunk = Some((*acc as usize, count));
-            *acc += x.numitems;
+        .scan(0, |acc: &mut u64, (block_index, x): (usize, &BlockMeta)| {
+            let current_chunk = Some((usize::try_from(*acc).unwrap() , block_index));
+            *acc += x.numitems as u64;
             current_chunk
         })
         .collect()
