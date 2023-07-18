@@ -8,6 +8,7 @@ use bam_tools::record::fields::Fields;
 use byteorder::{LittleEndian, ReadBytesExt};
 use flate2::write::GzDecoder;
 use memmap2::Mmap;
+use std::convert::TryFrom;
 
 use crate::{meta::FileMeta, Codecs};
 
@@ -159,7 +160,7 @@ fn fetch_block(inner_column: &mut Inner, block_num: usize) -> Result<()> {
     let uncompressed_size = block_meta.uncompressed_size;
 
     let data =
-        &reader[(block_meta.seekpos as usize)..(block_meta.seekpos + block_size as u64) as usize];
+        &reader[usize::try_from(block_meta.seekpos).unwrap()..usize::try_from(block_meta.seekpos + block_size as u64).unwrap()];
     // inner_column.buffer.clear();
     // dbg!(uncompressed_size);
     inner_column.buffer.resize(uncompressed_size as usize, 0);

@@ -1,7 +1,5 @@
 use super::GBAM_MAGIC;
-use crate::{U32_SIZE, U64_SIZE};
 use bam_tools::record::fields::{field_item_size, Fields, FIELDS_NUM};
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use serde::ser::{SerializeMap, Serializer};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::marker::PhantomData;
@@ -10,7 +8,6 @@ use serde::de::{MapAccess, Visitor};
 // use serde::de::{Deserialize, Deserializer};
 // use serde_json::Result;
 use std::collections::HashMap;
-use std::io::Write;
 
 /// Holds data related to GBAM file: gbam version, seekpos to meta.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

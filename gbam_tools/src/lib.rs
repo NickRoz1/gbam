@@ -49,10 +49,9 @@ pub use bam::bam_to_gbam::{bam_sort_to_gbam, bam_to_gbam};
 pub use meta::Codecs;
 pub use bam_tools::record::fields::Fields;
 
-const U64_SIZE: usize = mem::size_of::<u64>();
+
 const U32_SIZE: usize = mem::size_of::<u32>();
 const MEGA_BYTE_SIZE: usize = 1_048_576;
-const KILO_BYTE_SIZE: usize = 1_024;
 
 /// 16777216 bytes
 const SIZE_LIMIT: usize = 8 * MEGA_BYTE_SIZE;

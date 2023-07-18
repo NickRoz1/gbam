@@ -9,6 +9,7 @@ use byteorder::{LittleEndian, WriteBytesExt, ReadBytesExt};
 use crc32fast::Hasher;
 use std::borrow::Cow;
 use std::convert::TryInto;
+use std::convert::TryFrom;
 use std::io::{Seek, SeekFrom, Write};
 
 pub(crate) struct BlockInfo {
@@ -54,6 +55,7 @@ impl<WS> Writer<WS>
 where
     WS: Write + Seek,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         mut inner: WS,
         codecs: Vec<Codecs>,
@@ -171,7 +173,7 @@ where
         let total_bytes_written = self.inner.stream_position()?;
         // Revert back to the beginning of the file
         self.inner.seek(SeekFrom::Start(0)).unwrap();
-        self.inner.write_all(&[0;FILE_INFO_SIZE]);
+        self.inner.write_all(&[0;FILE_INFO_SIZE]).unwrap();
         self.inner.seek(SeekFrom::Start(0)).unwrap();
         let file_info = & mut self.file_info;
         file_info.seekpos = meta_start_pos;
@@ -397,7 +399,7 @@ impl Column for VariableColumn {
 
         inner.write_data(data);
         (&mut idx_buf[..])
-            .write_u32::<LittleEndian>(inner.offset as u32)
+            .write_u32::<LittleEndian>(u32::try_from(inner.offset).unwrap())
             .unwrap();
         index_inner.write_data(&idx_buf)
     }

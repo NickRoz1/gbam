@@ -3,8 +3,6 @@ use std::io::{self, BufRead, Read};
 use std::path::Path;
 use std::{collections::HashMap};
 
-const SEPARATOR: char = '\t';
-
 /// Source: https://github.com/zaeleus/noodles/blob/90e70874eaa6dd41ac8339933d6dd95bd98080c2/noodles-tabix/examples/tabix_write.rs#L24
 fn parse_record(s: &str) -> io::Result<(String, u32, u32)> {
     let mut components = s.split_whitespace();

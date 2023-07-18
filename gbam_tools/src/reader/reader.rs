@@ -46,7 +46,7 @@ impl Reader {
         let amount = usize::try_from(file_meta
             .view_blocks(&Fields::RefID)
             .iter()
-            .fold(0, |acc: u64, x| acc + x.numitems as u64)).unwrap();
+            .fold(0, |acc: u64, x| acc + u64::from(x.numitems))).unwrap();
         let meta = file_meta.clone();
         Ok(Self {
             columns: init_columns(&mmap, &parsing_template, &meta),
