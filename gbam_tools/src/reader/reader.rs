@@ -42,6 +42,13 @@ impl Reader {
         Self::new_with_meta(inner, parsing_template, &Arc::new(file_meta), None)
     }
 
+    pub fn new_with_index(inner: File, parsing_template: ParsingTemplate, index_mapping: Option<Arc<Vec<u32>>>) -> std::io::Result<Self> {
+        let inner = inner;
+        let mmap = unsafe { Mmap::map(inner.borrow())? };
+        let file_meta = verify_and_parse_meta(&mmap)?;
+        Self::new_with_meta(inner, parsing_template, &Arc::new(file_meta), index_mapping)
+    }
+
     pub fn new_with_meta(_inner: File, parsing_template: ParsingTemplate, file_meta: &Arc<FileMeta>, index_mapping: Option<Arc<Vec<u32>>>) -> std::io::Result<Self> {
         let _copy = _inner.try_clone()?;
         let _inner: Box<File> = Box::new(_inner);

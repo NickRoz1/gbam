@@ -244,24 +244,23 @@ fn test_file_uncompressed_size_fetch(args: Cli) {
     println!("Total uncompressed size of file is: {}", total_uncrompressed_size_of_file);
 }
 
+fn read_index(index: PathBuf) -> Option<std::sync::Arc<Vec<u32>>> {
+    let file = File::open(index).unwrap();
+    let size = file.metadata().unwrap().len();
+    let mut f = std::io::BufReader::new(file);
+    let mut res = vec![0 as u32; (size/(std::mem::size_of::<u32>() as u64)).try_into().unwrap()];
+
+    for slot in &mut res {
+        *slot = f.read_u32::<LittleEndian>().unwrap();
+    }
+
+    Some(std::sync::Arc::new(res))
+}
+
 fn depth(args: Cli) {
     let in_path = args.in_path.as_path().to_str().unwrap();
     let gbam_file = File::open(in_path).unwrap();
-    if let Some(index) = args.index_file {
-        let file = File::open(index).unwrap();
-        let size = file.metadata().unwrap().len();
-        let mut f = std::io::BufReader::new(file);
-        let mut res = vec![0 as u32; (size/(std::mem::size_of::<u32>() as u64)).try_into().unwrap()];
-
-        for slot in &mut res {
-            *slot = f.read_u32::<LittleEndian>().unwrap();
-        }
-
-        main_depth(gbam_file, args.bed_file.as_ref(), Some(std::sync::Arc::new(res)), args.query, args.mapq, args.out_path, args.thread_num);
-    }
-    else{
-        main_depth(gbam_file, args.bed_file.as_ref(), None, args.query, args.mapq, args.out_path, args.thread_num);
-    }
+    main_depth(gbam_file, args.bed_file.as_ref(), args.index_file.and_then(read_index), args.query, args.mapq, args.out_path, args.thread_num);
 }
 
 fn view_header(args: Cli){
@@ -280,8 +279,8 @@ fn view_file(args: Cli){
     let file = File::open(args.in_path.as_path().to_str().unwrap()).unwrap();
     let mut template = ParsingTemplate::new();
     template.set_all();
-    let mut reader = Reader::new(file, template).unwrap();
 
+    let mut reader = Reader::new_with_index(file, template, args.index_file.and_then(read_index)).unwrap();
 
     let st = std::io::stdout();
     let lock = st.lock();
