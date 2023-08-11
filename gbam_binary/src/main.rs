@@ -10,8 +10,6 @@ use gbam_tools::{
     query::flagstat::collect_stats,
 };
 
-use byteorder::{LittleEndian, ReadBytesExt};
-
 use std::{path::PathBuf, convert::TryInto, io::{Read, Seek}, io::{BufWriter, Write}};
 use std::time::Instant;
 use std::fs::File;
@@ -72,7 +70,7 @@ struct Cli {
     header: bool,
     /// View file in binary format. Can be piped to samtools view. `gbam_binary -v test_data/1gb.gbam | samtools view`
     #[structopt(short, long)]
-    view: bool
+    view: bool,
     /// When sorting and converting file, only sort the indices of records but not the data itself.
     #[structopt(long)]
     index_sort: bool,
