@@ -30,7 +30,7 @@ def gen_gbam_file(request):
     subprocess.run([binary_path, bam_file_path, "-c", "-o", gbam_file.name]) 
     gbam_file_sorted = NamedTemporaryFile()
     # Sort and convert to GBAM.
-    subprocess.run([binary_path, bam_file_path, "-c", "-s", "-o", gbam_file_sorted.name]) 
+    subprocess.run([binary_path, bam_file_path, "-c", "-s", "-o", gbam_file_sorted.name, "--index-sort"]) 
     bam_file_sorted_path = NamedTemporaryFile(suffix=".bam")
     subprocess.run(["samtools", "sort", "-@ 8", bam_file_path, "-o", bam_file_sorted_path.name]) 
 
@@ -41,10 +41,14 @@ def compare_bam_files(original, result):
     subprocess.check_call(["samtools", "view", "-@ 8", original, '-o', out_of_original_view.name], stderr=subprocess.STDOUT)
     subprocess.check_call(["samtools", "view", "-@ 8", result, '-o', out_of_result_view.name], stderr=subprocess.STDOUT)
 
-    assert(os.path.getsize(out_of_result_view.name) > 0)
-    assert(os.path.getsize(out_of_result_view.name) == os.path.getsize(out_of_original_view.name))
+    byte_file_comparison(out_of_original_view.name, out_of_result_view.name)
+   
+
+def byte_file_comparison(original_path, result_path):
+    assert(os.path.getsize(result_path) > 0)
+    assert(os.path.getsize(result_path) == os.path.getsize(original_path))
     
-    with io.open(out_of_original_view.name, 'rb') as from_samtools, io.open(out_of_result_view.name, 'rb') as from_gbam:
+    with io.open(original_path, 'rb') as from_samtools, io.open(result_path, 'rb') as from_gbam:
         while True:
             bam_byte = from_samtools.read(4096)
             gbam_byte = from_gbam.read(4096)
@@ -78,26 +82,25 @@ def test_flagstat():
     assert(len(view_of_original) > 0)
     assert(view_of_original == view_of_result)
 
-
 def test_sort(request):
     gbam_sorted_results = NamedTemporaryFile(suffix=".bam")
     samtools_sorted_results = bam_file_sorted_path
     cli_bam_path = request.config.getoption("--bam-file-path")
     
     if cli_bam_path is None:
-        subprocess.run([binary_path, "--convert-to-bam", gbam_file_sorted.name, "-o", gbam_sorted_results.name])
-    else:
-        cli_bam_path = Path(cli_bam_path)
-        temporary_gbam = NamedTemporaryFile()
-        subprocess.run([binary_path, cli_bam_path.as_posix(), "-c", "-s", "-o", temporary_gbam.name, "--sort-temp-mode", "lz4_ram"]) 
-        subprocess.run([binary_path, "--convert-to-bam", temporary_gbam.name, "-o", gbam_sorted_results.name]) 
-        samtools_sorted_results = NamedTemporaryFile(suffix=".bam")
-        subprocess.run(["samtools", "sort", cli_bam_path.as_posix(), "-o", samtools_sorted_results.name]) 
+        gbam_res, samtools_res = generate_views_for_gbam_and_bam_files(gbam_file_sorted, gbam_file_sorted.name+".gbai", bam_file_sorted_path.name)
+        byte_file_comparison(gbam_res.name, samtools_res.name)
+        return
+    
+    cli_bam_path = Path(cli_bam_path)
+    temporary_gbam = NamedTemporaryFile()
+    subprocess.run([binary_path, cli_bam_path.as_posix(), "-c", "-s", "-o", temporary_gbam.name, "--sort-temp-mode", "lz4_ram"]) 
+    subprocess.run([binary_path, "--convert-to-bam", temporary_gbam.name, "-o", gbam_sorted_results.name]) 
+    samtools_sorted_results = NamedTemporaryFile(suffix=".bam")
+    subprocess.run(["samtools", "sort", cli_bam_path.as_posix(), "-o", samtools_sorted_results.name]) 
 
     compare_bam_files(samtools_sorted_results.name, gbam_sorted_results.name)
     
-
-
 # Testing against mosdepth.
 @with_depth
 def test_depth():    
@@ -117,7 +120,7 @@ def test_depth():
 
     subprocess.check_call(['mosdepth', '-x', mosdepth_prefix, bam_file_path.name], cwd=temp_dir.name)
     bed_gz = NamedTemporaryFile()
-    subprocess.check_call([binary_path, gbam_file_sorted.name, '-d', '-o', bed_gz.name])
+    subprocess.check_call([binary_path, gbam_file_sorted.name, '-d', '-o', bed_gz.name, '--index-file', gbam_file_sorted.name + '.gbai'])
     
     with gzip.open(bed_gz, "rb") as gbam_res, gzip.open(mosdepth_file, "rb") as mosdepth_res:
         # Read the decompressed data from both files
@@ -126,3 +129,20 @@ def test_depth():
 
     assert(len(decompressed_gbam_res) > 0)
     assert(decompressed_gbam_res == decompressed_mosdepth_res)
+
+def generate_views_for_gbam_and_bam_files(gbam_input, gbam_index, bam_input):
+    gbam_results = NamedTemporaryFile()
+    samtools_results = NamedTemporaryFile()
+
+    index_option = ""
+    if gbam_index is not None:
+        index_option = f"--index-file {gbam_index}"
+
+    subprocess.check_output([f"{binary_path} -v {gbam_input.name} {index_option} | samtools view > {gbam_results.name}"], shell=True) 
+    subprocess.check_output([f"samtools view {bam_input} > {samtools_results.name}"], shell=True) 
+
+    return (gbam_results, samtools_results)
+
+def test_view(request):
+    gbam_results, samtools_results = generate_views_for_gbam_and_bam_files(gbam_file, None, bam_file_path)
+    byte_file_comparison(samtools_results.name, gbam_results.name)

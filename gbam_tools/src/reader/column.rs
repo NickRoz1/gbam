@@ -174,7 +174,7 @@ fn fetch_block(inner_column: &mut Inner, block_num: usize) -> Result<()> {
 }
 
 
-fn decompress_block(source: &[u8], dest: &mut Vec<u8>, codec: &Codecs) -> std::io::Result<()> {
+pub(crate) fn decompress_block(source: &[u8], dest: &mut Vec<u8>, codec: &Codecs) -> std::io::Result<()> {
     use std::io::Write;
     match codec {
         Codecs::Gzip => {

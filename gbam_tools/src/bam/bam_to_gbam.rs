@@ -30,7 +30,7 @@ pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs, full_command: S
 }
 
 /// Converts BAM file to GBAM file. Sorts BAM file in process. This uses the `bam_parallel` reader.
-pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs, mut sort_temp_mode: Option<String>, temp_dir: Option<PathBuf>, full_command: String) {
+pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs, mut sort_temp_mode: Option<String>, temp_dir: Option<PathBuf>, full_command: String, index_sort: bool) {
     let fin_for_ref_seqs = File::open(in_path).expect("failed");
     
     let mut reader_for_header_only = Reader::new(fin_for_ref_seqs, 1, None);
@@ -68,6 +68,11 @@ pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs, mut sort_t
         "lz4_ram" => TempFilesMode::InMemoryBlocksLZ4,
         _ => panic!("Unknown sort_temp_mode mode."),
     };
+    
+    let index_file = if index_sort {
+        Some(BufWriter::with_capacity(33_554_432, File::create(out_path.clone().to_owned()+".gbai").unwrap()))
+    }
+    else{None};
 
     let dir = TempDir::new_in(tmp_dir_path, "BAM sort temporary directory.").unwrap();
 
@@ -77,8 +82,9 @@ pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs, mut sort_t
         &mut writer,
         &dir,
         0,
-        4,
+        8,
         tmp_medium_mode,
+        index_file,
         sort::SortBy::CoordinatesAndStrand,
         Some(file_size)
     )

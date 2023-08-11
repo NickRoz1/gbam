@@ -16,7 +16,7 @@ serde = {version = "1.0.125", features = ["derive"]}
 crc32fast = "1.2.1"
 rayon = "1.7.0"
 flume = "0.10.5"
-memmap2 = "0.3.0"
+memmap2 = "0.7.0"
 rust-htslib = { version = "0.39.0", default-features = false }
 itertools = "0.10.5"
 lzzzz = "1.0.3"

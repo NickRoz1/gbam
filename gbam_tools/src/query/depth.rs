@@ -2,7 +2,7 @@ use bam_tools::record::fields::Fields;
 use std::cmp::min;
 use std::convert::TryInto;
 use std::io::{Write, BufWriter, StdoutLock};
-use std::ops::RangeInclusive;
+use std::ops::{RangeInclusive, Range};
 use std::sync::Arc;
 use std::{cmp::Ordering, collections::HashMap, time::Instant};
 use std::fs::File;
@@ -18,25 +18,26 @@ use std::thread::JoinHandle;
 use super::int2str::{i32toa_countlut, u32toa_countlut};
 use flate2::Compression;
 use flate2::write::GzEncoder;
+use rayon::prelude::*;
 
 #[allow(dead_code)]
 fn panic_err() {
     panic!("The query you entered is incorrect. The format is as following: <ref name>:<position>\ne.g. chr1:1257\n");
 }
 
-fn process_range(mut gbam_reader: Reader, rec_range: RangeInclusive<usize>, mut scan_line: Vec<i32>, target_id: i32) -> Vec<i32> {
-    let mut rec = GbamRecord::default();
+fn process_range(preparsed_records: Arc<Vec<DepthUnit>>, index_file: Option<Arc<Vec<u32>>>, rec_range: Range<usize>, mut scan_line: Vec<i32>, target_id: i32) -> Vec<i32> {
+    // let mut rec = GbamRecord::default();
     for idx in rec_range {
-        gbam_reader.fill_record(idx, &mut rec);
-        if rec.refid.unwrap() != target_id {
+        let rec = preparsed_records[index_file.as_ref().unwrap()[idx] as usize];
+        if rec.refid != target_id {
+            break;
+        }
+        if rec.cigar == 0 {
             continue;
         }
-        if rec.cigar.as_ref().unwrap().0.is_empty() {
-            continue;
-        }
-        let read_start: usize = rec.pos.unwrap().try_into().unwrap();
-        let mut base_cov = rec.cigar.as_ref().unwrap().base_coverage() as usize;
-        if(rec.flag.unwrap() & 0b11100000100) != 0 {
+        let read_start: usize = rec.pos as usize;
+        let mut base_cov = rec.cigar as usize;
+        if(rec.flag & 0b11100000100) != 0 {
             base_cov = 0;
         }
         if base_cov == 0 {
@@ -53,19 +54,41 @@ fn process_range(mut gbam_reader: Reader, rec_range: RangeInclusive<usize>, mut 
     scan_line
 }
 
-fn calc_depth(gbam_file: File, file_meta: Arc<FileMeta>, number_of_records: usize, ref_id: i32, mut coverage_arr: Vec<i32>, ref_len: usize) -> Vec<i32> {
+fn calc_depth(preparsed_records: Arc<Vec<DepthUnit>>, file_meta: Arc<FileMeta>, index_file: Option<Arc<Vec<u32>>>, number_of_records: usize, ref_id: i32, mut coverage_arr: Vec<i32>, ref_len: usize) -> Vec<i32> {
     coverage_arr.resize(ref_len+1, 0);
 
-    let lower_bound = if let Some(block_num) = find_leftmost_block(ref_id, file_meta.view_blocks(&Fields::RefID)) {
-        block_num as usize
+    // let lower_bound = if let Some(block_num) = find_leftmost_block(ref_id, file_meta.view_blocks(&Fields::RefID)) {
+    //     block_num as usize
+    // }
+    // else {
+    //     // This refid was not found in any block
+    //     return coverage_arr;
+    // };
+    // let upper_bound = find_rightmost_block(ref_id, file_meta.view_blocks(&Fields::RefID)) as usize;
+    let mut first_rec:i64 = -1;
+    
+    let mut last_rec:i64=  preparsed_records.len() as i64;
+    
+  
+    while(last_rec - first_rec > 1){
+        let mid: usize = ((first_rec + last_rec)/2) as usize;
+        let buf = preparsed_records[index_file.as_ref().unwrap()[mid] as usize];
+        if buf.refid >= ref_id || buf.refid == -1 {
+            last_rec = mid as i64;
+        }
+        else{
+            first_rec = mid as i64;
+        }
     }
-    else {
-        // This refid was not found in any block
+    first_rec += 1;
+    let amount = preparsed_records.len();
+
+    if first_rec as usize == amount || preparsed_records[index_file.as_ref().unwrap()[first_rec as usize] as usize].refid != ref_id {
         return coverage_arr;
-    };
-    let upper_bound = find_rightmost_block(ref_id, file_meta.view_blocks(&Fields::RefID)) as usize;
-    let first_rec = (lower_bound)*file_meta.view_blocks(&Fields::RefID)[0].numitems as usize;
-    let last_rec = std::cmp::min(upper_bound*file_meta.view_blocks(&Fields::RefID)[0].numitems as usize, number_of_records-1);
+    }
+
+
+    // let last_rec = std::cmp::min(upper_bound*file_meta.view_blocks(&Fields::RefID)[0].numitems as usize, number_of_records-1);
 
     // let mut temp_reader = Reader::new_with_meta(gbam_file.try_clone().unwrap(), ParsingTemplate::new_with(&[Fields::RefID, Fields::Pos, Fields::RawCigar]), &file_meta).unwrap();
     // let mut rec = GbamRecord::default();
@@ -80,7 +103,7 @@ fn calc_depth(gbam_file: File, file_meta: Arc<FileMeta>, number_of_records: usiz
 
     // dbg!("Allocated {}", ref_len);
 
-    let mut coverage = process_range(Reader::new_with_meta(gbam_file.try_clone().unwrap(), ParsingTemplate::new_with(&[Fields::RefID, Fields::Pos, Fields::RawCigar, Fields::Flags]), &file_meta).unwrap(), first_rec..=last_rec, coverage_arr, ref_id);
+    let mut coverage = process_range(preparsed_records, index_file, first_rec as usize..amount, coverage_arr, ref_id);
     let mut acc = 0;
     for slot in coverage.iter_mut() {
         acc += *slot;
@@ -89,7 +112,15 @@ fn calc_depth(gbam_file: File, file_meta: Arc<FileMeta>, number_of_records: usiz
     coverage
 }
 
-pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: Option<String>, _mapq: Option<u32>, bed_gz_path: Option<PathBuf>, thread_num: Option<usize>){
+#[derive(Default, Clone, Copy)]
+struct DepthUnit {
+    refid: i32,
+    pos: i32,
+    cigar: u32,
+    flag: u16,
+}
+
+pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, index_file: Option<Arc<Vec<u32>>>, bed_cli_request: Option<String>, _mapq: Option<u32>, bed_gz_path: Option<PathBuf>, thread_num: Option<usize>){
     let mut queries = HashMap::<String, Vec<(u32, u32)>>::new();
     if let Some(bed_path) = bed_file {
         queries = bed::parse_bed_from_file(bed_path).expect("BED file is corrupted.");
@@ -115,7 +146,7 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
         buffers = vec![Vec::<i32>::new();std::cmp::min(thread_num.unwrap(), 8)];
     }
 
-    type VectorOfSendersAndReceivers = Vec::<Option<(Sender<(File, Arc<FileMeta>, usize, i32, Vec<i32>, usize, String)>,Receiver<(String, Vec<i32>)>)>>;
+    type VectorOfSendersAndReceivers= Vec::<Option<(Sender<(Arc<Vec<DepthUnit>>, Arc<FileMeta>, Option<Arc<Vec<u32>>>, usize, i32, Vec<i32>, usize, String)>,Receiver<(String, Vec<i32>)>)>>;
     let mut circular_buf_channels = VectorOfSendersAndReceivers::new();
     (0..buffers.len()).for_each(|_|circular_buf_channels.push(None));
     let mut handles: Vec::<JoinHandle<()>> = Vec::new();
@@ -132,6 +163,28 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
     let st = std::io::stdout();
     let lock = st.lock();
     let mut printer = ConsolePrinter::new(lock);
+
+    let mut preparsed = vec![DepthUnit::default(); number_of_records];
+
+    preparsed.par_iter_mut().zip(0..number_of_records).chunks(2_000_000).for_each(|records_range| {
+        let mut rec =  GbamRecord::default();
+        let mut tmplt = ParsingTemplate::new();
+        tmplt.set(&Fields::RawCigar, true);
+    
+        let mut reader = Reader::new_with_meta(gbam_file.try_clone().unwrap(), ParsingTemplate::new_with(&[Fields::RefID, Fields::Pos, Fields::RawCigar, Fields::Flags]), &file_meta, None).unwrap();
+
+        for (dest, rec_num) in records_range {
+            reader.fill_record(rec_num, &mut rec);
+            dest.refid = rec.refid.unwrap();
+            dest.pos = rec.pos.unwrap();
+            dest.cigar = rec.cigar.as_ref().unwrap().base_coverage();
+            dest.flag = rec.flag.unwrap();
+        }
+    });
+
+    let arc_of_records = Arc::new(preparsed);
+
+    dbg!("Finished parsing all records to RAM buffer.");
 
     loop {
         // dbg!(buffers.len()); 
@@ -210,8 +263,8 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
                 let (ready_s, ready_r) = bounded(1);
                 let handle = thread::spawn(move || {
                     for task  in r {
-                        let (file, meta, number_of_records, ref_id, buf, t_ref_len, t_chr) = task;
-                        ready_s.send((t_chr, calc_depth(file, meta, number_of_records, ref_id, buf, t_ref_len))).unwrap();
+                        let (preparsed, meta, index_file, number_of_records, ref_id, buf, t_ref_len, t_chr) = task;
+                        ready_s.send((t_chr, calc_depth(preparsed, meta, index_file, number_of_records, ref_id, buf, t_ref_len))).unwrap();
                     } 
                 });
                 circular_buf_channels[idx] = Some((s, ready_r));
@@ -222,9 +275,10 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, bed_cli_request: 
             let buf = buffers.pop().unwrap();
             let meta = file_meta.clone();
             let file = gbam_file.try_clone().unwrap();
+            let index = index_file.as_ref().map(|f| f.clone());
             let t_chr = chr.clone();
             let t_ref_len = *ref_len as usize;
-            circular_buf_channels[idx].as_mut().unwrap().0.send((file, meta, number_of_records, ref_id, buf, t_ref_len, t_chr)).unwrap();
+            circular_buf_channels[idx].as_mut().unwrap().0.send((arc_of_records.clone(), meta, index, number_of_records, ref_id, buf, t_ref_len, t_chr)).unwrap();
         }
 
         if buffers.len() == circular_buf_channels.len(){
