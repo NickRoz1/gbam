@@ -41,10 +41,14 @@ def compare_bam_files(original, result):
     subprocess.check_call(["samtools", "view", "-@ 8", original, '-o', out_of_original_view.name], stderr=subprocess.STDOUT)
     subprocess.check_call(["samtools", "view", "-@ 8", result, '-o', out_of_result_view.name], stderr=subprocess.STDOUT)
 
-    assert(os.path.getsize(out_of_result_view.name) > 0)
-    assert(os.path.getsize(out_of_result_view.name) == os.path.getsize(out_of_original_view.name))
+    byte_file_comparison(out_of_original_view.name, out_of_result_view.name)
+   
+
+def byte_file_comparison(original_path, result_path):
+    assert(os.path.getsize(result_path) > 0)
+    assert(os.path.getsize(result_path) == os.path.getsize(original_path))
     
-    with io.open(out_of_original_view.name, 'rb') as from_samtools, io.open(out_of_result_view.name, 'rb') as from_gbam:
+    with io.open(original_path, 'rb') as from_samtools, io.open(result_path, 'rb') as from_gbam:
         while True:
             bam_byte = from_samtools.read(4096)
             gbam_byte = from_gbam.read(4096)
@@ -126,3 +130,12 @@ def test_depth():
 
     assert(len(decompressed_gbam_res) > 0)
     assert(decompressed_gbam_res == decompressed_mosdepth_res)
+
+def test_view(request):
+    gbam_results = NamedTemporaryFile()
+    samtools_results = NamedTemporaryFile()
+
+    subprocess.check_output([f"{binary_path} -v {gbam_file.name} | samtools view > {gbam_results.name}"], shell=True) 
+    subprocess.check_output([f"samtools view {bam_file_path} > {samtools_results.name}"], shell=True) 
+
+    byte_file_comparison(samtools_results.name, gbam_results.name)
