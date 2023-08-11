@@ -82,26 +82,25 @@ def test_flagstat():
     assert(len(view_of_original) > 0)
     assert(view_of_original == view_of_result)
 
-@pytest.mark.skip(reason="It's index sort, comparison of sam view won't work.")
 def test_sort(request):
     gbam_sorted_results = NamedTemporaryFile(suffix=".bam")
     samtools_sorted_results = bam_file_sorted_path
     cli_bam_path = request.config.getoption("--bam-file-path")
     
     if cli_bam_path is None:
-        subprocess.run([binary_path, "--convert-to-bam", gbam_file_sorted.name, "-o", gbam_sorted_results.name])
-    else:
-        cli_bam_path = Path(cli_bam_path)
-        temporary_gbam = NamedTemporaryFile()
-        subprocess.run([binary_path, cli_bam_path.as_posix(), "-c", "-s", "-o", temporary_gbam.name, "--sort-temp-mode", "lz4_ram"]) 
-        subprocess.run([binary_path, "--convert-to-bam", temporary_gbam.name, "-o", gbam_sorted_results.name]) 
-        samtools_sorted_results = NamedTemporaryFile(suffix=".bam")
-        subprocess.run(["samtools", "sort", cli_bam_path.as_posix(), "-o", samtools_sorted_results.name]) 
+        gbam_res, samtools_res = generate_views_for_gbam_and_bam_files(gbam_file_sorted, gbam_file_sorted.name+".gbai", bam_file_sorted_path.name)
+        byte_file_comparison(gbam_res.name, samtools_res.name)
+        return
+    
+    cli_bam_path = Path(cli_bam_path)
+    temporary_gbam = NamedTemporaryFile()
+    subprocess.run([binary_path, cli_bam_path.as_posix(), "-c", "-s", "-o", temporary_gbam.name, "--sort-temp-mode", "lz4_ram"]) 
+    subprocess.run([binary_path, "--convert-to-bam", temporary_gbam.name, "-o", gbam_sorted_results.name]) 
+    samtools_sorted_results = NamedTemporaryFile(suffix=".bam")
+    subprocess.run(["samtools", "sort", cli_bam_path.as_posix(), "-o", samtools_sorted_results.name]) 
 
     compare_bam_files(samtools_sorted_results.name, gbam_sorted_results.name)
     
-
-
 # Testing against mosdepth.
 @with_depth
 def test_depth():    
@@ -131,11 +130,19 @@ def test_depth():
     assert(len(decompressed_gbam_res) > 0)
     assert(decompressed_gbam_res == decompressed_mosdepth_res)
 
-def test_view(request):
+def generate_views_for_gbam_and_bam_files(gbam_input, gbam_index, bam_input):
     gbam_results = NamedTemporaryFile()
     samtools_results = NamedTemporaryFile()
 
-    subprocess.check_output([f"{binary_path} -v {gbam_file.name} | samtools view > {gbam_results.name}"], shell=True) 
-    subprocess.check_output([f"samtools view {bam_file_path} > {samtools_results.name}"], shell=True) 
+    index_option = ""
+    if gbam_index is not None:
+        index_option = f"--index-file {gbam_index}"
 
+    subprocess.check_output([f"{binary_path} -v {gbam_input.name} {index_option} | samtools view > {gbam_results.name}"], shell=True) 
+    subprocess.check_output([f"samtools view {bam_input} > {samtools_results.name}"], shell=True) 
+
+    return (gbam_results, samtools_results)
+
+def test_view(request):
+    gbam_results, samtools_results = generate_views_for_gbam_and_bam_files(gbam_file, None, bam_file_path)
     byte_file_comparison(samtools_results.name, gbam_results.name)
