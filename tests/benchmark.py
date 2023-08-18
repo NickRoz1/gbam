@@ -47,7 +47,7 @@ def sambamba(bin_path, bam_path, res_path):
     sambamba_results["flagstat"] = subprocess.check_output([f"/usr/bin/time -v {bin_path} flagstat -t 8 {sambamba_path}"], shell=True, stderr=subprocess.STDOUT)
     sambamba_results["depth"] = subprocess.check_output([f"/usr/bin/time -v {bin_path} depth base -t 8 {sambamba_path} > {depth_sambamba_out}"], shell=True, stderr=subprocess.STDOUT)
     
-    print(f"Completed SAMTOOLS benchmarking, took: {time.time()-start} seconds")
+    print(f"Completed SAMBAMBA benchmarking, took: {time.time()-start} seconds")
 
 def gfainject(bin_path, gbam_path, gfa_path, bam_path, res_path):
     gfainject_from_bam_path = res_path/"injection_from_bam.gfainject.gaf"
@@ -75,7 +75,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    for p in [args.samtools_bin, args.sambamba_bin, args.gbam_bin, args.bam_file]: # FIXME: args.gfainject_bin, args.gbam_file, args.gfa_file
+    for p in [args.samtools_bin, args.sambamba_bin, args.gbam_bin, args.bam_file, args.gfainject_bin, args.gbam_file, args.gfa_file]: 
         print(p)
         if not os.path.exists(p):
             print(f"Path {p} does not exist, terminating.")
@@ -90,7 +90,7 @@ if __name__ == '__main__':
         gbam(args.gbam_bin, *same_params)
         samtools(args.samtools_bin, *same_params)
         sambamba(args.sambamba_bin, *same_params)
-        # FIXME: gfainject(args.gfainject_bin, args.gbam_file, args.gfa_file)
+        gfainject(args.gfainject_bin, args.gbam_file, args.gfa_file, *same_params)
 
         # Print resulting file
         markdown_result_file.write("# SORTING\n\n\n")
@@ -108,10 +108,9 @@ if __name__ == '__main__':
         markdown_result_file.write(my_format_only_elapsed("SAMBAMBA depth:", sambamba_results["depth"]))
         markdown_result_file.write(my_format_only_elapsed("SAMTOOLS depth:", samtools_results["depth"]))
 
-        # FIXME:
-        # markdown_result_file.write("# GFAINJECT\n\n\n")
-        # markdown_result_file.write(my_format_only_elapsed("From GBAM:", gfa_inject_results["bam_inject"]))
-        # markdown_result_file.write(my_format_only_elapsed("From BAM:", gfa_inject_results["gbam_inject"]))
+        markdown_result_file.write("# GFAINJECT\n\n\n")
+        markdown_result_file.write(my_format_only_elapsed("From GBAM:", gfa_inject_results["bam_inject"]))
+        markdown_result_file.write(my_format_only_elapsed("From BAM:", gfa_inject_results["gbam_inject"]))
 
     print("Completed successfully.")
         
