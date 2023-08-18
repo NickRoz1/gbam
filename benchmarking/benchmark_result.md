@@ -10,29 +10,29 @@ tests/benchmark.py --gbam_bin target/release/gbam_binary --bam_file test_data/S2
 
 ## GBAM index-sort:
  ```
-User time (seconds): 3.75
-System time (seconds): 0.49
-Percent of CPU this job got: 553%
-Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.76
-Maximum resident set size (kbytes): 485596
+User time (seconds): 3.83
+System time (seconds): 0.48
+Percent of CPU this job got: 540%
+Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.80
+Maximum resident set size (kbytes): 485672
 ```
 
 ## SAMBAMBA sort:
  ```
-User time (seconds): 13.50
-System time (seconds): 0.49
-Percent of CPU this job got: 766%
-Elapsed (wall clock) time (h:mm:ss or m:ss): 0:01.82
-Maximum resident set size (kbytes): 686640
+User time (seconds): 13.35
+System time (seconds): 0.54
+Percent of CPU this job got: 752%
+Elapsed (wall clock) time (h:mm:ss or m:ss): 0:01.84
+Maximum resident set size (kbytes): 692012
 ```
 
 ## SAMTOOLS sort:
  ```
-User time (seconds): 13.50
-System time (seconds): 0.26
-Percent of CPU this job got: 767%
-Elapsed (wall clock) time (h:mm:ss or m:ss): 0:01.79
-Maximum resident set size (kbytes): 670796
+User time (seconds): 13.16
+System time (seconds): 0.25
+Percent of CPU this job got: 766%
+Elapsed (wall clock) time (h:mm:ss or m:ss): 0:01.75
+Maximum resident set size (kbytes): 669492
 ```
 
 # FLAGSTAT
@@ -42,15 +42,15 @@ Maximum resident set size (kbytes): 670796
  ```
 User time (seconds): 0.08
 System time (seconds): 0.02
-Percent of CPU this job got: 211%
-Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.05
-Maximum resident set size (kbytes): 115576
+Percent of CPU this job got: 216%
+Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.04
+Maximum resident set size (kbytes): 116536
 ```
 
 ## SAMBAMBA flagstat:
  ```
-User time (seconds): 1.23
-System time (seconds): 0.04
+User time (seconds): 1.16
+System time (seconds): 0.05
 Percent of CPU this job got: 812%
 Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.15
 Maximum resident set size (kbytes): 11308
@@ -58,11 +58,11 @@ Maximum resident set size (kbytes): 11308
 
 ## SAMTOOLS flagstat:
  ```
-User time (seconds): 1.60
-System time (seconds): 0.09
-Percent of CPU this job got: 803%
-Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.21
-Maximum resident set size (kbytes): 11496
+User time (seconds): 1.77
+System time (seconds): 0.11
+Percent of CPU this job got: 817%
+Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.23
+Maximum resident set size (kbytes): 11564
 ```
 
 # DEPTH
@@ -70,29 +70,29 @@ Maximum resident set size (kbytes): 11496
 
 ## GBAM depth:
  ```
-User time (seconds): 0.93
+User time (seconds): 0.94
 System time (seconds): 0.64
-Percent of CPU this job got: 110%
-Elapsed (wall clock) time (h:mm:ss or m:ss): 0:01.43
-Maximum resident set size (kbytes): 115380
+Percent of CPU this job got: 109%
+Elapsed (wall clock) time (h:mm:ss or m:ss): 0:01.44
+Maximum resident set size (kbytes): 117968
 ```
 
 ## SAMBAMBA depth:
  ```
 User time (seconds): 33.74
-System time (seconds): 1.12
+System time (seconds): 1.16
 Percent of CPU this job got: 107%
-Elapsed (wall clock) time (h:mm:ss or m:ss): 0:32.54
-Maximum resident set size (kbytes): 26884
+Elapsed (wall clock) time (h:mm:ss or m:ss): 0:32.59
+Maximum resident set size (kbytes): 24792
 ```
 
 ## SAMTOOLS depth:
  ```
-User time (seconds): 4.40
+User time (seconds): 4.42
 System time (seconds): 0.71
-Percent of CPU this job got: 179%
-Elapsed (wall clock) time (h:mm:ss or m:ss): 0:02.85
-Maximum resident set size (kbytes): 11460
+Percent of CPU this job got: 183%
+Elapsed (wall clock) time (h:mm:ss or m:ss): 0:02.79
+Maximum resident set size (kbytes): 11420
 ```
 
 # GFAINJECT
@@ -100,19 +100,19 @@ Maximum resident set size (kbytes): 11460
 
 ## From GBAM:
  ```
-User time (seconds): 5.02
-System time (seconds): 1.27
-Percent of CPU this job got: 99%
-Elapsed (wall clock) time (h:mm:ss or m:ss): 0:06.30
-Maximum resident set size (kbytes): 37428
+User time (seconds): 2.88
+System time (seconds): 1.20
+Percent of CPU this job got: 98%
+Elapsed (wall clock) time (h:mm:ss or m:ss): 0:04.15
+Maximum resident set size (kbytes): 125004
 ```
 
 ## From BAM:
  ```
-User time (seconds): 2.90
-System time (seconds): 1.11
-Percent of CPU this job got: 98%
-Elapsed (wall clock) time (h:mm:ss or m:ss): 0:04.07
-Maximum resident set size (kbytes): 125940
+User time (seconds): 4.97
+System time (seconds): 1.31
+Percent of CPU this job got: 99%
+Elapsed (wall clock) time (h:mm:ss or m:ss): 0:06.29
+Maximum resident set size (kbytes): 37512
 ```
 
