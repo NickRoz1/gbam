@@ -9,9 +9,10 @@ sambamba_results = {}
 gbam_results = {}
 gfa_inject_results = {}
 
-keyword = "Elapsed"
-my_format = lambda name, out: f"## {name}\n ```\n{out.decode('utf-8')}```\n\n"
-my_format_only_elapsed = lambda name, out: f"## {name}\n ```\n{[s.strip() for s in out.decode('utf-8').splitlines() if keyword in s][0]}\n```\n\n"
+keywords = ["User", "System", "Percent", "Elapsed"]
+newline = '\n'
+# my_format = lambda name, out: f"## {name}\n ```\n{out.decode('utf-8')}```\n\n"
+my_format = lambda name, out: f"## {name}\n ```\n{newline.join([s.strip() for s in out.decode('utf-8').splitlines() if any(word in s for word in keywords)])}\n```\n\n"
 
 def gbam(bin_path, bam_path, res_path):
     start = time.time()
@@ -94,23 +95,23 @@ if __name__ == '__main__':
 
         # Print resulting file
         markdown_result_file.write("# SORTING\n\n\n")
-        markdown_result_file.write(my_format_only_elapsed("GBAM index-sort:", gbam_results["index-sort"]))
-        markdown_result_file.write(my_format_only_elapsed("SAMBAMBA sort:", sambamba_results["sort"]))
-        markdown_result_file.write(my_format_only_elapsed("SAMTOOLS sort:", samtools_results["sort"]))
+        markdown_result_file.write(my_format("GBAM index-sort:", gbam_results["index-sort"]))
+        markdown_result_file.write(my_format("SAMBAMBA sort:", sambamba_results["sort"]))
+        markdown_result_file.write(my_format("SAMTOOLS sort:", samtools_results["sort"]))
 
         markdown_result_file.write("# FLAGSTAT\n\n\n")
-        markdown_result_file.write(my_format_only_elapsed("GBAM flagstat:", gbam_results["flagstat"]))
-        markdown_result_file.write(my_format_only_elapsed("SAMBAMBA flagstat:", sambamba_results["flagstat"]))
-        markdown_result_file.write(my_format_only_elapsed("SAMTOOLS flagstat:", samtools_results["flagstat"]))
+        markdown_result_file.write(my_format("GBAM flagstat:", gbam_results["flagstat"]))
+        markdown_result_file.write(my_format("SAMBAMBA flagstat:", sambamba_results["flagstat"]))
+        markdown_result_file.write(my_format("SAMTOOLS flagstat:", samtools_results["flagstat"]))
 
         markdown_result_file.write("# DEPTH\n\n\n")
-        markdown_result_file.write(my_format_only_elapsed("GBAM depth:", gbam_results["depth"]))
-        markdown_result_file.write(my_format_only_elapsed("SAMBAMBA depth:", sambamba_results["depth"]))
-        markdown_result_file.write(my_format_only_elapsed("SAMTOOLS depth:", samtools_results["depth"]))
+        markdown_result_file.write(my_format("GBAM depth:", gbam_results["depth"]))
+        markdown_result_file.write(my_format("SAMBAMBA depth:", sambamba_results["depth"]))
+        markdown_result_file.write(my_format("SAMTOOLS depth:", samtools_results["depth"]))
 
         markdown_result_file.write("# GFAINJECT\n\n\n")
-        markdown_result_file.write(my_format_only_elapsed("From GBAM:", gfa_inject_results["bam_inject"]))
-        markdown_result_file.write(my_format_only_elapsed("From BAM:", gfa_inject_results["gbam_inject"]))
+        markdown_result_file.write(my_format("From GBAM:", gfa_inject_results["bam_inject"]))
+        markdown_result_file.write(my_format("From BAM:", gfa_inject_results["gbam_inject"]))
 
     print("Completed successfully.")
         
