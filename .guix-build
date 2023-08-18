@@ -1,4 +1,4 @@
-# Start a guix container to build this tool
+# Start a guix container to build this tool. Make sure there is a recent guix in the path
 #
 # After startup you may need to set export CC=clang or gcc and the LIB path to point
 # to gcc and clang libs, e.g.
@@ -15,5 +15,3 @@ echo env CC=gcc ~/.local/bin/maturin build
 echo env CC=gcc cargo build --release
 
 guix shell -C -D --network guix rust python python-pip nss-certs openssl git gcc-toolchain clang vim which python-cffi rust-cargo coreutils glibc:static cmake make --share=$HOME/.cargo
-
-

@@ -54,6 +54,12 @@ pytest -k test_sort --bam-file-path=/home/test/testing_big_file/test.bam
 pytest -k test_bam_to_gbam_to_bam --bam-file-path=/home/test/testing_big_file/test.bam
 ```
 
+### Benchmarks
+
+See [benchmarks](benchmarking/benchmark_result.md)
+
+Data is available for [download](http://hypervolu.me/~guarracino/gbam_injection/).
+
 # Development
 
 ## GNU Guix - this is not tested.
