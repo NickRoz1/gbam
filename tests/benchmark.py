@@ -77,7 +77,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     for p in [args.samtools_bin, args.sambamba_bin, args.gbam_bin, args.bam_file, args.gfainject_bin, args.gbam_file, args.gfa_file]: 
-        print(p)
         if not os.path.exists(p):
             print(f"Path {p} does not exist, terminating.")
             exit()
