@@ -5,11 +5,13 @@ import subprocess
 import os
 import sys
 from pathlib import Path
+import tempfile
 import time
 
 timer = 'echo 3 > /proc/sys/vm/drop_caches ; /usr/bin/time -v'
 
-samtools_results = {}
+samtools_bam_results = {}
+samtools_cram_results = {}
 sambamba_results = {}
 gbam_results = {}
 gfa_inject_results = {}
@@ -31,17 +33,34 @@ def gbam(bin_path, bam_path, res_path):
 
     print(f"Completed GBAM benchmarking, took: {time.time()-start} seconds")
 
-def samtools(bin_path, bam_path, res_path):
+def samtools_bam(bin_path, bam_path, res_path):
     start = time.time()
 
     samtools_path = res_path/"sort_out.samtools.bam"
     depth_samtools_out = res_path/"samtools_depth_out.txt"
 
-    samtools_results["sort"] = subprocess.check_output([f"{timer} {bin_path} sort -@ 8 {bam_path} -o {samtools_path}"], shell=True, stderr=subprocess.STDOUT)
-    samtools_results["flagstat"] = subprocess.check_output([f"{timer} {bin_path} flagstat -@ 8 {samtools_path}"], shell=True, stderr=subprocess.STDOUT)
-    samtools_results["depth"] = subprocess.check_output([f"{timer} {bin_path} depth -@ 8 {samtools_path} > {depth_samtools_out}"], shell=True, stderr=subprocess.STDOUT)
+    samtools_bam_results["sort"] = subprocess.check_output([f"{timer} {bin_path} sort -@ 8 {bam_path} -o {samtools_path}"], shell=True, stderr=subprocess.STDOUT)
+    samtools_bam_results["flagstat"] = subprocess.check_output([f"{timer} {bin_path} flagstat -@ 8 {samtools_path}"], shell=True, stderr=subprocess.STDOUT)
+    samtools_bam_results["depth"] = subprocess.check_output([f"{timer} {bin_path} depth -@ 8 {samtools_path} > {depth_samtools_out}"], shell=True, stderr=subprocess.STDOUT)
 
-    print(f"Completed SAMTOOLS benchmarking, took: {time.time()-start} seconds")
+    print(f"Completed SAMTOOLS BAM benchmarking, took: {time.time()-start} seconds")
+
+def samtools_cram(bin_path, bam_path, res_path):
+    print("Creating cram file from bam file.")
+    test_cram_file = tempfile.NamedTemporaryFile(suffix=".cram")
+    subprocess.check_output([f"{bin_path} view -C -o {test_cram_file.name} {bam_path}"], shell=True, stderr=subprocess.STDOUT)
+    print("Starting benchmark using created cram file.")
+
+    start = time.time()
+    
+    samtools_path = res_path/"sort_out.samtools.cram"
+    depth_samtools_out = res_path/"samtools_depth_out.txt"
+
+    samtools_cram_results["sort"] = subprocess.check_output([f"{timer} {bin_path} sort -@ 8 {test_cram_file.name} -o {samtools_path}"], shell=True, stderr=subprocess.STDOUT)
+    samtools_cram_results["flagstat"] = subprocess.check_output([f"{timer} {bin_path} flagstat -@ 8 {samtools_path}"], shell=True, stderr=subprocess.STDOUT)
+    samtools_cram_results["depth"] = subprocess.check_output([f"{timer} {bin_path} depth -@ 8 {samtools_path} > {depth_samtools_out}"], shell=True, stderr=subprocess.STDOUT)
+
+    print(f"Completed SAMTOOLS CRAM benchmarking, took: {time.time()-start} seconds")
 
 def sambamba(bin_path, bam_path, res_path):
     start = time.time()
@@ -97,25 +116,29 @@ if __name__ == '__main__':
 
         same_params = (args.bam_file, Path(args.result_dir))
         gbam(args.gbam_bin, *same_params)
-        samtools(args.samtools_bin, *same_params)
+        samtools_bam(args.samtools_bin, *same_params)
+        samtools_cram(args.samtools_bin, *same_params)
         sambamba(args.sambamba_bin, *same_params)
         gfainject(args.gfainject_bin, args.gbam_file, args.gfa_file, *same_params)
-
+        
         # Print resulting file
         markdown_result_file.write("# SORTING\n\n\n")
         markdown_result_file.write(my_format("GBAM index-sort:", gbam_results["index-sort"]))
         markdown_result_file.write(my_format("SAMBAMBA sort:", sambamba_results["sort"]))
-        markdown_result_file.write(my_format("SAMTOOLS sort:", samtools_results["sort"]))
+        markdown_result_file.write(my_format("SAMTOOLS BAM sort:", samtools_bam_results["sort"]))
+        markdown_result_file.write(my_format("SAMTOOLS CRAM sort:", samtools_cram_results["sort"]))
 
         markdown_result_file.write("# FLAGSTAT\n\n\n")
         markdown_result_file.write(my_format("GBAM flagstat:", gbam_results["flagstat"]))
         markdown_result_file.write(my_format("SAMBAMBA flagstat:", sambamba_results["flagstat"]))
-        markdown_result_file.write(my_format("SAMTOOLS flagstat:", samtools_results["flagstat"]))
+        markdown_result_file.write(my_format("SAMTOOLS BAM flagstat:", samtools_bam_results["flagstat"]))
+        markdown_result_file.write(my_format("SAMTOOLS CRAM flagstat:", samtools_cram_results["flagstat"]))
 
         markdown_result_file.write("# DEPTH\n\n\n")
         markdown_result_file.write(my_format("GBAM depth:", gbam_results["depth"]))
         markdown_result_file.write(my_format("SAMBAMBA depth:", sambamba_results["depth"]))
-        markdown_result_file.write(my_format("SAMTOOLS depth:", samtools_results["depth"]))
+        markdown_result_file.write(my_format("SAMTOOLS BAM depth:", samtools_bam_results["depth"]))
+        markdown_result_file.write(my_format("SAMTOOLS CRAM depth:", samtools_cram_results["depth"]))
 
         markdown_result_file.write("# GFAINJECT\n\n\n")
         markdown_result_file.write(my_format("From GBAM:", gfa_inject_results["gbam_inject"]))
