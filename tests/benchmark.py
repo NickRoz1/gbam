@@ -118,7 +118,7 @@ if __name__ == '__main__':
         markdown_result_file.write(my_format("SAMTOOLS depth:", samtools_results["depth"]))
 
         markdown_result_file.write("# GFAINJECT\n\n\n")
-        markdown_result_file.write(my_format("From GBAM:", gfa_inject_results["bam_inject"]))
-        markdown_result_file.write(my_format("From BAM:", gfa_inject_results["gbam_inject"]))
+        markdown_result_file.write(my_format("From GBAM:", gfa_inject_results["gbam_inject"]))
+        markdown_result_file.write(my_format("From BAM:", gfa_inject_results["bam_inject"]))
 
     print("Completed successfully.")
