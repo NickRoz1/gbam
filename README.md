@@ -56,9 +56,9 @@ pytest -k test_bam_to_gbam_to_bam --bam-file-path=/home/test/testing_big_file/te
 
 ### Benchmarks
 
-```shell
-python3 tests/benchmark.py --gbam_bin target/release/gbam_binary --bam_file test_data/little.bam --result_dir benchmarking --samtools_bin /usr/local/bin/samtools --sambamba_bin /usr/local/bin/sambamba-0.8.2-linux-amd64-static
-```
+See [benchmarks](benchmarking/benchmark_result.md)
+
+Data is available for [download](http://hypervolu.me/~guarracino/gbam_injection/).
 
 # Development
 
