@@ -108,6 +108,8 @@ for rec_i in range(0, records_num):
     arr.append(columns["TemplateLength"].get_item(rec_i))
     arr.append(columns["ReadName"].get_item(rec_i))
     arr.append(columns["RawCigar"].get_item(rec_i))
+    ## If you want the output to match what GBAM outputs exactly, uncomment this.
+    ## The bottom 4 bits are not important in some cases.
     # t = bytearray(columns["RawSequence"].get_item(rec_i))
     # if len(t) > 0 and t[-1]&0x0F == 0:
     #     t[-1] = t[-1]|15
