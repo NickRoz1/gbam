@@ -20,6 +20,7 @@ keywords = ["User", "System", "Percent", "Elapsed", "Maximum"]
 newline = '\n'
 # my_format = lambda name, out: f"## {name}\n ```\n{out.decode('utf-8')}```\n\n"
 my_format = lambda name, out: f"## {name}\n ```\n{newline.join([s.strip() for s in out.decode('utf-8').splitlines() if any(word in s for word in keywords)])}\n```\n\n"
+total_time_format = lambda name, out: f"## {name}\n ```\n{out}s\n```\n\n"
 
 def gbam(bin_path, bam_path, res_path):
     start = time.time()
@@ -144,4 +145,40 @@ if __name__ == '__main__':
         markdown_result_file.write(my_format("From GBAM:", gfa_inject_results["gbam_inject"]))
         markdown_result_file.write(my_format("From BAM:", gfa_inject_results["bam_inject"]))
 
+        def extract_time(s):
+            for l in s.decode('utf-8').splitlines():
+                l = l.strip()
+                if l.startswith("Elapsed"):  
+                    timestamp = l.split(' ')[-1]
+                   
+                    # 0:00.11
+                    t = 0.0
+                    
+                    if len(timestamp.split('.')) > 1:
+                        t += float("0." + timestamp.split('.')[1])
+                    timestamp = timestamp.split('.')[0]
+                    # 0:00 
+                    # Seconds per unit
+                    base = 1
+                    
+                    for e in timestamp.split(':')[::-1]:
+                        t += int(e)*base
+                        base *= 60
+                    return t
+
+            print("No time line found.")  
+            exit(1)
+
+        def calc_total(obj):
+            t = 0
+            for _, v in obj.items():
+                t += extract_time(v)
+            return t
+        
+        markdown_result_file.write("# TOTAL WORKFLOW TIME\n\n\n")
+        markdown_result_file.write(total_time_format("GBAM:", calc_total(gbam_results)))
+        markdown_result_file.write(total_time_format("SAMBAMBA:", calc_total(sambamba_results)))
+        markdown_result_file.write(total_time_format("SAMTOOLS:", calc_total(samtools_bam_results)))
+        markdown_result_file.write(total_time_format("SAMTOOLS CRAM:", calc_total(samtools_cram_results)))
+        
     print("Completed successfully.")
