@@ -63,7 +63,7 @@ def samtools_cram(bin_path, bam_path, res_path):
 
     print(f"Completed SAMTOOLS CRAM benchmarking, took: {time.time()-start} seconds")
 
-def sambamba(bin_path, bam_path, res_path):
+def sambamba(bin_path, disable_sambamba_depth, bam_path, res_path):
     start = time.time()
 
     sambamba_path = res_path/"sort_out.sambamba.bam"
@@ -71,8 +71,10 @@ def sambamba(bin_path, bam_path, res_path):
 
     sambamba_results["sort"] = subprocess.check_output([f"{timer} {bin_path} sort -t 8 -m 90GB {bam_path} -o {sambamba_path}"], shell=True, stderr=subprocess.STDOUT)
     sambamba_results["flagstat"] = subprocess.check_output([f"{timer} {bin_path} flagstat -t 8 {sambamba_path}"], shell=True, stderr=subprocess.STDOUT)
-    sambamba_results["depth"] = subprocess.check_output([f"{timer} {bin_path} depth base -t 8 {sambamba_path} > {depth_sambamba_out}"], shell=True, stderr=subprocess.STDOUT)
-
+    if not disable_sambamba_depth:
+        sambamba_results["depth"] = subprocess.check_output([f"{timer} {bin_path} depth base -t 8 {sambamba_path} > {depth_sambamba_out}"], shell=True, stderr=subprocess.STDOUT)
+    else:
+        sambamba_results["depth"] = subprocess.check_output([f"{timer} echo 'Test is disabled'"], shell=True, stderr=subprocess.STDOUT)
     print(f"Completed SAMBAMBA benchmarking, took: {time.time()-start} seconds")
 
 def gfainject(bin_path, gbam_path, gfa_path, bam_path, res_path):
@@ -98,6 +100,7 @@ if __name__ == '__main__':
     parser.add_argument("--gbam_file",  help="Path to GBAM file to perform test on.", required=False)
     parser.add_argument("--gfa_file",   help="Path to GFA file to perform test on.", required=False)
     parser.add_argument("--result_dir", help="Path to the directory where to save the resulting files", required=True)
+    parser.add_argument("--disable_sambamba_depth", help="Sambamba depth can be too slow", dest="disable_sambamba_depth", action='store_true')
 
     args = parser.parse_args()
 
@@ -119,7 +122,7 @@ if __name__ == '__main__':
         gbam(args.gbam_bin, *same_params)
         samtools_bam(args.samtools_bin, *same_params)
         samtools_cram(args.samtools_bin, *same_params)
-        sambamba(args.sambamba_bin, *same_params)
+        sambamba(args.sambamba_bin, args.disable_sambamba_depth, *same_params)
         gfainject(args.gfainject_bin, args.gbam_file, args.gfa_file, *same_params)
         
         # Print resulting file
