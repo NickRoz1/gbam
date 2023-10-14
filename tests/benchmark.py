@@ -46,18 +46,12 @@ def samtools_bam(bin_path, bam_path, res_path):
 
     print(f"Completed SAMTOOLS BAM benchmarking, took: {time.time()-start} seconds")
 
-def samtools_cram(bin_path, bam_path, res_path):
-    print("Creating cram file from bam file.")
-    test_cram_file = tempfile.NamedTemporaryFile(suffix=".cram")
-    subprocess.check_output([f"{bin_path} view -C -o {test_cram_file.name} {bam_path}"], shell=True, stderr=subprocess.STDOUT)
-    print("Starting benchmark using created cram file.")
-
+def samtools_cram(bin_path, reference, bam_path, res_path):
     start = time.time()
-    
     samtools_path = res_path/"sort_out.samtools.cram"
     depth_samtools_out = res_path/"samtools_depth_out.txt"
 
-    samtools_cram_results["sort"] = subprocess.check_output([f"{timer} {bin_path} sort -@ 8 {test_cram_file.name} -o {samtools_path}"], shell=True, stderr=subprocess.STDOUT)
+    samtools_cram_results["sort"] = subprocess.check_output([f"{timer} {bin_path} sort -@ 8 {bam_path} -T {reference} -o {samtools_path}"], shell=True, stderr=subprocess.STDOUT)
     samtools_cram_results["flagstat"] = subprocess.check_output([f"{timer} {bin_path} flagstat -@ 8 {samtools_path}"], shell=True, stderr=subprocess.STDOUT)
     samtools_cram_results["depth"] = subprocess.check_output([f"{timer} {bin_path} depth -@ 8 {samtools_path} > {depth_samtools_out}"], shell=True, stderr=subprocess.STDOUT)
 
@@ -99,6 +93,7 @@ if __name__ == '__main__':
     parser.add_argument("--bam_file",   help="Path to BAM file to perform test on.", required=True)
     parser.add_argument("--gbam_file",  help="Path to GBAM file to perform test on.", required=False)
     parser.add_argument("--gfa_file",   help="Path to GFA file to perform test on.", required=False)
+    parser.add_argument("--cram_reference",   help="Path to cram reference file.", required=False)
     parser.add_argument("--result_dir", help="Path to the directory where to save the resulting files", required=True)
     parser.add_argument("--disable_sambamba_depth", help="Sambamba depth can be too slow", dest="disable_sambamba_depth", action='store_true')
     parser.add_argument("--skip_cram", help="Some files cant be converted to cram", action='store_true')
@@ -123,7 +118,7 @@ if __name__ == '__main__':
         gbam(args.gbam_bin, *same_params)
         samtools_bam(args.samtools_bin, *same_params)
         if not args.skip_cram:
-            samtools_cram(args.samtools_bin, *same_params)
+            samtools_cram(args.samtools_bin, args.cram_reference, *same_params)
         sambamba(args.sambamba_bin, args.disable_sambamba_depth, *same_params)
         if args.gfa_file is not None:
             for p in [args.gfainject_bin, args.gbam_file, args.gfa_file]:
