@@ -101,6 +101,7 @@ if __name__ == '__main__':
     parser.add_argument("--gfa_file",   help="Path to GFA file to perform test on.", required=False)
     parser.add_argument("--result_dir", help="Path to the directory where to save the resulting files", required=True)
     parser.add_argument("--disable_sambamba_depth", help="Sambamba depth can be too slow", dest="disable_sambamba_depth", action='store_true')
+    parser.add_argument("--skip_cram", help="Some files cant be converted to cram", action='store_true')
 
     args = parser.parse_args()
 
@@ -121,7 +122,8 @@ if __name__ == '__main__':
         same_params = (args.bam_file, Path(args.result_dir))
         gbam(args.gbam_bin, *same_params)
         samtools_bam(args.samtools_bin, *same_params)
-        samtools_cram(args.samtools_bin, *same_params)
+        if not args.skip_cram:
+            samtools_cram(args.samtools_bin, *same_params)
         sambamba(args.sambamba_bin, args.disable_sambamba_depth, *same_params)
         if args.gfa_file is not None:
             for p in [args.gfainject_bin, args.gbam_file, args.gfa_file]:
@@ -136,19 +138,23 @@ if __name__ == '__main__':
         markdown_result_file.write(my_format("GBAM index-sort:", gbam_results["index-sort"]))
         markdown_result_file.write(my_format("SAMBAMBA sort:", sambamba_results["sort"]))
         markdown_result_file.write(my_format("SAMTOOLS BAM sort:", samtools_bam_results["sort"]))
-        markdown_result_file.write(my_format("SAMTOOLS CRAM sort:", samtools_cram_results["sort"]))
+        if not args.skip_cram:
+            markdown_result_file.write(my_format("SAMTOOLS CRAM sort:", samtools_cram_results["sort"]))
 
         markdown_result_file.write("# FLAGSTAT\n\n\n")
         markdown_result_file.write(my_format("GBAM flagstat:", gbam_results["flagstat"]))
         markdown_result_file.write(my_format("SAMBAMBA flagstat:", sambamba_results["flagstat"]))
         markdown_result_file.write(my_format("SAMTOOLS BAM flagstat:", samtools_bam_results["flagstat"]))
-        markdown_result_file.write(my_format("SAMTOOLS CRAM flagstat:", samtools_cram_results["flagstat"]))
+        if not args.skip_cram:
+            markdown_result_file.write(my_format("SAMTOOLS CRAM flagstat:", samtools_cram_results["flagstat"]))
 
         markdown_result_file.write("# DEPTH\n\n\n")
         markdown_result_file.write(my_format("GBAM depth:", gbam_results["depth"]))
-        markdown_result_file.write(my_format("SAMBAMBA depth:", sambamba_results["depth"]))
+        if not args.disable_sambamba_depth:
+            markdown_result_file.write(my_format("SAMBAMBA depth:", sambamba_results["depth"]))
         markdown_result_file.write(my_format("SAMTOOLS BAM depth:", samtools_bam_results["depth"]))
-        markdown_result_file.write(my_format("SAMTOOLS CRAM depth:", samtools_cram_results["depth"]))
+        if not args.skip_cram:
+            markdown_result_file.write(my_format("SAMTOOLS CRAM depth:", samtools_cram_results["depth"]))
 
         if args.gfa_file is not None:
             markdown_result_file.write("# GFAINJECT\n\n\n")
