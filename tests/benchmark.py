@@ -104,7 +104,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    for p in [args.samtools_bin, args.sambamba_bin, args.gbam_bin, args.bam_file, args.gfainject_bin, args.gbam_file, args.gfa_file]:
+    for p in [args.samtools_bin, args.sambamba_bin, args.gbam_bin, args.bam_file]:
         if not os.path.exists(p):
             print(f"Path {p} does not exist, terminating.")
             exit()
@@ -123,7 +123,13 @@ if __name__ == '__main__':
         samtools_bam(args.samtools_bin, *same_params)
         samtools_cram(args.samtools_bin, *same_params)
         sambamba(args.sambamba_bin, args.disable_sambamba_depth, *same_params)
-        gfainject(args.gfainject_bin, args.gbam_file, args.gfa_file, *same_params)
+        if args.gfa_file is not None:
+            for p in [args.gfainject_bin, args.gbam_file, args.gfa_file]:
+                if not os.path.exists(p):
+                    print(f"Path {p} does not exist, terminating.")
+                    exit()
+
+            gfainject(args.gfainject_bin, args.gbam_file, args.gfa_file, *same_params)
         
         # Print resulting file
         markdown_result_file.write("# SORTING\n\n\n")
@@ -144,9 +150,10 @@ if __name__ == '__main__':
         markdown_result_file.write(my_format("SAMTOOLS BAM depth:", samtools_bam_results["depth"]))
         markdown_result_file.write(my_format("SAMTOOLS CRAM depth:", samtools_cram_results["depth"]))
 
-        markdown_result_file.write("# GFAINJECT\n\n\n")
-        markdown_result_file.write(my_format("From GBAM:", gfa_inject_results["gbam_inject"]))
-        markdown_result_file.write(my_format("From BAM:", gfa_inject_results["bam_inject"]))
+        if args.gfa_file is not None:
+            markdown_result_file.write("# GFAINJECT\n\n\n")
+            markdown_result_file.write(my_format("From GBAM:", gfa_inject_results["gbam_inject"]))
+            markdown_result_file.write(my_format("From BAM:", gfa_inject_results["bam_inject"]))
 
         def extract_time(s):
             for l in s.decode('utf-8').splitlines():
