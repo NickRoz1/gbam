@@ -34,36 +34,36 @@ def gbam(bin_path, bam_path, res_path):
 
     print(f"Completed GBAM benchmarking, took: {time.time()-start} seconds")
 
-def samtools_bam(bin_path, bam_path, res_path):
+def samtools_bam(bin_path, memory_limit, bam_path, res_path):
     start = time.time()
 
     samtools_path = res_path/"sort_out.samtools.bam"
     depth_samtools_out = res_path/"samtools_depth_out.txt"
 
-    samtools_bam_results["sort"] = subprocess.check_output([f"{timer} {bin_path} sort -@ 8 {bam_path} -o {samtools_path}"], shell=True, stderr=subprocess.STDOUT)
+    samtools_bam_results["sort"] = subprocess.check_output([f"{timer} {bin_path} sort -@ 8 {bam_path} -o {samtools_path} {memory_limit}"], shell=True, stderr=subprocess.STDOUT)
     samtools_bam_results["flagstat"] = subprocess.check_output([f"{timer} {bin_path} flagstat -@ 8 {samtools_path}"], shell=True, stderr=subprocess.STDOUT)
     samtools_bam_results["depth"] = subprocess.check_output([f"{timer} {bin_path} depth -@ 8 {samtools_path} > {depth_samtools_out}"], shell=True, stderr=subprocess.STDOUT)
 
     print(f"Completed SAMTOOLS BAM benchmarking, took: {time.time()-start} seconds")
 
-def samtools_cram(bin_path, reference, bam_path, res_path):
+def samtools_cram(bin_path, reference, memory_limit, bam_path, res_path):
     start = time.time()
     samtools_path = res_path/"sort_out.samtools.cram"
     depth_samtools_out = res_path/"samtools_depth_out.txt"
 
-    samtools_cram_results["sort"] = subprocess.check_output([f"{timer} {bin_path} sort -@ 8 {bam_path} -T {reference} -o {samtools_path}"], shell=True, stderr=subprocess.STDOUT)
+    samtools_cram_results["sort"] = subprocess.check_output([f"{timer} {bin_path} sort -@ 8 {bam_path} -T {reference} -o {samtools_path} {memory_limit}"], shell=True, stderr=subprocess.STDOUT)
     samtools_cram_results["flagstat"] = subprocess.check_output([f"{timer} {bin_path} flagstat -@ 8 {samtools_path}"], shell=True, stderr=subprocess.STDOUT)
     samtools_cram_results["depth"] = subprocess.check_output([f"{timer} {bin_path} depth -@ 8 {samtools_path} > {depth_samtools_out}"], shell=True, stderr=subprocess.STDOUT)
 
     print(f"Completed SAMTOOLS CRAM benchmarking, took: {time.time()-start} seconds")
 
-def sambamba(bin_path, disable_sambamba_depth, bam_path, res_path):
+def sambamba(bin_path, disable_sambamba_depth, memory_limit, bam_path, res_path):
     start = time.time()
 
     sambamba_path = res_path/"sort_out.sambamba.bam"
     depth_sambamba_out = res_path/"sambamba_depth_out.txt"
 
-    sambamba_results["sort"] = subprocess.check_output([f"{timer} {bin_path} sort -t 8 -m 90GB {bam_path} -o {sambamba_path}"], shell=True, stderr=subprocess.STDOUT)
+    sambamba_results["sort"] = subprocess.check_output([f"{timer} {bin_path} sort -t 8 -m 90GB {bam_path} -o {sambamba_path} {memory_limit}"], shell=True, stderr=subprocess.STDOUT)
     sambamba_results["flagstat"] = subprocess.check_output([f"{timer} {bin_path} flagstat -t 8 {sambamba_path}"], shell=True, stderr=subprocess.STDOUT)
     if not disable_sambamba_depth:
         sambamba_results["depth"] = subprocess.check_output([f"{timer} {bin_path} depth base -t 8 {sambamba_path} > {depth_sambamba_out}"], shell=True, stderr=subprocess.STDOUT)
@@ -93,6 +93,7 @@ if __name__ == '__main__':
     parser.add_argument("--bam_file",   help="Path to BAM file to perform test on.", required=True)
     parser.add_argument("--gbam_file",  help="Path to GBAM file to perform test on.", required=False)
     parser.add_argument("--gfa_file",   help="Path to GFA file to perform test on.", required=False)
+    parser.add_argument("--memory_limit",   help="Memory limit for Sambamba and Samtools", required=False)
     parser.add_argument("--cram_reference",   help="Path to cram reference file.", required=False)
     parser.add_argument("--result_dir", help="Path to the directory where to save the resulting files", required=True)
     parser.add_argument("--disable_sambamba_depth", help="Sambamba depth can be too slow", dest="disable_sambamba_depth", action='store_true')
@@ -115,11 +116,16 @@ if __name__ == '__main__':
         markdown_result_file.write("```sh\n{0}\n```\n\n".format(" ".join([x for x in sys.argv])))
 
         same_params = (args.bam_file, Path(args.result_dir))
+
+        mem_str = ""
+        if args.memory_limit is not None:
+            mem_str = f"-m {args.memory_limit}"
+
         gbam(args.gbam_bin, *same_params)
-        samtools_bam(args.samtools_bin, *same_params)
+        samtools_bam(args.samtools_bin, mem_str, *same_params)
         if not args.skip_cram:
-            samtools_cram(args.samtools_bin, args.cram_reference, *same_params)
-        sambamba(args.sambamba_bin, args.disable_sambamba_depth, *same_params)
+            samtools_cram(args.samtools_bin, args.cram_reference, mem_str, *same_params)
+        sambamba(args.sambamba_bin, args.disable_sambamba_depth, mem_str, *same_params)
         if args.gfa_file is not None:
             for p in [args.gfainject_bin, args.gbam_file, args.gfa_file]:
                 if not os.path.exists(p):
