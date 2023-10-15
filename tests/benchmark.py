@@ -19,7 +19,11 @@ gfa_inject_results = {}
 keywords = ["User", "System", "Percent", "Elapsed", "Maximum"]
 newline = '\n'
 # my_format = lambda name, out: f"## {name}\n ```\n{out.decode('utf-8')}```\n\n"
-my_format = lambda name, out: f"## {name}\n ```\n{newline.join([s.strip() for s in out.decode('utf-8').splitlines() if any(word in s for word in keywords)])}\n```\n\n"
+def my_format(name, out):
+    if out is None:
+        return f"## {name}\n TEST DIDN'T RUN OR FAILED. \n\n"
+    return f"## {name}\n ```\n{newline.join([s.strip() for s in out.decode('utf-8').splitlines() if any(word in s for word in keywords)])}\n```\n\n"
+
 total_time_format = lambda name, out: f"## {name}\n ```\n{out}s\n```\n\n"
 
 def gbam(bin_path, bam_path, res_path):
@@ -53,8 +57,13 @@ def samtools_cram(bin_path, reference, memory_limit, bam_path, res_path):
 
     samtools_cram_results["sort"] = subprocess.check_output([f"{timer} {bin_path} sort -@ 8 {bam_path} -T {reference} -o {samtools_path} {memory_limit}"], shell=True, stderr=subprocess.STDOUT)
     samtools_cram_results["flagstat"] = subprocess.check_output([f"{timer} {bin_path} flagstat -@ 8 {samtools_path}"], shell=True, stderr=subprocess.STDOUT)
-    samtools_cram_results["depth"] = subprocess.check_output([f"{timer} {bin_path} depth -@ 8 {samtools_path} > {depth_samtools_out}"], shell=True, stderr=subprocess.STDOUT)
-
+    try:
+        samtools_cram_results["depth"] = subprocess.check_output([f"{timer} {bin_path} depth -@ 8 dd{samtools_path} > {depth_samtools_out}"], shell=True, stderr=subprocess.STDOUT)
+    except:
+        print("Samtools cram depth failed.")
+        print("The command used is:")
+        print(f"{timer} {bin_path} depth -@ 8 dd{samtools_path} > {depth_samtools_out}")
+        samtools_cram_results["depth"] = None
     print(f"Completed SAMTOOLS CRAM benchmarking, took: {time.time()-start} seconds")
 
 def sambamba(bin_path, disable_sambamba_depth, memory_limit, bam_path, res_path):
@@ -68,7 +77,8 @@ def sambamba(bin_path, disable_sambamba_depth, memory_limit, bam_path, res_path)
     if not disable_sambamba_depth:
         sambamba_results["depth"] = subprocess.check_output([f"{timer} {bin_path} depth base -t 8 {sambamba_path} > {depth_sambamba_out}"], shell=True, stderr=subprocess.STDOUT)
     else:
-        sambamba_results["depth"] = subprocess.check_output([f"{timer} echo 'Test is disabled'"], shell=True, stderr=subprocess.STDOUT)
+        print("Sambamba depth is disabled.")
+        sambamba_results["depth"] = None
     print(f"Completed SAMBAMBA benchmarking, took: {time.time()-start} seconds")
 
 def gfainject(bin_path, gbam_path, gfa_path, bam_path, res_path):
@@ -163,28 +173,31 @@ if __name__ == '__main__':
             markdown_result_file.write(my_format("From BAM:", gfa_inject_results["bam_inject"]))
 
         def extract_time(s):
-            for l in s.decode('utf-8').splitlines():
-                l = l.strip()
-                if l.startswith("Elapsed"):  
-                    timestamp = l.split(' ')[-1]
-                   
-                    # 0:00.11
-                    t = 0.0
+            if s is None:
+                return 0
+            try:
+                for l in s.decode('utf-8').splitlines():
+                    l = l.strip()
+                    if l.startswith("Elapsed"):  
+                        timestamp = l.split(' ')[-1]
                     
-                    if len(timestamp.split('.')) > 1:
-                        t += float("0." + timestamp.split('.')[1])
-                    timestamp = timestamp.split('.')[0]
-                    # 0:00 
-                    # Seconds per unit
-                    base = 1
-                    
-                    for e in timestamp.split(':')[::-1]:
-                        t += int(e)*base
-                        base *= 60
-                    return t
-
-            print("No time line found.")  
-            exit(1)
+                        # 0:00.11
+                        t = 0.0
+                        
+                        if len(timestamp.split('.')) > 1:
+                            t += float("0." + timestamp.split('.')[1])
+                        timestamp = timestamp.split('.')[0]
+                        # 0:00 
+                        # Seconds per unit
+                        base = 1
+                        
+                        for e in timestamp.split(':')[::-1]:
+                            t += int(e)*base
+                            base *= 60
+                        return t
+            except:
+                print("No time line found.")  
+                exit(1)
 
         def calc_total(obj):
             t = 0
