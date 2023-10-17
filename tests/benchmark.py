@@ -92,6 +92,12 @@ def gfainject(bin_path, gbam_path, gfa_path, bam_path, res_path):
     gfa_inject_results["gbam_inject"] = subprocess.check_output([f"{timer} {bin_path} --gfa {gfa_path} --gbam {gbam_path }> {gfainject_from_gbam_path}"], shell=True, stderr=subprocess.STDOUT)
     print(f"Completed injection from GBAM, took: {time.time()-start} seconds")
 
+
+
+# TODO: dump results as JSON also, to ease postprocessing (populating tables, making figures).
+
+
+
 # python3 tests/benchmark.py --gbam_bin target/release/gbam_binary --bam_file test_data/little.bam --result_dir benchmarking --samtools_bin /usr/local/bin/samtools --sambamba_bin /usr/local/bin/sambamba-0.8.2-linux-amd64-static
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Benchmark SAMTOOLS/SAMBAMBA/GBAM")
