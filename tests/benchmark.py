@@ -58,11 +58,12 @@ def samtools_cram(bin_path, reference, memory_limit, bam_path, res_path):
     samtools_cram_results["sort"] = subprocess.check_output([f"{timer} {bin_path} sort -@ 8 {bam_path} -T {reference} -o {samtools_path} {memory_limit}"], shell=True, stderr=subprocess.STDOUT)
     samtools_cram_results["flagstat"] = subprocess.check_output([f"{timer} {bin_path} flagstat -@ 8 {samtools_path}"], shell=True, stderr=subprocess.STDOUT)
     try:
-        samtools_cram_results["depth"] = subprocess.check_output([f"{timer} {bin_path} depth -@ 8 dd{samtools_path} > {depth_samtools_out}"], shell=True, stderr=subprocess.STDOUT)
-    except:
+        samtools_cram_results["depth"] = subprocess.check_output([f"{timer} {bin_path} depth -@ 8 {samtools_path} > {depth_samtools_out}"], shell=True, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e:
         print("Samtools cram depth failed.")
         print("The command used is:")
-        print(f"{timer} {bin_path} depth -@ 8 dd{samtools_path} > {depth_samtools_out}")
+        print(f"{timer} {bin_path} depth -@ 8 {samtools_path} > {depth_samtools_out}")
+        print(f"Error is: ```\n\n{e.output}\n\n```\n\n")
         samtools_cram_results["depth"] = None
     print(f"Completed SAMTOOLS CRAM benchmarking, took: {time.time()-start} seconds")
 
