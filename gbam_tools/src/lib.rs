@@ -9,7 +9,7 @@ pub mod bam {
     /// GBAM to BAM converter
     pub mod gbam_to_bam;
 }
-
+///
 pub mod utils {
     /// BED reader
     pub mod bed;
