@@ -1,0 +1,20 @@
+[package]
+name = "bam_tools"
+version = "0.1.0"
+authors = ["nickroz"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+byteorder = "1.2.3"
+flate2 = "1.0.1"
+num_cpus = "0.2"
+flume = "0.10.0"
+crossbeam-channel = "0.5.8"
+rayon = "1.5.1"
+tempdir = "0.3.7"
+lz4_flex = "0.8.2"
+bitflags = "1.2.1"
+serde = {version = "1.0.125", features = ["derive"]}
+indicatif = "0.16.2"
