@@ -111,7 +111,7 @@ fn do_index_sort<W: Write, IndexW: std::io::Write>(
     let temp_me = Instant::now();
     let mut records = bam_reader.records();
     let mut all_keys: Vec<(KeyTuple, Range<usize>)> = Vec::new();
-    all_keys.reserve(500_000_000);
+
     let mut i = 0;
     while let Some(Ok(rec)) = records.next_rec() {
         let wrapper = BAMRawRecord(Cow::Borrowed(rec));
