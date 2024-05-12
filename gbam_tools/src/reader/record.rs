@@ -8,6 +8,8 @@ use bam_tools::record::{
     bamrawrecord::{decode_seq, put_sequence},
     fields::Fields,
 };
+
+use crate::query::cigar::base_coverage;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::mem;
 
@@ -246,7 +248,7 @@ impl GbamRecord {
 
     /// Returns the alignment span.
     pub fn alignment_span(&self) -> u32 {
-        self.cigar.as_ref().unwrap().base_coverage()
+        base_coverage(&self.cigar.as_ref().unwrap().0[..])
     }
 
     /// Returns the alignment start.

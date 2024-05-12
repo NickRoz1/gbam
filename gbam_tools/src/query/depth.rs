@@ -11,6 +11,7 @@ use crate::utils::bed;
 /// This module provides function for fast querying of read depth.
 use crate::meta::{BlockMeta, FileMeta};
 use crate::reader::{reader::Reader, record::GbamRecord};
+use crate::query::cigar::base_coverage;
 use std::path::{PathBuf};
 use crossbeam::channel::{Receiver, Sender, bounded};
 use std::thread;
@@ -177,7 +178,7 @@ pub fn main_depth(gbam_file: File, bed_file: Option<&PathBuf>, index_file: Optio
             reader.fill_record(rec_num, &mut rec);
             dest.refid = rec.refid.unwrap();
             dest.pos = rec.pos.unwrap();
-            dest.cigar = rec.cigar.as_ref().unwrap().base_coverage();
+            dest.cigar = base_coverage(&rec.cigar.as_ref().unwrap().0[..]);
             dest.flag = rec.flag.unwrap();
         }
     });

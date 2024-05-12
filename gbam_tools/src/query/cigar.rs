@@ -45,19 +45,19 @@ impl Op {
 #[derive(Debug)]
 pub struct Cigar(pub Vec<Op>);
 
+pub fn base_coverage(arr: &[Op]) -> u32 {
+    let mut count = 0;
+    for op in arr {
+        if op.is_consuming_reference() {
+            count += op.length();
+        }
+    }
+    count
+}
+
 impl Cigar {
     pub fn new(ops: Vec<Op>) -> Cigar {
         Cigar(ops)
-    }
-
-    pub fn base_coverage(&self) -> u32 {
-        let mut count = 0;
-        for op in self.ops() {
-            if op.is_consuming_reference() {
-                count += op.length();
-            }
-        }
-        count
     }
 
     /// Calculates the read length.
