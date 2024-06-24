@@ -1,5 +1,6 @@
 use super::meta::{BlockMeta, Codecs, FileInfo, FileMeta, FILE_INFO_SIZE, Stat};
 use crate::compressor::{CompressTask, Compressor, OrderingKey};
+use crate::query::cigar::Cigar;
 use crate::{SIZE_LIMIT, U32_SIZE};
 use bam_tools::record::bamrawrecord::BAMRawRecord;
 use bam_tools::record::fields::{
@@ -11,6 +12,7 @@ use std::borrow::Cow;
 use std::convert::TryInto;
 use std::convert::TryFrom;
 use std::io::{Seek, SeekFrom, Write};
+use crate::query::cigar::base_coverage;
 
 pub(crate) struct BlockInfo {
     pub numitems: u32,
@@ -344,7 +346,16 @@ impl FixedColumn {
 impl Column for FixedColumn {
     fn write_record_field(&mut self, rec: &BAMRawRecord) -> WriteStatus {
         let inner = &mut self.0;
-        let data = rec.get_bytes(&inner.field);
+        let mut arr: [u8; 4] = [0,0,0,0];
+        let data = if inner.field == Fields::CigarLen {
+            unsafe{
+                (&mut arr[..]).write_u32::<LittleEndian>(base_coverage(std::mem::transmute(rec.get_bytes(&Fields::RawCigar)))).unwrap();
+            }
+            &arr[..]
+        }
+        else{
+            rec.get_bytes(&inner.field)
+        };
 
         if inner.flush_required(data) {
             return WriteStatus::Full(inner);

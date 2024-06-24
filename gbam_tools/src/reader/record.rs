@@ -1,6 +1,8 @@
 use std::io::Write;
 
 use itertools::Itertools;
+use serde::{Serialize, Deserialize};
+
 #[cfg(feature = "python-ffi")]
 use pyo3::prelude::*;
 
@@ -8,6 +10,8 @@ use bam_tools::record::{
     bamrawrecord::{decode_seq, put_sequence},
     fields::Fields,
 };
+
+use crate::query::cigar::base_coverage;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::mem;
 
@@ -15,7 +19,7 @@ use std::mem;
 use crate::{query::cigar::Cigar, query::cigar::Op, U32_SIZE};
 
 #[cfg(not(feature = "python-ffi"))]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 /// Represents a GBAM record in which some fields may be omitted.
 pub struct GbamRecord {
     /// Reference sequence ID
@@ -38,6 +42,8 @@ pub struct GbamRecord {
     pub read_name: Option<Vec<u8>>,
     /// CIGAR
     pub cigar: Option<Cigar>,
+    /// Markdup cigar len
+    pub cigar_len: Option<u32>,
     /// 4-bit  encoded  read
     pub seq: Option<String>,
     /// Phred-scaled base qualities.
@@ -122,6 +128,7 @@ impl GbamRecord {
             Fields::NextRefID => self.next_ref_id = Some(bytes.read_i32::<LittleEndian>().unwrap()),
             Fields::NextPos => self.next_pos = Some(bytes.read_i32::<LittleEndian>().unwrap()),
             Fields::TemplateLength => self.tlen = Some(bytes.read_i32::<LittleEndian>().unwrap()),
+            Fields::CigarLen => self.cigar_len = Some(bytes.read_u32::<LittleEndian>().unwrap()),
             Fields::ReadName => self.read_name = Some(bytes.to_vec()),
             Fields::RawCigar => {
                 parse_cigar(bytes, self.cigar.get_or_insert(Cigar::new(Vec::new())));
@@ -246,7 +253,7 @@ impl GbamRecord {
 
     /// Returns the alignment span.
     pub fn alignment_span(&self) -> u32 {
-        self.cigar.as_ref().unwrap().base_coverage()
+        base_coverage(&self.cigar.as_ref().unwrap().0[..])
     }
 
     /// Returns the alignment start.
@@ -259,6 +266,11 @@ impl GbamRecord {
         self.alignment_start().and_then(|alignment_start| {
             Option::from(alignment_start + self.alignment_span() - 1)
         })
+    }
+
+    pub fn is_reverse(&self) -> bool {
+        let flag = self.flag.unwrap();
+        (flag & 0x10) == 0x10 as u16
     }
 
     pub fn is_reverse_complemented(&self) -> bool {

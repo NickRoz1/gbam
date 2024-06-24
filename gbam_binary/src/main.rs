@@ -16,6 +16,8 @@ use std::fs::File;
 use structopt::StructOpt;
 use std::env;
 
+use gbam_tools::query::cigar::base_coverage;
+
 use rayon::prelude::*;
 
 #[derive(StructOpt)]
@@ -169,7 +171,7 @@ fn test(args: Cli) {
     let mut u = 0;
     #[allow(unused_variables)]
     while let Some(rec) = records.next_rec() {
-        u += rec.cigar.as_ref().unwrap().base_coverage();
+        u += base_coverage(&rec.cigar.as_ref().unwrap().0[..]);
     }
     println!("Record count {}", u);
     println!(
@@ -197,7 +199,7 @@ fn test_parallel_cigar_fetch(args: Cli) {
 
         for rec_num in records_range {
             reader.fill_record(rec_num, &mut rec);
-            collector.push(rec.cigar.as_ref().unwrap().base_coverage());
+            collector.push(base_coverage(&rec.cigar.as_ref().unwrap().0[..]));
         }
     });
 

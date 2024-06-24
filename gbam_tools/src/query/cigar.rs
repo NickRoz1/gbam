@@ -1,9 +1,12 @@
 use std::{slice::Iter};
 
+use serde::{Serialize, Deserialize};
+
+
 use byteorder::ByteOrder;
 use byteorder::WriteBytesExt;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Op(pub u32);
 
 impl Op {
@@ -42,22 +45,22 @@ impl Op {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Cigar(pub Vec<Op>);
+
+pub fn base_coverage(arr: &[Op]) -> u32 {
+    let mut count = 0;
+    for op in arr {
+        if op.is_consuming_reference() {
+            count += op.length();
+        }
+    }
+    count
+}
 
 impl Cigar {
     pub fn new(ops: Vec<Op>) -> Cigar {
         Cigar(ops)
-    }
-
-    pub fn base_coverage(&self) -> u32 {
-        let mut count = 0;
-        for op in self.ops() {
-            if op.is_consuming_reference() {
-                count += op.length();
-            }
-        }
-        count
     }
 
     /// Calculates the read length.

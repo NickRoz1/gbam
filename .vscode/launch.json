@@ -1,0 +1,19 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug",
+            "program": "/home/nickr/projects/gbam/target/debug/gbam_binary",
+            "args": [
+                "-c",
+                "/home/nickr/projects/gbam/test_data/little.bam",
+                "-s",
+                "-o",
+                "/home/nickr/projects/gbam/test_data/res.gbam"
+
+            ],
+        }
+    ]
+}
