@@ -1,6 +1,8 @@
 use std::io::Write;
 
 use itertools::Itertools;
+use serde::{Serialize, Deserialize};
+
 #[cfg(feature = "python-ffi")]
 use pyo3::prelude::*;
 
@@ -17,7 +19,7 @@ use std::mem;
 use crate::{query::cigar::Cigar, query::cigar::Op, U32_SIZE};
 
 #[cfg(not(feature = "python-ffi"))]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 /// Represents a GBAM record in which some fields may be omitted.
 pub struct GbamRecord {
     /// Reference sequence ID
@@ -264,6 +266,11 @@ impl GbamRecord {
         self.alignment_start().and_then(|alignment_start| {
             Option::from(alignment_start + self.alignment_span() - 1)
         })
+    }
+
+    pub fn is_reverse(&self) -> bool {
+        let flag = self.flag.unwrap();
+        (flag & 0x10) == 0x10 as u16
     }
 
     pub fn is_reverse_complemented(&self) -> bool {

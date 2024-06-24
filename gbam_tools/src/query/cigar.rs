@@ -1,9 +1,12 @@
 use std::{slice::Iter};
 
+use serde::{Serialize, Deserialize};
+
+
 use byteorder::ByteOrder;
 use byteorder::WriteBytesExt;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Op(pub u32);
 
 impl Op {
@@ -42,7 +45,7 @@ impl Op {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Cigar(pub Vec<Op>);
 
 pub fn base_coverage(arr: &[Op]) -> u32 {
