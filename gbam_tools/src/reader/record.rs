@@ -175,8 +175,8 @@ impl GbamRecord {
             + mem::size_of::<i32>() * 3
             + self.cigar.as_ref().unwrap().0.len() * mem::size_of::<u32>()
             + self.read_name.as_ref().unwrap().len()
-            + (self.seq.as_ref().unwrap().len()+1)/2
-            + self.qual.as_ref().unwrap().len()
+            + (self.seq.as_ref().unwrap_or(&String::new()).len()+1)/2
+            + self.qual.as_ref().unwrap_or(&Vec::new()).len()
             + self.tags.as_ref().unwrap().len();
 
         bytes.resize(n_byte, 0);
@@ -205,7 +205,7 @@ impl GbamRecord {
             .unwrap();
         // Since we can't get right value from SEQ field (look in SAM/BAM documentation).;
         (&mut bytes[20..24])
-            .write_u32::<LittleEndian>(self.qual.as_ref().unwrap().len() as u32)
+            .write_u32::<LittleEndian>(self.qual.as_ref().unwrap_or(&Vec::new()).len() as u32)
             .unwrap();
         (&mut bytes[24..28])
             .write_i32::<LittleEndian>(self.next_ref_id.unwrap())
@@ -230,12 +230,12 @@ impl GbamRecord {
             .ops()
             .zip_eq(cigar.chunks_mut(mem::size_of::<u32>()))
             .for_each(|(op, mut buf)| buf.write_u32::<LittleEndian>(op.0).unwrap());
-        let seq_len = (self.seq.as_ref().unwrap().len()+1)/2;
+        let seq_len = (self.seq.as_ref().unwrap_or(&String::new()).len()+1)/2;
         let (seq, unsized_data) = unsized_data.split_at_mut(seq_len);
-        put_sequence(seq, self.seq.as_ref().unwrap().len(), self.seq.as_ref().unwrap()).unwrap();
+        put_sequence(seq, self.seq.as_ref().unwrap_or(&String::new()).len(), self.seq.as_ref().unwrap_or(&String::new())).unwrap();
         let (mut qual, mut unsized_data) =
-            unsized_data.split_at_mut(self.qual.as_ref().unwrap().len());
-        qual.write_all(self.qual.as_ref().unwrap()).unwrap();
+            unsized_data.split_at_mut(self.qual.as_ref().unwrap_or(&Vec::new()).len());
+        qual.write_all(self.qual.as_ref().unwrap_or(&Vec::new())).unwrap();
         assert!(unsized_data.len() == self.tags.as_ref().unwrap().len());
         unsized_data
             .write_all(self.tags.as_ref().unwrap())
