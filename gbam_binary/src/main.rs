@@ -1,6 +1,6 @@
 // use gbam_tools::bam_to_gbam;
-use bam_tools::record::fields::Fields;
-use byteorder::{ReadBytesExt, LittleEndian};
+use bam_tools::{record::fields::Fields, MEGA_BYTE_SIZE};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use gbam_tools::{
     bam::bam_to_gbam::bam_sort_to_gbam,
     bam::gbam_to_bam::gbam_to_bam,
@@ -9,12 +9,19 @@ use gbam_tools::{
     {bam_to_gbam, Codecs},
     query::flagstat::collect_stats,
 };
+use itertools::zip_eq;
+use std::fs::OpenOptions;
 
-use std::{path::PathBuf, convert::TryInto, io::{Read, Seek}, io::{BufWriter, Write}};
+use std::io::{BufRead, BufReader, Seek, SeekFrom};
+
+
+use std::{path::PathBuf, convert::TryInto, io::{Read}, io::{BufWriter, Write}};
 use std::time::Instant;
 use std::fs::File;
 use structopt::StructOpt;
 use std::env;
+
+use gbam_tools::query::cigar::base_coverage;
 
 use rayon::prelude::*;
 
@@ -71,6 +78,14 @@ struct Cli {
     /// View file in binary format. Can be piped to samtools view. `gbam_binary -v test_data/1gb.gbam | samtools view`
     #[structopt(short, long)]
     view: bool,
+    /// View file in binary format for piping to samtools markdup. `gbam_binary -v little.gbam > /tmp/testpipe.bam & samtools markdup -u /tmp/testpipe.bam /tmp/testoutpipe.bam`. It disables reading of two heavy fields to potentially speedup the process.
+    #[structopt(long)]
+    markdup_view: bool,
+    /// Patch the gbam file with dups detected by other software. A multiline file is expected with 0 and 1, where 1 means mark as duplicate. The GBAM flags column has to be not compressed for patching to work as expected.
+    /// For generating the markdup marks use: <time (../target/release/gbam_binary -v little.gbam > /tmp/testpipe.bam & samtools markdup -@5 -u /tmp/testpipe.bam /tmp/testoutpipe.bam & samtools view /tmp/testoutpipe.bam | awk '{print and($2, 0x400)!=0}' | ../target/release/gbam_binary --patch-gbam-with-dups little.gbam)>
+    /// For pipes use <mkfifo> command.
+    #[structopt(long)]
+    patch_gbam_with_dups: bool,
     /// When sorting and converting file, only sort the indices of records but not the data itself.
     #[structopt(long)]
     index_sort: bool,
@@ -103,8 +118,16 @@ fn main() {
     } else if args.header {
         view_header(args);
     } else if args.view {
-        view_file(args);
-    } else if args.calc_uncompressed_size {
+        let mut template = ParsingTemplate::new();
+        template.set_all();
+        view_file(args, template);
+    } else if args.markdup_view {
+        let mut template = ParsingTemplate::new();
+        template.set_all_except(&[Fields::RawQual,Fields::RawSequence]);
+        view_file(args, template);
+    } else if args.patch_gbam_with_dups {
+        patch_dups(args);
+    }else if args.calc_uncompressed_size {
         test_file_uncompressed_size_fetch(args);
     }
 }
@@ -169,7 +192,7 @@ fn test(args: Cli) {
     let mut u = 0;
     #[allow(unused_variables)]
     while let Some(rec) = records.next_rec() {
-        u += rec.cigar.as_ref().unwrap().base_coverage();
+        u += base_coverage(&rec.cigar.as_ref().unwrap().0[..]);
     }
     println!("Record count {}", u);
     println!(
@@ -197,7 +220,7 @@ fn test_parallel_cigar_fetch(args: Cli) {
 
         for rec_num in records_range {
             reader.fill_record(rec_num, &mut rec);
-            collector.push(rec.cigar.as_ref().unwrap().base_coverage());
+            collector.push(base_coverage(&rec.cigar.as_ref().unwrap().0[..]));
         }
     });
 
@@ -275,10 +298,8 @@ fn view_header(args: Cli){
     println!("{}", header);
 }
 
-fn view_file(args: Cli){
+fn view_file(args: Cli, template: ParsingTemplate){
     let file = File::open(args.in_path.as_path().to_str().unwrap()).unwrap();
-    let mut template = ParsingTemplate::new();
-    template.set_all();
 
     let mut reader = Reader::new_with_index(file, template, args.index_file.and_then(read_index)).unwrap();
 
@@ -297,5 +318,43 @@ fn view_file(args: Cli){
         if stdout.write_all(&buf).is_err() {
             break;
         }
+    }
+}
+
+
+
+fn patch_dups(args: Cli){
+
+    let file = OpenOptions::new()
+        .write(true)
+        .read(true)
+        .open(args.in_path.as_path().to_str().unwrap())
+        .unwrap();
+
+    let reader = Reader::new_with_index(file.try_clone().unwrap(), ParsingTemplate::new(), args.index_file.and_then(read_index)).unwrap();
+    let file_meta = reader.file_meta.clone();
+
+    let mut buf = Vec::new();
+
+    let codec = file_meta.get_field_codec(&Fields::Flags);
+    assert!(codec == &Codecs::NoCompression);
+
+    let mut read_manual = BufReader::with_capacity(MEGA_BYTE_SIZE, file.try_clone().unwrap());
+    let mut write_manual = BufWriter::with_capacity(MEGA_BYTE_SIZE, file.try_clone().unwrap());
+    for block in file_meta.view_blocks(&Fields::Flags){
+        let available_in_block = block.numitems;
+        buf.resize(block.block_size as usize, 0);
+        read_manual.seek(SeekFrom::Start(block.seekpos)).unwrap();
+        read_manual.read_exact(&mut buf).unwrap();
+        let slice = &mut buf[..];
+        for (chunk, is_dup) in zip_eq(slice.chunks_mut(2), std::io::stdin().lock().lines().take(available_in_block as usize)){
+            let mut val = (&chunk[..]).read_u16::<byteorder::LittleEndian>().unwrap();
+            if is_dup.unwrap() == "1" {
+                val = val | 0x400;
+            }
+            (&mut chunk[..]).write_u16::<byteorder::LittleEndian>(val).unwrap();
+        }
+        write_manual.seek(SeekFrom::Start(block.seekpos)).unwrap();
+        write_manual.write_all(&buf).unwrap();
     }
 }

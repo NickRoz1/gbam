@@ -1,5 +1,4 @@
-#[cfg(feature = "python-ffi")]
-use pyo3::prelude::*;
+
 
 use bam_tools::record::fields::{
     field_type, is_data_field, var_size_field_to_index, FieldType, Fields,
@@ -7,7 +6,6 @@ use bam_tools::record::fields::{
 };
 
 /// This struct regulates what fields are getting parsed from GBAM file.
-#[cfg_attr(feature = "python-ffi", pyclass)]
 #[derive(Clone, Debug)]
 pub struct ParsingTemplate {
     inner: Vec<Option<Fields>>,
@@ -86,6 +84,26 @@ impl ParsingTemplate {
     /// Set all fields to active state
     pub fn set_all(&mut self) {
         for (field, val) in Fields::iterator().zip(self.inner.iter_mut()) {
+            if val.is_none() {
+                *val = Some(*field);
+            }
+        }
+        self.set_active();
+    }
+
+    /// Set all fields to active state, except some
+    pub fn set_all_except(&mut self, disable: &[Fields]) {
+        for (field, val) in Fields::iterator().zip(self.inner.iter_mut()) {
+            let mut good = true;
+            for f in disable{
+                if f == field {
+                    good = false;
+                    break;
+                }
+            }
+            if !good {
+                continue;
+            }
             if val.is_none() {
                 *val = Some(*field);
             }
