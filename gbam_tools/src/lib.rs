@@ -16,7 +16,7 @@ pub mod utils {
 }
 
 pub mod reader {
-    pub(crate) mod column;
+    pub mod column;
     pub mod parse_tmplt;
     /// GBAM reader
     #[allow(clippy::module_inception)]
