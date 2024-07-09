@@ -42,8 +42,6 @@ pub struct GbamRecord {
     pub read_name: Option<Vec<u8>>,
     /// CIGAR
     pub cigar: Option<Cigar>,
-    /// Markdup cigar len
-    pub cigar_len: Option<u32>,
     /// 4-bit  encoded  read
     pub seq: Option<String>,
     /// Phred-scaled base qualities.
@@ -128,7 +126,6 @@ impl GbamRecord {
             Fields::NextRefID => self.next_ref_id = Some(bytes.read_i32::<LittleEndian>().unwrap()),
             Fields::NextPos => self.next_pos = Some(bytes.read_i32::<LittleEndian>().unwrap()),
             Fields::TemplateLength => self.tlen = Some(bytes.read_i32::<LittleEndian>().unwrap()),
-            Fields::CigarLen => self.cigar_len = Some(bytes.read_u32::<LittleEndian>().unwrap()),
             Fields::ReadName => self.read_name = Some(bytes.to_vec()),
             Fields::RawCigar => {
                 parse_cigar(bytes, self.cigar.get_or_insert(Cigar::new(Vec::new())));

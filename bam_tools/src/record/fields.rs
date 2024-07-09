@@ -9,10 +9,10 @@ use std::slice::Iter;
 // To avoid visual clutter (no need to write Fields::* each time).
 use self::Fields::*;
 
-pub const FIELDS_NUM: usize = 19;
+pub const FIELDS_NUM: usize = 18;
 /// Fields which contain data (not index fields).
 #[allow(dead_code)]
-pub const DATA_FIELDS_NUM: usize = 14;
+pub const DATA_FIELDS_NUM: usize = 13;
 /// Types of fields contained in BAM file.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[allow(missing_docs)]
@@ -33,8 +33,6 @@ pub enum Fields {
     RawSequence,
     RawQual,
     RawTags,
-    /// New field for markdup
-    CigarLen,
     /// Index fields
     LName,
     NCigar,
@@ -61,7 +59,6 @@ impl Fields {
             RawSequence,
             RawQual,
             RawTags,
-            CigarLen,
             // Index fields
             LName,
             NCigar,
@@ -90,7 +87,6 @@ pub fn is_data_field(field: &Fields) -> bool {
             | RawSequence
             | RawQual
             | RawTags
-            | CigarLen
     )
 }
 
@@ -111,7 +107,6 @@ pub fn field_item_size(field: &Fields) -> Option<usize> {
         TemplateLength => Some(U32_SIZE),
         RawTagsLen => Some(U32_SIZE),
         RawSeqLen => Some(U32_SIZE),
-        CigarLen => Some(U32_SIZE),
         ReadName => None,
         RawCigar => None,
         RawSequence => None,
@@ -150,7 +145,6 @@ pub fn field_type(field: &Fields) -> FieldType {
         | Fields::NextPos
         | Fields::TemplateLength
         | Fields::RawSeqLen
-        | Fields::CigarLen
         | Fields::RawTagsLen => FieldType::FixedSized,
         // Variable size fields
         Fields::ReadName
