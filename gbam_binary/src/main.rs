@@ -82,6 +82,8 @@ struct Cli {
     #[structopt(long)]
     markdup_view: bool,
     /// Patch the gbam file with dups detected by other software. A multiline file is expected with 0 and 1, where 1 means mark as duplicate. The GBAM flags column has to be not compressed for patching to work as expected.
+    /// For generating the markdup marks use: <time (../target/release/gbam_binary -v little.gbam > /tmp/testpipe.bam & samtools markdup -@5 -u /tmp/testpipe.bam /tmp/testoutpipe.bam & samtools view /tmp/testoutpipe.bam | awk '{print and($2, 0x400)!=0}' | ../target/release/gbam_binary --patch-gbam-with-dups little.gbam)>
+    /// For pipes use <mkfifo> command.
     #[structopt(long)]
     patch_gbam_with_dups: bool,
     /// When sorting and converting file, only sort the indices of records but not the data itself.
