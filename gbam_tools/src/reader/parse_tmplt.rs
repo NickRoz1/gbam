@@ -92,6 +92,26 @@ impl ParsingTemplate {
         }
         self.set_active();
     }
+
+    /// Set all fields to active state, except some
+    pub fn set_all_except(&mut self, disable: &[Fields]) {
+        for (field, val) in Fields::iterator().zip(self.inner.iter_mut()) {
+            let mut good = true;
+            for f in disable{
+                if f == field {
+                    good = false;
+                    break;
+                }
+            }
+            if !good {
+                continue;
+            }
+            if val.is_none() {
+                *val = Some(*field);
+            }
+        }
+        self.set_active();
+    }
     /// Set all fields to disabled state
     pub fn clear(&mut self) {
         self.inner
