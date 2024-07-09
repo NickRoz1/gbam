@@ -3,9 +3,6 @@ use std::io::Write;
 use itertools::Itertools;
 use serde::{Serialize, Deserialize};
 
-#[cfg(feature = "python-ffi")]
-use pyo3::prelude::*;
-
 use bam_tools::record::{
     bamrawrecord::{decode_seq, put_sequence},
     fields::Fields,
@@ -15,10 +12,10 @@ use crate::query::cigar::base_coverage;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::mem;
 
-#[cfg(not(feature = "python-ffi"))]
+
 use crate::{query::cigar::Cigar, query::cigar::Op, U32_SIZE};
 
-#[cfg(not(feature = "python-ffi"))]
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 /// Represents a GBAM record in which some fields may be omitted.
 pub struct GbamRecord {
@@ -50,62 +47,6 @@ pub struct GbamRecord {
     pub tags: Option<Vec<u8>>,
 }
 
-/// cfg_attribute currently doesn't work with pyo3(get)
-#[cfg(feature = "python-ffi")]
-#[pyclass]
-#[derive(Clone, Debug)]
-/// Represents a GBAM record in which some fields may be omitted.
-pub struct GbamRecord {
-    /// Reference sequence ID
-    #[pyo3(get)]
-    pub refid: Option<i32>,
-    /// 0-based leftmost coordinate
-    #[pyo3(get)]
-    pub pos: Option<i32>,
-    /// Mapping quality
-    #[pyo3(get)]
-    pub mapq: Option<u8>,
-    /// BAI index bin,
-    #[pyo3(get)]
-    pub bin: Option<u16>,
-    /// Bitwise flags
-    #[pyo3(get)]
-    pub flag: Option<u16>,
-    /// Ref-ID of the next segment
-    #[pyo3(get)]
-    pub next_ref_id: Option<i32>,
-    /// 0-based leftmost pos of the next segmen
-    #[pyo3(get)]
-    pub next_pos: Option<i32>,
-    /// Template length
-    #[pyo3(get)]
-    pub tlen: Option<i32>,
-    /// Read name
-    #[pyo3(get)]
-    pub read_name: Option<Vec<u8>>,
-    /// CIGAR
-    #[pyo3(get)]
-    pub cigar: Option<String>,
-    /// 4-bit  encoded  read
-    #[pyo3(get)]
-    pub seq: Option<String>,
-    /// Phred-scaled base qualities.
-    #[pyo3(get)]
-    pub qual: Option<Vec<u8>>,
-    /// List of auxiliary data
-    #[pyo3(get)]
-    pub tags: Option<Vec<u8>>,
-}
-
-/// cfg_attribute currently doesn't work with pyo3(get)
-// #[cfg(feature = "python-ffi")]
-// pub fn parse_cigar(bytes: &[u8]) -> String {
-//     decode_cigar(bytes)
-// }
-
-// pub static mut copying: Duration = Duration::from_nanos(0);
-/// This version is for Rust.
-#[cfg(not(feature = "python-ffi"))]
 pub fn parse_cigar(bytes: &[u8], prealloc: &mut Cigar) {
     prealloc.0.resize(bytes.len() / U32_SIZE, Op::new(0));
     for (i, mut chunk) in bytes.chunks(U32_SIZE).enumerate() {
@@ -284,13 +225,5 @@ impl GbamRecord {
 impl std::fmt::Display for GbamRecord {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
-    }
-}
-
-#[cfg_attr(feature = "python-ffi", pymethods)]
-impl GbamRecord {
-    /// Convert GBAM structure to string representation
-    pub fn to_str(&self) -> String {
-        self.to_string()
     }
 }

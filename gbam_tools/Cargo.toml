@@ -27,18 +27,8 @@ tempdir = "0.3.7"
 md5 = "0.7.0"
 rand = "0.8"
 
-[dependencies.pyo3]
-version = "0.13.2"
-optional = true
-
 [lib]
 crate-type = ["rlib", "cdylib"]
 
 [package.metadata.maturin]
 requires-dist = ["pysam==0.16.0.1"]
-
-[features]
-# https://pyo3.rs/v0.11.1/faq.html#i-cant-run-cargo-test-im-having-linker-issues-like-symbol-not-found-or-undefined-reference-to-_pyexc_systemerror
-extension-module = ["pyo3/extension-module"]
-python-ffi = ["extension-module"]
-# default = ["python-ffi"]
