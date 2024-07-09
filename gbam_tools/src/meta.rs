@@ -38,7 +38,7 @@ pub const FILE_INFO_SIZE: usize = 1000;
 
 /// Type of encoding used in GBAM writer
 /// TODO: use MessagePack or another compact form of serialization.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub enum Codecs {
     /// Gzip encoding
     Gzip,
@@ -240,6 +240,9 @@ impl FileMeta {
         for field in Fields::iterator() {
             map[*field as usize] = FieldMeta::new(field, codec);
         }
+
+        // When patching markdup, have to decompress and compress column. If compressing, offsets will change and ruin the file.
+        map[Fields::Flags as usize].codec = Codecs::NoCompression;
 
         FileMeta {
             field_to_meta: map,
