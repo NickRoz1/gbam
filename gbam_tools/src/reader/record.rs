@@ -170,7 +170,8 @@ impl GbamRecord {
             .for_each(|(op, mut buf)| buf.write_u32::<LittleEndian>(op.0).unwrap());
         let seq_len = (self.seq.as_ref().unwrap_or(&String::new()).len()+1)/2;
         let (seq, unsized_data) = unsized_data.split_at_mut(seq_len);
-        put_sequence(seq, self.seq.as_ref().unwrap_or(&String::new()).len(), self.seq.as_ref().unwrap_or(&String::new())).unwrap();
+        let mut temp_cursor = Cursor::new(seq);
+        put_sequence(&mut temp_cursor, self.seq.as_ref().unwrap_or(&String::new()).len(), self.seq.as_ref().unwrap_or(&String::new())).unwrap();
         let (mut qual, mut unsized_data) =
             unsized_data.split_at_mut(self.qual.as_ref().unwrap_or(&Vec::new()).len());
         qual.write_all(self.qual.as_ref().unwrap_or(&Vec::new())).unwrap();
