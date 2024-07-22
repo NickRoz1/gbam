@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::io::{Cursor, Write};
 
 use itertools::Itertools;
 use serde::{Serialize, Deserialize};
@@ -14,6 +14,10 @@ use std::mem;
 
 
 use crate::{query::cigar::Cigar, query::cigar::Op, U32_SIZE};
+
+use rust_htslib::htslib::{bam1_t, bam1_core_t};
+use rust_htslib::htslib::{bam_write1, sam_hdr_t, sam_hdr_parse};
+use std::convert::From;
 
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -193,6 +197,69 @@ impl GbamRecord {
     /// Returns the alignment span.
     pub fn alignment_span(&self) -> u32 {
         base_coverage(&self.cigar.as_ref().unwrap().0[..])
+    }
+
+    /// Convert to HTSLIB bam1_t record.
+    pub fn get_hts_repr(&self) -> bam1_t {
+        let read_name_len = self.read_name.as_ref().unwrap().len();
+        let padding: usize = (4-read_name_len%4)%4;
+        let len = 0
+        + read_name_len
+        + padding
+        + self.cigar.as_ref().unwrap().0.len() * mem::size_of::<u32>()
+        + (self.seq.as_ref().unwrap().len()+1)/2
+        + self.qual.as_ref().unwrap().len()
+        + self.tags.as_ref().unwrap().len();
+        
+
+        let mut inner_vec = Vec::<u8>::new();
+        inner_vec.resize(len, 0);
+        
+        let mut writer = Cursor::new(&mut inner_vec[..]);
+        writer.write_all(self.read_name.as_ref().unwrap()).unwrap();
+        writer.write_all(&[b'\0',b'\0',b'\0',b'\0'][..padding]).unwrap();
+        self.cigar
+            .as_ref()
+            .unwrap()
+            .ops()
+            .for_each(|op| writer.write_u32::<LittleEndian>(op.0).unwrap());
+        put_sequence(&mut writer, self.seq.as_ref().unwrap().len(), self.seq.as_ref().unwrap()).unwrap();
+        writer.write_all(self.qual.as_ref().unwrap()).unwrap();
+        writer
+            .write_all(self.tags.as_ref().unwrap())
+            .unwrap();
+        let cur_len = writer.get_ref().len();
+        assert!(cur_len == len);
+        assert!(writer.position() == writer.get_ref().len() as u64);
+        
+        let capacity = inner_vec.capacity();
+        let ptr = inner_vec.as_mut_ptr();
+        mem::forget(inner_vec);
+        
+        dbg!(len);
+        dbg!(capacity);
+        bam1_t {
+            core: bam1_core_t {
+                pos: self.pos.unwrap() as i64,
+                tid: self.refid.unwrap(),
+                bin: self.bin.unwrap(),
+                qual: self.mapq.unwrap(),
+                flag: self.flag.unwrap(),
+                mpos: self.next_pos.unwrap() as i64,
+                mtid: self.next_ref_id.unwrap(),
+                l_qname: (read_name_len+padding) as u16,
+                l_qseq: ((self.seq.as_ref().unwrap().len()+1)/2) as i32,
+                n_cigar: (self.cigar.as_ref().unwrap().0.len() * mem::size_of::<u32>()) as u32,
+                l_extranul: padding as u8,
+                isize: self.tlen.unwrap() as i64,
+            },
+            id: 1,
+            data: ptr,
+            l_data: len as i32,
+            m_data: capacity as u32,
+            _bitfield_1: bam1_t::new_bitfield_1(3),
+            __bindgen_padding_0: 0,
+        }
     }
 
     /// Returns the alignment start.

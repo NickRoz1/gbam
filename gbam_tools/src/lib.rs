@@ -38,6 +38,9 @@ pub mod query {
     }
 }
 
+pub mod c_api {
+    pub mod api;
+}
 
 
 /// Manages parallel compression
