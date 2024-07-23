@@ -1,5 +1,6 @@
-use crate::reader::{parse_tmplt::ParsingTemplate, reader::Reader, record::GbamRecord};
-use rust_htslib::htslib::bam1_t;
+use gbam_tools::reader::{parse_tmplt::ParsingTemplate, reader::Reader, record::GbamRecord};
+use rust_htslib::htslib::{bam1_t, sam_hdr_destroy, sam_hdr_parse, sam_hdr_t, kstring_t};
+use byteorder::{LittleEndian, ReadBytesExt};
 use std::ffi::CStr;
 use std::fs::File;
 use std::path::Path;
@@ -49,10 +50,27 @@ pub extern "C" fn free_bam_record(rec: bam1_t) {
 #[no_mangle]
 pub extern "C" fn free_gbam_reader(reader: *mut Reader) {
     unsafe {
-        let _: Box<Reader> = Box::from_raw(reader);
+        drop(Box::<Reader>::from_raw(reader));
     }
 }
 
+#[no_mangle]
+pub extern "C" fn get_header(reader: *mut Reader) -> *mut sam_hdr_t {
+    unsafe {
+        let header_len = (&(*reader).file_meta.get_sam_header()[..std::mem::size_of::<u32>()]).read_u32::<LittleEndian>().unwrap() as usize;
+        let header_bytes = (*reader).file_meta.get_sam_header()[std::mem::size_of::<u32>()..std::mem::size_of::<u32>()+header_len].to_owned();
+
+        sam_hdr_parse(header_len as u64, header_bytes.as_ptr() as *const i8)
+    }
+}
+
+
+#[no_mangle]
+pub extern "C" fn free_header(hdr: *mut sam_hdr_t) {
+    unsafe{
+        sam_hdr_destroy(hdr);
+    }   
+}
 
 // int sam_parse1(kstring_t *s, sam_hdr_t *h, bam1_t *b) HTS_RESULT_USED;
 // Make a python test

@@ -233,10 +233,13 @@ impl GbamRecord {
         assert!(writer.position() == writer.get_ref().len() as u64);
         
         let capacity = inner_vec.capacity();
-        let ptr = inner_vec.as_mut_ptr();
-        mem::forget(inner_vec);
+        let data = inner_vec.into_boxed_slice();
+
+        unsafe {
+            let ptr = Box::into_raw(data).as_mut().unwrap();
+            dbg!(self.cigar.as_ref().unwrap().0.len() * mem::size_of::<u32>());
         
-        dbg!(len);
+         dbg!(len);
         dbg!(capacity);
         bam1_t {
             core: bam1_core_t {
@@ -244,22 +247,23 @@ impl GbamRecord {
                 tid: self.refid.unwrap(),
                 bin: self.bin.unwrap(),
                 qual: self.mapq.unwrap(),
-                flag: self.flag.unwrap(),
+                flag:self.flag.unwrap(),
                 mpos: self.next_pos.unwrap() as i64,
                 mtid: self.next_ref_id.unwrap(),
                 l_qname: (read_name_len+padding) as u16,
-                l_qseq: ((self.seq.as_ref().unwrap().len()+1)/2) as i32,
-                n_cigar: (self.cigar.as_ref().unwrap().0.len() * mem::size_of::<u32>()) as u32,
+                l_qseq: self.qual.as_ref().unwrap_or(&Vec::new()).len() as i32,
+                n_cigar: (self.cigar.as_ref().unwrap().0.len()) as u32,
                 l_extranul: padding as u8,
                 isize: self.tlen.unwrap() as i64,
             },
             id: 1,
-            data: ptr,
+            data: ptr.as_mut_ptr(),
             l_data: len as i32,
             m_data: capacity as u32,
             _bitfield_1: bam1_t::new_bitfield_1(3),
             __bindgen_padding_0: 0,
         }
+    }
     }
 
     /// Returns the alignment start.
