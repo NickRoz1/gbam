@@ -1,4 +1,4 @@
-#include "sam.h"
+#include "htslib/sam.h"
 // api.h
 #ifndef API_H
 #define API_H
@@ -10,6 +10,7 @@ extern "C" {
 void* get_gbam_reader(const char* gbam_path);
 bam1_t get_bam_record(void* reader, uint64_u rec_num);
 sam_hdr_t* get_header(void* reader);
+uint64_t get_records_num(void* reader);
 
 void free_bam_record(bam1_t rec);
 void free_gbam_reader(void* reader);

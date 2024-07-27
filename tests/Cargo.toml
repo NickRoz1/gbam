@@ -1,0 +1,12 @@
+[package]
+name = "gbam_tests"
+version = "0.1.0"
+authors = ["nickroz"]
+edition = "2018"
+
+[[bin]]
+name = "build_script"
+path = "build.rs"
+
+
+

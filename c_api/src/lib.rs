@@ -31,6 +31,13 @@ pub extern "C" fn get_gbam_reader(gbam_path: *const libc::c_char) -> *mut Reader
 }
 
 #[no_mangle]
+pub extern "C" fn get_records_num(reader: *mut Reader) -> u64 {
+    unsafe {
+        (*reader).amount as u64
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn get_bam_record(reader: *mut Reader, rec_num: u64) -> bam1_t {
     let mut rec = GbamRecord::default();
     unsafe {

@@ -10,7 +10,5 @@ byteorder = "1.2.3"
 rust-htslib = { version = "0.39.0", default-features = false }
 libc = "0.2.93"
 
-
-
 [lib]
 crate-type = ["cdylib"]
