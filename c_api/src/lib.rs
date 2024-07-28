@@ -1,8 +1,10 @@
 use gbam_tools::reader::{parse_tmplt::ParsingTemplate, reader::Reader, record::GbamRecord};
+use gbam_tools::Fields;
 use rust_htslib::htslib::{bam1_t, sam_hdr_destroy, sam_hdr_parse, sam_hdr_t, kstring_t};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::ffi::CStr;
 use std::fs::File;
+use std::mem::MaybeUninit;
 use std::path::Path;
 
 #[no_mangle]
@@ -45,6 +47,34 @@ pub extern "C" fn get_bam_record(reader: *mut Reader, rec_num: u64) -> bam1_t {
     }
 
     return rec.get_hts_repr();
+}
+
+#[no_mangle]
+pub extern "C" fn get_empty_bam1_t() -> bam1_t {
+    let mut v : bam1_t = unsafe { MaybeUninit::uninit().assume_init() };
+    let mut inner_vec = Vec::<u8>::new();
+    inner_vec.resize(5000, 0);
+
+
+    let capacity = inner_vec.capacity();
+    let len = inner_vec.len();
+    let data = inner_vec.into_boxed_slice();
+    unsafe {
+        let ptr = Box::into_raw(data).as_mut().unwrap();
+        v.data = ptr.as_mut_ptr();
+        v.l_data = len as i32;
+        v.m_data = capacity as u32;
+    }
+
+    v
+}
+
+
+#[no_mangle]
+pub extern "C" fn refill_bam_record(reader: *mut Reader, rec_num: u64, old_rec: *mut bam1_t) {
+    unsafe {
+        (*reader).fill_bam1_t_record(rec_num as usize, &mut (*old_rec))
+    }
 }
 
 #[no_mangle]

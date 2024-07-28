@@ -18,7 +18,7 @@ fn main() {
     let workspace = workspace_dir();
     let str = workspace.to_str().unwrap();
 
-    let status = Command::new("gcc").args(&["-o", "../target/release/ffi_test.o", "src/test.c",  &format!("-L{str}/target/release/"), "-lgbam_tools_cffi", "-lhts"])
+    let status = Command::new("gcc").args(&["-O3", "-o", "../target/release/ffi_test.o", "src/test.c",  &format!("-L{str}/target/release/"), "-lgbam_tools_cffi", "-lhts"])
                        .status().unwrap();
 
     if !status.success() {
