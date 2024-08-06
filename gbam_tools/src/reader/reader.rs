@@ -28,6 +28,7 @@ pub struct Reader {
     pub parsing_template: ParsingTemplate,
     original_template: ParsingTemplate,
     pub amount: usize,
+    pub next_not_read: usize,
     pub file_meta: Arc<FileMeta>,
     // Kept so File won't drop while used by mmap.
     _inner: Box<File>,
@@ -74,6 +75,7 @@ impl Reader {
             _inner,
             mmap,
             index_mapping: index_mapping.clone(),
+            next_not_read: 0,
         })
     }
 
@@ -111,7 +113,7 @@ impl Reader {
             }
         }
 
-        gen_hts_rec(temp, rec);
+        gen_hts_rec(temp, rec)
     }
 
     pub fn get_column(&mut self, field: &Fields) -> &mut Box<dyn Column + Send> {

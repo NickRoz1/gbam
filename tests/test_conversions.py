@@ -151,6 +151,9 @@ def test_cffi():
     gbam_results = NamedTemporaryFile()
     samtools_results = NamedTemporaryFile()
 
+    # Build the .c test
+    subprocess.check_output([f"bash {cur_file_path.parent}/tests/build_test.sh"], shell=True) 
+
     subprocess.check_output([f"samtools view {bam_file_path} > {samtools_results.name}"], shell=True) 
 
     test_bin = cur_file_path.parent/"target"/"release"/"ffi_test.o"

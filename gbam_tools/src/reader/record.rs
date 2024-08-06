@@ -37,7 +37,7 @@ pub fn gen_hts_rec(bytes: Vec<Option::<&[u8]>>, old_rec: &mut bam1_t) {
     + bytes[Fields::RawQual as usize].unwrap_or(&[]).len()
     + bytes[Fields::RawTags as usize].unwrap_or(&[]).len();
     
-    
+
     inner_vec.resize(len, 0);
 
     let mut writer = Cursor::new(&mut inner_vec[..]);
@@ -47,7 +47,7 @@ pub fn gen_hts_rec(bytes: Vec<Option::<&[u8]>>, old_rec: &mut bam1_t) {
     writer.write_all(bytes[Fields::RawSequence as usize].unwrap_or(&[])).unwrap();
     writer.write_all(bytes[Fields::RawQual as usize].unwrap_or(&[])).unwrap();
     writer.write_all(bytes[Fields::RawTags as usize].unwrap_or(&[])).unwrap();
-    
+
     assert!(writer.position() == writer.get_ref().len() as u64);
 
     old_rec.core.pos = bytes[Fields::Pos as usize].unwrap().read_i32::<LittleEndian>().unwrap() as i64;
@@ -74,13 +74,13 @@ pub fn gen_hts_rec(bytes: Vec<Option::<&[u8]>>, old_rec: &mut bam1_t) {
         let len = inner_vec.len();
         let data = inner_vec.into_boxed_slice();
         let ptr = Box::into_raw(data).as_mut().unwrap();
-        
+
         old_rec.data =  ptr.as_mut_ptr();
         old_rec.l_data =  len as i32;
         old_rec.m_data =  capacity as u32;
     }
 
-    
+
 }
 
 

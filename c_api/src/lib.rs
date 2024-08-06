@@ -1,18 +1,27 @@
 use gbam_tools::reader::{parse_tmplt::ParsingTemplate, reader::Reader, record::GbamRecord};
 use gbam_tools::Fields;
-use rust_htslib::htslib::{bam1_t, sam_hdr_destroy, sam_hdr_parse, sam_hdr_t, kstring_t};
+use libc::{uint64_t, uint8_t};
+use rust_htslib::htslib::{bam1_t, kstring_t, sam_hdr_destroy, sam_hdr_parse, sam_hdr_t, uint64_u};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::ffi::CStr;
 use std::fs::File;
 use std::mem::MaybeUninit;
 use std::path::Path;
 
+const DISABLE_READNAME : u64 = 1<<0;
+const DISABLE_CIGAR : u64 = 1<<1;
+const DISABLE_SEQ : u64 = 1<<2;
+const DISABLE_QUAL : u64 = 1<<3;
+const DISABLE_TAGS : u64 = 1<<4;
+
 #[no_mangle]
-pub extern "C" fn get_gbam_reader(gbam_path: *const libc::c_char) -> *mut Reader {
+pub extern "C" fn get_gbam_reader(gbam_path: *const libc::c_char, flags: u64) -> *mut Reader {
     let gbam_path_str: String = unsafe {
         assert!(!gbam_path.is_null());
         CStr::from_ptr(gbam_path).to_string_lossy().into_owned()
     };
+
+
 
     let gbam_path = Path::new(&gbam_path_str);
 
@@ -26,7 +35,22 @@ pub extern "C" fn get_gbam_reader(gbam_path: *const libc::c_char) -> *mut Reader
 
     let file = File::open(gbam_path).unwrap();
     let mut tmplt = ParsingTemplate::new();
-    tmplt.set_all();
+    let mapping = vec![
+        (DISABLE_READNAME, Fields::ReadName),
+        (DISABLE_CIGAR, Fields::RawCigar),
+        (DISABLE_SEQ, Fields::RawSequence),
+        (DISABLE_QUAL, Fields::RawQual),
+        (DISABLE_TAGS, Fields::RawTags),
+    ];
+
+    let mut field_to_not_set = Vec::new();
+    for (f, field) in mapping {
+        if (f&flags) > 0 {
+            field_to_not_set.push(field);
+        }
+    }
+
+    tmplt.set_all_except(&field_to_not_set[..]);
     let reader = Reader::new(file, tmplt).unwrap();
 
     return Box::into_raw(Box::new(reader));
@@ -49,38 +73,74 @@ pub extern "C" fn get_bam_record(reader: *mut Reader, rec_num: u64) -> bam1_t {
     return rec.get_hts_repr();
 }
 
+
+
+// Returns 0 on success,
+//        -1 on EOF,
 #[no_mangle]
-pub extern "C" fn get_empty_bam1_t() -> bam1_t {
+pub extern "C" fn fill_next_record(reader: *mut Reader, rec: *mut bam1_t) -> i32 {
+    unsafe {
+        if (*reader).amount == (*reader).next_not_read {
+            return -1;
+        }
+        let mut rec = Box::from_raw(rec);
+        
+        (*reader).fill_bam1_t_record((*reader).next_not_read, &mut rec);
+        (*reader).next_not_read += 1;
+
+        Box::into_raw(rec);
+    }
+
+    return 0;
+}
+
+#[no_mangle]
+pub extern "C" fn get_empty_bam1_t() -> *mut bam1_t {
     let mut v : bam1_t = unsafe { MaybeUninit::uninit().assume_init() };
+    
+    v.core.l_qname = 0;
+    v.core.l_qseq = 0;
+    v.core.n_cigar = 0;
+
     let mut inner_vec = Vec::<u8>::new();
-    inner_vec.resize(5000, 0);
+    inner_vec.resize(1, b'\0');
 
 
     let capacity = inner_vec.capacity();
     let len = inner_vec.len();
     let data = inner_vec.into_boxed_slice();
     unsafe {
-        let ptr = Box::into_raw(data).as_mut().unwrap();
-        v.data = ptr.as_mut_ptr();
+        let ptr = Box::into_raw(data);
+        v.data = ptr.as_mut().unwrap().as_mut_ptr();
         v.l_data = len as i32;
         v.m_data = capacity as u32;
     }
 
-    v
+    Box::into_raw(Box::new(v))
 }
 
 
 #[no_mangle]
-pub extern "C" fn refill_bam_record(reader: *mut Reader, rec_num: u64, old_rec: *mut bam1_t) {
+pub extern "C" fn get_bam_record_fast(reader: *mut Reader, rec_num: u64) -> *mut bam1_t {
+    let ptr = get_empty_bam1_t();
     unsafe {
-        (*reader).fill_bam1_t_record(rec_num as usize, &mut (*old_rec))
+
+        let mut rec = Box::from_raw(ptr);
+       
+
+        (*reader).fill_bam1_t_record(rec_num as usize, &mut rec);
+        
+        Box::into_raw(rec);
     }
+    ptr
 }
 
 #[no_mangle]
-pub extern "C" fn free_bam_record(rec: bam1_t) {
+pub extern "C" fn free_bam_record(rec: *mut bam1_t) {
     unsafe {
-        let _: Vec<u8> = Vec::from_raw_parts(rec.data, rec.l_data as usize, rec.m_data as usize);
+        let rec = Box::from_raw(rec);
+        drop(Box::from_raw(rec.data));
+        drop(rec);
     }
 }
 
