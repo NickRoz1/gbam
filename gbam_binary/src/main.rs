@@ -298,6 +298,40 @@ fn view_header(args: Cli){
     println!("{}", header);
 }
 
+fn parse_tag(tags: &[u8], target_tag: &str) -> Option<String> {
+    // Convert the target tag to bytes
+    let target_bytes = target_tag.as_bytes();
+    let tag_length = target_bytes.len();
+
+    if tag_length == 0 || tag_length + 1 >= tags.len() {
+        // Ensure the target tag is not empty and fits within the input slice
+        return None;
+    }
+
+    let mut i = 0;
+    while i <= tags.len() - tag_length - 1 {
+        // Look for the target tag followed by its type identifier
+        if tags[i..i + tag_length] == target_bytes[..] {
+            // Skip the tag name and type
+            i += tag_length + 1;
+            let mut result = Vec::new();
+
+            // Read until null terminator or end of tags
+            while i < tags.len() && tags[i] != 0 {
+                result.push(tags[i]);
+                i += 1;
+            }
+
+            if !result.is_empty() {
+                return String::from_utf8(result).ok();
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+
 fn view_file(args: Cli, template: ParsingTemplate){
     let file = File::open(args.in_path.as_path().to_str().unwrap()).unwrap();
 
