@@ -154,9 +154,10 @@ def test_cffi():
     # Build the .c test
     subprocess.check_output([f"bash {cur_file_path.parent}/tests/build_test.sh"], shell=True) 
 
-    subprocess.check_output([f"samtools view {bam_file_path} > {samtools_results.name}"], shell=True) 
+    subprocess.check_output([f"samtools view {bam_file_path} | wc -l > {samtools_results.name}"], shell=True) 
 
     test_bin = cur_file_path.parent/"target"/"release"/"ffi_test.o"
     subprocess.check_output([f"{test_bin} {gbam_file.name} > {gbam_results.name}"], shell=True) 
 
+    breakpoint()
     byte_file_comparison(samtools_results.name, gbam_results.name)
