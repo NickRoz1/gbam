@@ -392,3 +392,71 @@ fn patch_dups(args: Cli){
         write_manual.write_all(&buf).unwrap();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_tag_with_exact_match() {
+        let tags = b"TAGZvalue1\0LONGERTAGZvalue2\0";
+        let result = parse_tag(tags, "TAG");
+        assert_eq!(result, Some("value1".to_string()));
+    }
+
+    #[test]
+    fn test_parse_tag_with_longer_tag() {
+        let tags = b"TAGZvalue1\0LONGERTAGZvalue2\0";
+        let result = parse_tag(tags, "LONGERTAG");
+        assert_eq!(result, Some("value2".to_string()));
+    }
+
+    #[test]
+    fn test_parse_tag_with_nonexistent_tag() {
+        let tags = b"TAGZvalue1\0LONGERTAGZvalue2\0";
+        let result = parse_tag(tags, "NONEXISTENT");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_parse_tag_with_empty_tags() {
+        let tags = b"";
+        let result = parse_tag(tags, "TAG");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_parse_tag_with_empty_target_tag() {
+        let tags = b"TAGZvalue1\0LONGERTAGZvalue2\0";
+        let result = parse_tag(tags, "");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_parse_tag_with_multiple_tags() {
+        let tags = b"TAGZvalue1\0TAGZvalue2\0";
+        let result = parse_tag(tags, "TAG");
+        assert_eq!(result, Some("value1".to_string()));
+    }
+
+    #[test]
+    fn test_parse_tag_with_null_terminator_at_end() {
+        let tags = b"TAGZvalue1\0";
+        let result = parse_tag(tags, "TAG");
+        assert_eq!(result, Some("value1".to_string()));
+    }
+
+    #[test]
+    fn test_parse_tag_with_partial_tag_match() {
+        let tags = b"TAZvalue1\0";
+        let result = parse_tag(tags, "TAG");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_parse_tag_with_no_null_terminator() {
+        let tags = b"TAGZvalue1";
+        let result = parse_tag(tags, "TAG");
+        assert_eq!(result, Some("value1".to_string()));
+    }
+}
