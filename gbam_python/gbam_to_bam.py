@@ -1,78 +1,12 @@
 import json
-from collections import OrderedDict
-import lz4.block as lb
-import lz4.frame
-import pysam
 import struct
-import sys
-import functools 
+import mmap
+import bisect
+import lz4.block
+import pysam
+from collections import OrderedDict
 
-f = open("/Users/hasitha/Documents/biology/gbam/gbam_python/output.gbam", "rb")
-header = (f.read(1000).rstrip(b'\x00'))
-header_json = json.loads(header.decode('utf-8'))
-print("header_json:", json.dumps(header_json, indent=4))
-
-f.seek(header_json["seekpos"])
-meta_json = json.loads(f.read().decode('utf-8'))
-print("meta_json:", json.dumps(meta_json, indent=4))
-
-fields_mapping = OrderedDict()
-fields_mapping["RefID"] = None
-fields_mapping["Pos"] = None
-fields_mapping["LName"] = None
-fields_mapping["Mapq"] = None
-fields_mapping["Bin"] = None
-fields_mapping["NCigar"] = None
-fields_mapping["Flags"] = None
-fields_mapping["SequenceLength"] = None
-fields_mapping["NextRefID"] = None
-fields_mapping["NextPos"] = None
-fields_mapping["TemplateLength"] = None
-fields_mapping["RawSeqLen"] = None
-fields_mapping["RawTagsLen"] = None
-fields_mapping["ReadName"] = "LName"
-fields_mapping["RawCigar"] = "NCigar"
-fields_mapping["RawSequence"] = "RawSeqLen"
-fields_mapping["RawQual"] = "SequenceLength"
-fields_mapping["RawTags"] = "RawTagsLen"
-
-@functools.cache
-def get_decompressed(seekpos, block_size, uncompressed_size):
-    print(f"Decompressing block at seekpos={seekpos}, block_size={block_size}, uncompressed_size={uncompressed_size}")
-    
-    f.seek(seekpos)
-    compressed_buf = f.read(block_size)
-    
-    print(f"File position after reading: {f.tell()}, buffer length: {len(compressed_buf)}")
-    print(f"Compressed buffer (first 20 bytes): {compressed_buf[:20].hex()}")
-
-    if block_size == uncompressed_size:
-        print("Skipping decompression, using raw data.")
-        return compressed_buf  # Directly return raw data if it's not compressed
-    
-    try:
-        decompressed_data = lb.decompress(compressed_buf, uncompressed_size)
-        print(f"Decompressed block size: {len(decompressed_data)}")
-        return decompressed_data
-    except Exception as e:
-        print(f"ERROR: LZ4 decompression failed at seekpos={seekpos}")
-        print(f"Exception: {e}")
-        sys.exit(1)
-
-def get_block(i, meta):
-    blocks = meta["blocks"]
-    loaded = blocks[0]["numitems"]
-    cur = 0
-    while loaded <= i:
-        cur += 1
-        loaded += blocks[cur]["numitems"]
-    
-    # print(f"Fetching block {cur}, numitems={blocks[cur]['numitems']}")
-    dec = get_decompressed(blocks[cur]["seekpos"], blocks[cur]["block_size"], blocks[cur]["uncompressed_size"])
-    assert len(dec) == blocks[cur]["uncompressed_size"], "Decompressed size mismatch!"
-    return (loaded - blocks[cur]["numitems"], dec)
-
-# Define fixed field sizes (in bytes) for the fixed fields.
+# Hardcoded sizes for fixed fields (fallback if item_size is not in metadata)
 FIXED_FIELD_SIZES = {
     "RefID": 4,
     "Pos": 4,
@@ -89,149 +23,243 @@ FIXED_FIELD_SIZES = {
     "RawTagsLen": 4,
 }
 
-class FixedColumn():
+# Open and memory-map the input GBAM file.
+gbam_path = "/Users/hasitha/Documents/biology/gbam/gbam_python/output.gbam"
+f = open(gbam_path, "rb")
+mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+
+# Read header JSON from fixed-size region.
+raw_header = mm[:1000].rstrip(b'\x00')
+header_json = json.loads(raw_header.decode('utf-8'))
+print("header_json:", json.dumps(header_json, indent=4))
+
+# Read meta JSON (assumed to start at header_json["seekpos"])
+mm.seek(header_json["seekpos"])
+meta_json = json.loads(mm.read().decode('utf-8'))
+print("meta_json:", json.dumps(meta_json, indent=4))
+
+# --- Convert meta_json["field_to_meta"] into a dictionary keyed by field names ---
+meta_field = meta_json["field_to_meta"]
+field_to_meta = {}
+if isinstance(meta_field, dict):
+    field_to_meta = meta_field
+elif isinstance(meta_field, list):
+    for item in meta_field:
+        if isinstance(item, dict):
+            if "field" in item:
+                field_to_meta[item["field"]] = item
+            else:
+                for key, value in item.items():
+                    field_to_meta[key] = value
+        elif isinstance(item, list) and len(item) == 2:
+            field_to_meta[item[0]] = item[1]
+        elif isinstance(item, str):
+            print(f"Warning: Found a string in meta_json['field_to_meta']: {item}. Skipping.")
+        else:
+            print(f"Unexpected item type in meta_json['field_to_meta']: {type(item)}")
+else:
+    raise TypeError("meta_json['field_to_meta'] is neither a dict nor a list.")
+
+if not field_to_meta:
+    raise ValueError("No field metadata could be constructed from meta_json['field_to_meta'].")
+
+# --- Helper: get blocks for a field ---
+def get_blocks_for_field(field):
+    meta = field_to_meta.get(field)
+    if meta is None:
+        raise KeyError(f"Field '{field}' not found in metadata (field_to_meta).")
+    if isinstance(meta, dict):
+        blocks = meta.get("blocks")
+        if blocks is None:
+            raise KeyError(f"No 'blocks' key in metadata for field '{field}'.")
+        return blocks
+    elif isinstance(meta, list):
+        return meta
+    else:
+        raise TypeError(f"Unexpected type for metadata of field '{field}': {type(meta)}")
+
+# --- Optimized Column Classes ---
+
+class OptimizedFixedColumn:
     def __init__(self, field):
         self.field = field
-        # Wrap the list in a dictionary under "blocks"
-        self.meta = {"blocks": meta_json["field_to_meta"][field]}
+        self.blocks = get_blocks_for_field(field)
+        if not self.blocks:
+            raise ValueError(f"No block metadata for field: {field}")
+        self.block_starts = []
+        cum = 0
+        for block in self.blocks:
+            self.block_starts.append(cum)
+            cum += block["numitems"]
+        self.total_items = cum
+        self.item_size = self.blocks[0].get("item_size", FIXED_FIELD_SIZES.get(field))
+        self.decompressed = {}
+
+    def get_decompressed_block(self, block_idx):
+        if block_idx not in self.decompressed:
+            block = self.blocks[block_idx]
+            mm.seek(block["seekpos"])
+            comp_buf = mm.read(block["block_size"])
+            if block["block_size"] == block["uncompressed_size"]:
+                data = comp_buf
+            else:
+                data = lz4.block.decompress(comp_buf, uncompressed_size=block["uncompressed_size"])
+            self.decompressed[block_idx] = data
+        return self.decompressed[block_idx]
 
     def get_item(self, i):
-        loaded, uncompressed_buf = get_block(i, self.meta)
-        i -= loaded
-        # Try to get item_size from metadata.
-        item_size = self.meta["blocks"][0].get("item_size")
-        if item_size is None:
-            # Fallback: use the hardcoded fixed field size.
-            item_size = FIXED_FIELD_SIZES[self.field]
-        offset = i * item_size
-        return uncompressed_buf[offset:(offset + item_size)]
+        block_idx = bisect.bisect_right(self.block_starts, i) - 1
+        block_data = self.get_decompressed_block(block_idx)
+        offset_in_block = (i - self.block_starts[block_idx]) * self.item_size
+        return block_data[offset_in_block: offset_in_block + self.item_size]
 
-class VarColumn():
-    def __init__(self, fixed_index_column, field):
-        self.meta = {"blocks": meta_json["field_to_meta"][field]}
-        self.index = fixed_index_column
+class OptimizedVarColumn:
+    def __init__(self, index_column, field):
+        self.field = field
+        self.blocks = get_blocks_for_field(field)
+        if not self.blocks:
+            raise ValueError(f"No block metadata for field: {field}")
+        self.block_starts = []
+        cum = 0
+        for block in self.blocks:
+            self.block_starts.append(cum)
+            cum += block["numitems"]
+        self.total_items = cum
+        self.decompressed = {}
+        self.index_column = index_column  # Provides length information.
+        self.cum_cache = {}
+
+    def get_decompressed_block(self, block_idx):
+        if block_idx not in self.decompressed:
+            block = self.blocks[block_idx]
+            mm.seek(block["seekpos"])
+            comp_buf = mm.read(block["block_size"])
+            if block["block_size"] == block["uncompressed_size"]:
+                data = comp_buf
+            else:
+                data = lz4.block.decompress(comp_buf, uncompressed_size=block["uncompressed_size"])
+            self.decompressed[block_idx] = data
+        return self.decompressed[block_idx]
+
+    def get_cumulative(self, block_idx):
+        if block_idx in self.cum_cache:
+            return self.cum_cache[block_idx]
+        start = self.block_starts[block_idx]
+        num_items = self.blocks[block_idx]["numitems"]
+        cum_list = [0] * num_items
+        s = 0
+        for j in range(start, start + num_items):
+            val = self.index_column.get_item(j)[0]  # Each index item is one byte.
+            s += val
+            cum_list[j - start] = s
+        self.cum_cache[block_idx] = cum_list
+        return cum_list
 
     def get_item(self, i):
-        loaded, uncompressed_buf = get_block(i, self.meta)
-        # Compute cumulative offset by summing one-byte values from index
-        offset = 0
-        for j in range(loaded, i + 1):
-            offset += self.index.get_item(j)[0]  # each returns a 1-byte value
-        # Also compute the previous cumulative offset:
-        prev_offset = 0
-        for j in range(loaded, i):
-            prev_offset += self.index.get_item(j)[0]
-        return uncompressed_buf[prev_offset:offset]
+        block_idx = bisect.bisect_right(self.block_starts, i) - 1
+        block_data = self.get_decompressed_block(block_idx)
+        cum_list = self.get_cumulative(block_idx)
+        rec_in_block = i - self.block_starts[block_idx]
+        start_offset = 0 if rec_in_block == 0 else cum_list[rec_in_block - 1]
+        end_offset = cum_list[rec_in_block]
+        return block_data[start_offset:end_offset]
 
-    def get_block(i, meta):
-        blocks = meta["blocks"]
-        loaded = blocks[0]["numitems"]
-        cur = 0
-        while loaded <= i:
-            cur += 1
-            loaded += blocks[cur]["numitems"]
-        
-        print(f"Fetching block {cur}, numitems={blocks[cur]['numitems']}")
-        dec = get_decompressed(blocks[cur]["seekpos"], blocks[cur]["block_size"], blocks[cur]["uncompressed_size"])
-        assert len(dec) == blocks[cur]["uncompressed_size"], "Decompressed size mismatch!"
-        return (loaded - blocks[cur]["numitems"], dec)
+# --- Field Mapping ---
+# Fixed fields are given as None; variable fields use the provided index.
+fields_mapping = OrderedDict([
+    ("RefID", None),
+    ("Pos", None),
+    ("LName", None),
+    ("Mapq", None),
+    ("Bin", None),
+    ("NCigar", None),
+    ("Flags", None),
+    ("SequenceLength", None),
+    ("NextRefID", None),
+    ("NextPos", None),
+    ("TemplateLength", None),
+    ("RawSeqLen", None),
+    ("RawTagsLen", None),
+    ("ReadName", "LName"),    # Use LName as the length indicator.
+    ("RawCigar", "NCigar"),   # Use NCigar as the length indicator.
+    ("RawSequence", "RawSeqLen"),
+    ("RawQual", "SequenceLength"),  # Use SequenceLength as the length indicator.
+    ("RawTags", "RawTagsLen")
+])
 
-records_num = sum(block["numitems"] for block in meta_json["field_to_meta"]["Flags"])
+# Create column objects.
+columns = {}
+for field, index_field in fields_mapping.items():
+    if index_field is None:
+        columns[field] = OptimizedFixedColumn(field)
+    else:
+        index_col = OptimizedFixedColumn(index_field)
+        columns[field] = OptimizedVarColumn(index_col, field)
+
+# Determine the total number of records (using the "Flags" field metadata).
+try:
+    flags_blocks = get_blocks_for_field("Flags")
+    records_num = sum(block["numitems"] for block in flags_blocks)
+except KeyError as e:
+    raise KeyError("The field 'Flags' is not present in metadata; cannot determine number of records.") from e
 print(f"Total number of records: {records_num}")
 
-columns = {}
-for key, value in fields_mapping.items():
-    if value is None:
-        columns[key] = FixedColumn(key)
-    else:
-        index = FixedColumn(value)
-        columns[key] = VarColumn(index, key)
-
-# Convert the SAM header from meta_json (assuming it's stored as a list of ints)
+# --- Rebuild the BAM header ---
 header_text = bytes(meta_json["sam_header"])
 L_text = len(header_text)
-
-# Get reference sequence info from the metadata.
-# meta_json["name_to_ref_id"] is assumed to be a list of [ref_name, ref_length] pairs.
 ref_seqs = meta_json["name_to_ref_id"]
 n_ref = len(ref_seqs)
 
-# Build the binary header.
 header_bin = bytearray()
 header_bin.extend(b"BAM\x01")
-header_bin.extend(struct.pack("<I", L_text))  # L_text: length of SAM header text
+header_bin.extend(struct.pack("<I", L_text))
 header_bin.extend(header_text)
-header_bin.extend(struct.pack("<I", n_ref))  # Number of reference sequences
+header_bin.extend(struct.pack("<I", n_ref))
 
 for ref in ref_seqs:
-    # ref[0] is the reference name; add a trailing null byte.
     ref_name = ref[0].encode("utf-8") + b'\0'
-    # The header requires the length of the reference name (including the null)
     header_bin.extend(struct.pack("<I", len(ref_name)))
     header_bin.extend(ref_name)
-    # Write the reference length as a 4-byte little-endian integer.
     header_bin.extend(struct.pack("<I", ref[1]))
 
-# Now write the header to the output BAM file.
+# --- Write the BAM file ---
 output_file_path = "/Users/hasitha/Documents/biology/gbam/output.bam"
-# with open(output_file_path, "wb") as bam_file:
-#     bam_file.write(header_bin)
-    
-#     # Write the rest of the records as before.
-#     for rec_i in range(0, records_num):
-#         arr = []
-#         arr.append(columns["RefID"].get_item(rec_i))
-#         arr.append(columns["Pos"].get_item(rec_i))
-#         arr.append(len(columns["ReadName"].get_item(rec_i)).to_bytes(1, "little"))
-#         arr.append(columns["Mapq"].get_item(rec_i))
-#         arr.append(columns["Bin"].get_item(rec_i))
-#         arr.append(struct.pack('<H', len(columns["RawCigar"].get_item(rec_i)) // 4))
-#         arr.append(columns["Flags"].get_item(rec_i))
-#         arr.append(struct.pack('<L', len(columns["RawQual"].get_item(rec_i))))
-#         arr.append(columns["NextRefID"].get_item(rec_i))
-#         arr.append(columns["NextPos"].get_item(rec_i))
-#         arr.append(columns["TemplateLength"].get_item(rec_i))
-#         arr.append(columns["ReadName"].get_item(rec_i))
-#         arr.append(columns["RawCigar"].get_item(rec_i))
-#         arr.append(columns["RawSequence"].get_item(rec_i))
-#         arr.append(columns["RawQual"].get_item(rec_i))
-#         # arr.append(columns["RawTags"].get_item(rec_i))
-        
-#         total_len = sum(len(a) for a in arr)
-#         arr.insert(0, struct.pack('<L', total_len))
-        
-#         for a in arr:
-#             bam_file.write(a)
-            
-#         if rec_i == 100:
-#             break
-#     bgzf_eof = bytes.fromhex("1f8b08040000000000ff0600424302001b0003000000000000")
-#     bam_file.write(bgzf_eof)
 with pysam.BGZFile(output_file_path, "wb") as bam_file:
     bam_file.write(bytes(header_bin))
-    for rec_i in range(0, records_num):
+    for rec_i in range(records_num):
         arr = []
+        # Fixed fields.
         arr.append(columns["RefID"].get_item(rec_i))
         arr.append(columns["Pos"].get_item(rec_i))
-        arr.append(len(columns["ReadName"].get_item(rec_i)).to_bytes(1, "little"))
+        read_name = columns["ReadName"].get_item(rec_i)
+        arr.append(len(read_name).to_bytes(1, "little"))
         arr.append(columns["Mapq"].get_item(rec_i))
         arr.append(columns["Bin"].get_item(rec_i))
-        arr.append(struct.pack('<H', len(columns["RawCigar"].get_item(rec_i)) // 4))
+        raw_cigar = columns["RawCigar"].get_item(rec_i)
+        arr.append(struct.pack('<H', len(raw_cigar) // 4))
         arr.append(columns["Flags"].get_item(rec_i))
-        arr.append(struct.pack('<L', len(columns["RawQual"].get_item(rec_i))))
+        # Use the fixed "SequenceLength" field as l_seq.
+        seq_len_bytes = columns["SequenceLength"].get_item(rec_i)
+        seq_len = struct.unpack("<I", seq_len_bytes)[0]
+        arr.append(struct.pack("<I", seq_len))
         arr.append(columns["NextRefID"].get_item(rec_i))
         arr.append(columns["NextPos"].get_item(rec_i))
         arr.append(columns["TemplateLength"].get_item(rec_i))
-        arr.append(columns["ReadName"].get_item(rec_i))
-        arr.append(columns["RawCigar"].get_item(rec_i))
-        arr.append(columns["RawSequence"].get_item(rec_i))
-        arr.append(columns["RawQual"].get_item(rec_i))
-        # If you have aux data in RawTags, append it here.
-        total_len = sum(len(a) for a in arr)
-        arr.insert(0, struct.pack('<L', total_len))
-        for a in arr:
-            bam_file.write(a)
-            
-        if rec_i == 100:
-            break
+        # Variable fields.
+        arr.append(read_name)
+        arr.append(raw_cigar)
+        raw_sequence = columns["RawSequence"].get_item(rec_i)
+        arr.append(raw_sequence)
+        raw_qual = columns["RawQual"].get_item(rec_i)
+        # (Optional: check that raw_qual length matches seq_len)
+        if len(raw_qual) != seq_len:
+            print(f"Warning: record {rec_i} quality length {len(raw_qual)} != seq_len {seq_len}")
+        arr.append(raw_qual)
+        total_len = sum(len(piece) for piece in arr)
+        bam_file.write(struct.pack('<I', total_len))
+        for piece in arr:
+            bam_file.write(piece)
+        if rec_i % 100000 == 0:
+            print(f"Processed record {rec_i}")
+
 print(f"BAM file successfully created: {output_file_path}")
