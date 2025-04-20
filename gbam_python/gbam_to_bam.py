@@ -4,7 +4,9 @@ import mmap
 import bisect
 import lz4.block
 import pysam
+import zstandard as zstd
 from collections import OrderedDict
+zstd_dctx = zstd.ZstdDecompressor()
 
 # Hardcoded sizes for fixed fields (fallback if item_size is not in metadata)
 FIXED_FIELD_SIZES = {
@@ -24,7 +26,7 @@ FIXED_FIELD_SIZES = {
 }
 
 # Open and memory-map the input GBAM file.
-gbam_path = "/Users/hasitha/Documents/biology/gbam/gbam_python/output.gbam"
+gbam_path = "/Users/hasitha/Documents/biology/gbam/output.gbam"
 f = open(gbam_path, "rb")
 mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
 
@@ -103,7 +105,8 @@ class OptimizedFixedColumn:
             if block["block_size"] == block["uncompressed_size"]:
                 data = comp_buf
             else:
-                data = lz4.block.decompress(comp_buf, uncompressed_size=block["uncompressed_size"])
+                # data = lz4.block.decompress(comp_buf, uncompressed_size=block["uncompressed_size"])
+                data = zstd_dctx.decompress(comp_buf)
             self.decompressed[block_idx] = data
         return self.decompressed[block_idx]
 
@@ -137,7 +140,8 @@ class OptimizedVarColumn:
             if block["block_size"] == block["uncompressed_size"]:
                 data = comp_buf
             else:
-                data = lz4.block.decompress(comp_buf, uncompressed_size=block["uncompressed_size"])
+                # data = lz4.block.decompress(comp_buf, uncompressed_size=block["uncompressed_size"])
+                data = zstd_dctx.decompress(comp_buf)
             self.decompressed[block_idx] = data
         return self.decompressed[block_idx]
 

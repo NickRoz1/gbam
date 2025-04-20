@@ -2,6 +2,7 @@ import json
 import struct
 import lz4.block
 import pysam
+import zstandard as zstd
 from collections import OrderedDict
 
 # --- Configuration ---
@@ -40,8 +41,12 @@ def flush_column(field, out_f):
     if not buf:
         return
     uncompressed_data = bytes(buf)
-    # (If desired, you may choose to skip compression if block size equals uncompressed size.)
-    compressed_data = lz4.block.compress(uncompressed_data, store_size=False) if len(uncompressed_data) > 0 else uncompressed_data
+    # (If desired,  may choose to skip compression if block size equals uncompressed size.)
+    if len(uncompressed_data) > 0:
+        print("COMPRESSED")
+    # compressed_data = lz4.block.compress(uncompressed_data, store_size=False) if len(uncompressed_data) > 0 else uncompressed_data
+    cctx = zstd.ZstdCompressor(level=3)  # level 1–22
+    compressed_data = cctx.compress(uncompressed_data) if len(uncompressed_data) > 0 else uncompressed_data
     seekpos = out_f.tell()
     out_f.write(compressed_data)
     meta = {
@@ -49,14 +54,14 @@ def flush_column(field, out_f):
         "numitems": record_count,  # total records written so far (for this column)
         "block_size": len(compressed_data),
         "uncompressed_size": len(uncompressed_data),
-        "stats": None  # you can add statistics if needed
+        "stats": None  #  can add statistics if needed
     }
     field_meta[field].append(meta)
     # Clear the column buffer for new data.
     columns[field].clear()
 
 # --- Open the BAM file for reading ---
-bam_file = pysam.AlignmentFile("little.bam", "rb")
+bam_file = pysam.AlignmentFile("/Users/hasitha/Documents/biology/gbam/output_zstd_decoded.bam", "rb")
 
 # Extract SAM header (as bytes) and reference sequences.
 sam_header_bytes = bam_file.text.encode('utf-8')
@@ -128,7 +133,7 @@ for rec in bam_file.fetch(until_eof=True):
     columns["RawQual"].extend(qual)
 
     # RawTags: here we simply serialize the tags as JSON (for illustration).
-    # In a production version you would pack the binary representation exactly.
+    # In a production version  would pack the binary representation exactly.
     tags_json = json.dumps(rec.get_tags())
     tags_bytes = tags_json.encode('utf-8')
     columns["RawTags"].extend(tags_bytes)
@@ -167,7 +172,7 @@ with open("output.gbam", "wb") as out_f:
         "magic": "GBAM",
         "gbam_version": [1, 0],
         "seekpos": meta_seekpos,
-        "crc32": 0,  # you could compute CRC32 over meta_json if desired
+        "crc32": 0,  #  could compute CRC32 over meta_json if desired
         "is_sorted": True,
         "creation_command": "python bam_to_gbam.py"
     }
