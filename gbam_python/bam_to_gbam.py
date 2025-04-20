@@ -78,7 +78,7 @@ for rec in bam_file.fetch(until_eof=True):
     mapq = struct.pack('<B', rec.mapping_quality)
     bin_val = struct.pack('<H', rec.bin)
     # Number of CIGAR operations as unsigned short.
-    ncigar = struct.pack('<H', len(rec.cigar) if rec.cigar else 0)
+    ncigar = struct.pack('<H', len(rec.cigar) * 4 if rec.cigar else 0)
     flags = struct.pack('<H', rec.flag)
     seq_len = struct.pack('<I', rec.query_length)
     next_refid = struct.pack('<i', rec.next_reference_id)
