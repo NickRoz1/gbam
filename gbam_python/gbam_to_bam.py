@@ -27,6 +27,7 @@ FIXED_FIELD_SIZES = {
 
 # Open and memory-map the input GBAM file.
 gbam_path = "/Users/hasitha/Documents/biology/gbam/output.gbam"
+# gbam_path = "/Users/hasitha/Documents/biology/gbam/gbam_python/test_data/zstd_compressed.gbam"
 f = open(gbam_path, "rb")
 mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
 
@@ -79,6 +80,25 @@ def get_blocks_for_field(field):
         return meta
     else:
         raise TypeError(f"Unexpected type for metadata of field '{field}': {type(meta)}")
+
+def encode_bam_tags(tag_list):
+    import struct
+    encoded = bytearray()
+    for tag, value in tag_list:
+        encoded.extend(tag.encode("utf-8"))
+        if isinstance(value, int):
+            encoded.extend(b'i')
+            encoded.extend(struct.pack("<i", value))
+        elif isinstance(value, float):
+            encoded.extend(b'f')
+            encoded.extend(struct.pack("<f", value))
+        elif isinstance(value, str):
+            encoded.extend(b'Z')
+            encoded.extend(value.encode("utf-8") + b'\x00')
+        else:
+            raise TypeError(f"Unsupported tag value type: {tag} -> {type(value)}")
+    return bytes(encoded)
+
 
 # --- Optimized Column Classes ---
 
@@ -232,7 +252,7 @@ with pysam.BGZFile(output_file_path, "wb") as bam_file:
     bam_file.write(bytes(header_bin))
     for rec_i in range(records_num):
         arr = []
-        # Fixed fields.
+        # Fixed fields. LName NCigar RawSeqLen RawTagsLen
         arr.append(columns["RefID"].get_item(rec_i))
         arr.append(columns["Pos"].get_item(rec_i))
         read_name = columns["ReadName"].get_item(rec_i)
@@ -259,6 +279,16 @@ with pysam.BGZFile(output_file_path, "wb") as bam_file:
         if len(raw_qual) != seq_len:
             print(f"Warning: record {rec_i} quality length {len(raw_qual)} != seq_len {seq_len}")
         arr.append(raw_qual)
+        
+        raw_tags_json = columns["RawTags"].get_item(rec_i)
+        try:
+            tag_list = json.loads(raw_tags_json.decode("utf-8"))
+            tag_bytes = encode_bam_tags(tag_list)
+            arr.append(tag_bytes)
+        except Exception as e:
+            print(f"Warning: Failed to decode tags for record {rec_i}: {e}")
+            arr.append(b'')  # Add empty tag section on error
+
         total_len = sum(len(piece) for piece in arr)
         bam_file.write(struct.pack('<I', total_len))
         for piece in arr:

@@ -61,7 +61,7 @@ def flush_column(field, out_f):
     columns[field].clear()
 
 # --- Open the BAM file for reading ---
-bam_file = pysam.AlignmentFile("/Users/hasitha/Documents/biology/gbam/output_zstd_decoded.bam", "rb")
+bam_file = pysam.AlignmentFile("/Users/hasitha/Documents/biology/gbam/test_data/little.bam", "rb")
 
 # Extract SAM header (as bytes) and reference sequences.
 sam_header_bytes = bam_file.text.encode('utf-8')
