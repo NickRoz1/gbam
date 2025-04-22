@@ -1,3 +1,4 @@
+import argparse
 import json
 import struct
 import mmap
@@ -26,8 +27,16 @@ FIXED_FIELD_SIZES = {
     "RawTagsLen": 4,
 }
 
+parser = argparse.ArgumentParser(description="Convert BAM to GBAM with column-wise compression.")
+parser.add_argument("-i", "--input", required=True, help="Input BAM file path")
+parser.add_argument("-o", "--output", required=True, help="Output GBAM file path")
+args = parser.parse_args()
+
+gbam_path = args.input
+bam_input_path = args.output
+
 # Open and memory-map the input GBAM file.
-gbam_path = "/Users/hasitha/Documents/biology/gbam/brotli_compressed.gbam"
+# gbam_path = "/Users/hasitha/Documents/biology/gbam/combined_compressed.gbam"
 # gbam_path = "/Users/hasitha/Documents/biology/gbam/gbam_python/test_data/zstd_compressed.gbam"
 f = open(gbam_path, "rb")
 mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
@@ -128,7 +137,17 @@ class OptimizedFixedColumn:
             else:
                 # data = lz4.block.decompress(comp_buf, uncompressed_size=block["uncompressed_size"])
                 # data = zstd_dctx.decompress(comp_buf)
-                data = brotli.decompress(comp_buf)
+                # data = brotli.decompress(comp_buf)
+                codec = block.get("codec", "lz4")
+                if codec == "lz4":
+                    data = lz4.block.decompress(comp_buf, uncompressed_size=block["uncompressed_size"])
+                elif codec == "zstd":
+                    zstd_dctx = zstd.ZstdDecompressor()
+                    data = zstd_dctx.decompress(comp_buf)
+                elif codec == "brotli":
+                    data = brotli.decompress(comp_buf)
+                else:
+                    raise ValueError(f"Unsupported codec '{codec}' in block metadata for field '{self.field}'")
             self.decompressed[block_idx] = data
         return self.decompressed[block_idx]
 
@@ -164,7 +183,17 @@ class OptimizedVarColumn:
             else:
                 # data = lz4.block.decompress(comp_buf, uncompressed_size=block["uncompressed_size"])
                 # data = zstd_dctx.decompress(comp_buf)
-                data = brotli.decompress(comp_buf)
+                # data = brotli.decompress(comp_buf)
+                codec = block.get("codec", "lz4")
+                if codec == "lz4":
+                    data = lz4.block.decompress(comp_buf, uncompressed_size=block["uncompressed_size"])
+                elif codec == "zstd":
+                    zstd_dctx = zstd.ZstdDecompressor()
+                    data = zstd_dctx.decompress(comp_buf)
+                elif codec == "brotli":
+                    data = brotli.decompress(comp_buf)
+                else:
+                    raise ValueError(f"Unsupported codec '{codec}' in block metadata for field '{self.field}'")
             self.decompressed[block_idx] = data
         return self.decompressed[block_idx]
 
@@ -250,8 +279,8 @@ for ref in ref_seqs:
     header_bin.extend(struct.pack("<I", ref[1]))
 
 # --- Write the BAM file ---
-output_file_path = "/Users/hasitha/Documents/biology/gbam/reconverted_brotli_compressed.bam"
-with pysam.BGZFile(output_file_path, "wb") as bam_file:
+# output_file_path = "/Users/hasitha/Documents/biology/gbam/reconverted_combined_compressed.bam"
+with pysam.BGZFile(bam_input_path, "wb") as bam_file:
     bam_file.write(bytes(header_bin))
     for rec_i in range(records_num):
         arr = []
@@ -299,4 +328,4 @@ with pysam.BGZFile(output_file_path, "wb") as bam_file:
         if rec_i % 100000 == 0:
             print(f"Processed record {rec_i}")
 
-print(f"BAM file successfully created: {output_file_path}")
+print(f"BAM file successfully created: {bam_input_path}")

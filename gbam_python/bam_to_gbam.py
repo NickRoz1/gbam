@@ -1,3 +1,4 @@
+import argparse
 import json
 import struct
 import lz4.block
@@ -5,6 +6,33 @@ import pysam
 import zstandard as zstd
 import brotli
 from collections import OrderedDict
+
+# Compression codec options
+COMPRESSION_LZ4 = "lz4"
+COMPRESSION_ZSTD = "zstd"
+COMPRESSION_BROTLI = "brotli"
+
+# Choose compression type per column
+column_compression = {
+    "RefID": COMPRESSION_LZ4,
+    "Pos": COMPRESSION_LZ4,
+    "LName": COMPRESSION_LZ4,
+    "Mapq": COMPRESSION_LZ4,
+    "Bin": COMPRESSION_LZ4,
+    "NCigar": COMPRESSION_LZ4,
+    "Flags": COMPRESSION_LZ4,
+    "SequenceLength": COMPRESSION_LZ4,
+    "NextRefID": COMPRESSION_LZ4,
+    "NextPos": COMPRESSION_LZ4,
+    "TemplateLength": COMPRESSION_LZ4,
+    "RawSeqLen": COMPRESSION_ZSTD,
+    "RawTagsLen": COMPRESSION_ZSTD,
+    "ReadName": COMPRESSION_BROTLI,
+    "RawCigar": COMPRESSION_BROTLI,
+    "RawSequence": COMPRESSION_ZSTD,
+    "RawQual": COMPRESSION_ZSTD,
+    "RawTags": COMPRESSION_BROTLI
+}
 
 # --- Configuration ---
 BLOCK_SIZE_LIMIT = 1024 * 1024  # example block size; adjust as needed
@@ -36,6 +64,14 @@ columns = {field: bytearray() for field in fields_mapping}
 # For each field, we will also record a list of block metadata.
 field_meta = {field: [] for field in fields_mapping}
 
+parser = argparse.ArgumentParser(description="Convert BAM to GBAM with column-wise compression.")
+parser.add_argument("-i", "--input", required=True, help="Input BAM file path")
+parser.add_argument("-o", "--output", required=True, help="Output GBAM file path")
+args = parser.parse_args()
+
+bam_input_path = args.input
+gbam_output_path = args.output
+
 # --- Helper: flush a column buffer if it exceeds a limit ---
 def flush_column(field, out_f):
     buf = columns[field]
@@ -48,7 +84,20 @@ def flush_column(field, out_f):
     # compressed_data = lz4.block.compress(uncompressed_data, store_size=False) if len(uncompressed_data) > 0 else uncompressed_data
     # cctx = zstd.ZstdCompressor(level=3)  # level 1–22
     # compressed_data = cctx.compress(uncompressed_data) if len(uncompressed_data) > 0 else uncompressed_data
-    compressed_data = brotli.compress(uncompressed_data, quality=5)
+    # compressed_data = brotli.compress(uncompressed_data, quality=5)
+    
+    codec = column_compression.get(field, COMPRESSION_LZ4)
+
+    if codec == COMPRESSION_LZ4:
+        compressed_data = lz4.block.compress(uncompressed_data, store_size=False)
+    elif codec == COMPRESSION_ZSTD:
+        cctx = zstd.ZstdCompressor(level=3)
+        compressed_data = cctx.compress(uncompressed_data)
+    elif codec == COMPRESSION_BROTLI:
+        compressed_data = brotli.compress(uncompressed_data, quality=5)
+    else:
+        raise ValueError(f"Unknown compression codec: {codec} for field: {field}")
+
     seekpos = out_f.tell()
     out_f.write(compressed_data)
     meta = {
@@ -56,6 +105,7 @@ def flush_column(field, out_f):
         "numitems": record_count,  # total records written so far (for this column)
         "block_size": len(compressed_data),
         "uncompressed_size": len(uncompressed_data),
+        "codec": codec,
         "stats": None  #  can add statistics if needed
     }
     field_meta[field].append(meta)
@@ -63,7 +113,7 @@ def flush_column(field, out_f):
     columns[field].clear()
 
 # --- Open the BAM file for reading ---
-bam_file = pysam.AlignmentFile("/Users/hasitha/Documents/biology/gbam/test_data/little.bam", "rb")
+bam_file = pysam.AlignmentFile(bam_input_path, "rb")
 
 # Extract SAM header (as bytes) and reference sequences.
 sam_header_bytes = bam_file.text.encode('utf-8')
@@ -148,7 +198,7 @@ for rec in bam_file.fetch(until_eof=True):
             pass  # We delay flushing until writing out the file.
 
 # --- Write out the GBAM file ---
-with open("brotli_compressed.gbam", "wb") as out_f:
+with open(gbam_output_path, "wb") as out_f:
     # Reserve first 1000 bytes for file info header.
     header_placeholder = b'\x00' * 1000
     out_f.write(header_placeholder)
@@ -183,4 +233,4 @@ with open("brotli_compressed.gbam", "wb") as out_f:
     out_f.seek(0)
     out_f.write(header)
 
-print("GBAM file successfully created: output.gbam")
+print("GBAM file successfully created: {gbam_output_path}")
