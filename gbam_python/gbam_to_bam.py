@@ -5,6 +5,7 @@ import bisect
 import lz4.block
 import pysam
 import zstandard as zstd
+import brotli
 from collections import OrderedDict
 zstd_dctx = zstd.ZstdDecompressor()
 
@@ -26,7 +27,7 @@ FIXED_FIELD_SIZES = {
 }
 
 # Open and memory-map the input GBAM file.
-gbam_path = "/Users/hasitha/Documents/biology/gbam/output.gbam"
+gbam_path = "/Users/hasitha/Documents/biology/gbam/brotli_compressed.gbam"
 # gbam_path = "/Users/hasitha/Documents/biology/gbam/gbam_python/test_data/zstd_compressed.gbam"
 f = open(gbam_path, "rb")
 mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
@@ -126,7 +127,8 @@ class OptimizedFixedColumn:
                 data = comp_buf
             else:
                 # data = lz4.block.decompress(comp_buf, uncompressed_size=block["uncompressed_size"])
-                data = zstd_dctx.decompress(comp_buf)
+                # data = zstd_dctx.decompress(comp_buf)
+                data = brotli.decompress(comp_buf)
             self.decompressed[block_idx] = data
         return self.decompressed[block_idx]
 
@@ -161,7 +163,8 @@ class OptimizedVarColumn:
                 data = comp_buf
             else:
                 # data = lz4.block.decompress(comp_buf, uncompressed_size=block["uncompressed_size"])
-                data = zstd_dctx.decompress(comp_buf)
+                # data = zstd_dctx.decompress(comp_buf)
+                data = brotli.decompress(comp_buf)
             self.decompressed[block_idx] = data
         return self.decompressed[block_idx]
 
@@ -247,7 +250,7 @@ for ref in ref_seqs:
     header_bin.extend(struct.pack("<I", ref[1]))
 
 # --- Write the BAM file ---
-output_file_path = "/Users/hasitha/Documents/biology/gbam/output.bam"
+output_file_path = "/Users/hasitha/Documents/biology/gbam/reconverted_brotli_compressed.bam"
 with pysam.BGZFile(output_file_path, "wb") as bam_file:
     bam_file.write(bytes(header_bin))
     for rec_i in range(records_num):

@@ -3,6 +3,7 @@ import struct
 import lz4.block
 import pysam
 import zstandard as zstd
+import brotli
 from collections import OrderedDict
 
 # --- Configuration ---
@@ -45,8 +46,9 @@ def flush_column(field, out_f):
     if len(uncompressed_data) > 0:
         print("COMPRESSED")
     # compressed_data = lz4.block.compress(uncompressed_data, store_size=False) if len(uncompressed_data) > 0 else uncompressed_data
-    cctx = zstd.ZstdCompressor(level=3)  # level 1–22
-    compressed_data = cctx.compress(uncompressed_data) if len(uncompressed_data) > 0 else uncompressed_data
+    # cctx = zstd.ZstdCompressor(level=3)  # level 1–22
+    # compressed_data = cctx.compress(uncompressed_data) if len(uncompressed_data) > 0 else uncompressed_data
+    compressed_data = brotli.compress(uncompressed_data, quality=5)
     seekpos = out_f.tell()
     out_f.write(compressed_data)
     meta = {
@@ -146,7 +148,7 @@ for rec in bam_file.fetch(until_eof=True):
             pass  # We delay flushing until writing out the file.
 
 # --- Write out the GBAM file ---
-with open("output.gbam", "wb") as out_f:
+with open("brotli_compressed.gbam", "wb") as out_f:
     # Reserve first 1000 bytes for file info header.
     header_placeholder = b'\x00' * 1000
     out_f.write(header_placeholder)
