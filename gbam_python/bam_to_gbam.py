@@ -6,32 +6,34 @@ import pysam
 import zstandard as zstd
 import brotli
 from collections import OrderedDict
+from enum import Enum
 
 # Compression codec options
-COMPRESSION_LZ4 = "lz4"
-COMPRESSION_ZSTD = "zstd"
-COMPRESSION_BROTLI = "brotli"
+class CompressionCodec(str, Enum):
+    LZ4 = "lz4"
+    ZSTD = "zstd"
+    BROTLI = "brotli"
 
 # Choose compression type per column
 column_compression = {
-    "RefID": COMPRESSION_LZ4,
-    "Pos": COMPRESSION_LZ4,
-    "LName": COMPRESSION_LZ4,
-    "Mapq": COMPRESSION_LZ4,
-    "Bin": COMPRESSION_LZ4,
-    "NCigar": COMPRESSION_LZ4,
-    "Flags": COMPRESSION_LZ4,
-    "SequenceLength": COMPRESSION_LZ4,
-    "NextRefID": COMPRESSION_LZ4,
-    "NextPos": COMPRESSION_LZ4,
-    "TemplateLength": COMPRESSION_LZ4,
-    "RawSeqLen": COMPRESSION_ZSTD,
-    "RawTagsLen": COMPRESSION_ZSTD,
-    "ReadName": COMPRESSION_BROTLI,
-    "RawCigar": COMPRESSION_BROTLI,
-    "RawSequence": COMPRESSION_ZSTD,
-    "RawQual": COMPRESSION_ZSTD,
-    "RawTags": COMPRESSION_BROTLI
+    "RefID": CompressionCodec.LZ4,
+    "Pos": CompressionCodec.LZ4,
+    "LName": CompressionCodec.LZ4,
+    "Mapq": CompressionCodec.LZ4,
+    "Bin": CompressionCodec.LZ4,
+    "NCigar": CompressionCodec.LZ4,
+    "Flags": CompressionCodec.LZ4,
+    "SequenceLength": CompressionCodec.LZ4,
+    "NextRefID": CompressionCodec.LZ4,
+    "NextPos": CompressionCodec.ZSTD,
+    "TemplateLength": CompressionCodec.ZSTD,
+    "RawSeqLen": CompressionCodec.ZSTD,
+    "RawTagsLen": CompressionCodec.ZSTD,
+    "ReadName": CompressionCodec.BROTLI,
+    "RawCigar": CompressionCodec.ZSTD,
+    "RawSequence": CompressionCodec.ZSTD,
+    "RawQual": CompressionCodec.ZSTD,
+    "RawTags": CompressionCodec.BROTLI,
 }
 
 # --- Configuration ---
@@ -67,7 +69,17 @@ field_meta = {field: [] for field in fields_mapping}
 parser = argparse.ArgumentParser(description="Convert BAM to GBAM with column-wise compression.")
 parser.add_argument("-i", "--input", required=True, help="Input BAM file path")
 parser.add_argument("-o", "--output", required=True, help="Output GBAM file path")
+parser.add_argument("--compression-config", help="Path to JSON file with compression settings")
+
 args = parser.parse_args()
+
+# Optional: load compression config from JSON file
+if hasattr(args, "compression_config") and args.compression_config:
+    with open(args.compression_config) as f:
+        raw_map = json.load(f)
+        column_compression = {
+            k: CompressionCodec(raw_map[k]) for k in raw_map
+        }
 
 bam_input_path = args.input
 gbam_output_path = args.output
@@ -86,14 +98,15 @@ def flush_column(field, out_f):
     # compressed_data = cctx.compress(uncompressed_data) if len(uncompressed_data) > 0 else uncompressed_data
     # compressed_data = brotli.compress(uncompressed_data, quality=5)
     
-    codec = column_compression.get(field, COMPRESSION_LZ4)
+    codec = column_compression.get(field, CompressionCodec.LZ4)
+    print(codec)
 
-    if codec == COMPRESSION_LZ4:
+    if codec == CompressionCodec.LZ4:
         compressed_data = lz4.block.compress(uncompressed_data, store_size=False)
-    elif codec == COMPRESSION_ZSTD:
+    elif codec == CompressionCodec.ZSTD:
         cctx = zstd.ZstdCompressor(level=3)
         compressed_data = cctx.compress(uncompressed_data)
-    elif codec == COMPRESSION_BROTLI:
+    elif codec == CompressionCodec.BROTLI:
         compressed_data = brotli.compress(uncompressed_data, quality=5)
     else:
         raise ValueError(f"Unknown compression codec: {codec} for field: {field}")
