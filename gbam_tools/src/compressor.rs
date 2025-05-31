@@ -1,3 +1,4 @@
+use bam_tools::record::fields::Fields;
 use crate::SIZE_LIMIT;
 use flume::{Receiver, Sender};
 use rayon::ThreadPool;
@@ -80,7 +81,27 @@ impl Compressor {
             rayon::spawn(move || {
                 let mut buf = buf_queue_rx.recv().unwrap();
                 buf.clear();
-                let compr_data = compress(&data[..block_info.uncompr_size], buf, codec);
+                // Before compressing, we may encode RawSequence using 2-bit encoding.
+                // Ref: https://www.biorxiv.org/content/10.1101/2025.04.08.647863v1
+                let slice = &data[..block_info.uncompr_size];
+                let encoded_bytes: &[u8] = if block_info.field == Fields::RawSequence {
+                    match encode_sequence_2bit(slice, true, b'A') {
+                        Some(words) => {
+                            // Flatten u64 vector into &[u8]
+                            buf.extend(words.iter().flat_map(|w| w.to_le_bytes()));
+                            &buf
+                        }
+                        None => {
+                            eprintln!("Invalid base found in RawSequence block.");
+                            return;
+                        }
+                    }
+                } else {
+                    slice
+                };
+
+                let compr_data = compress(&encoded_bytes.to_vec(), buf, codec);
+                // let compr_data = compress(&data[..block_info.uncompr_size], buf, codec);
                 buf_queue_tx.send(data).unwrap();
 
                 compressed_tx
@@ -142,4 +163,50 @@ pub fn compress(source: &[u8], mut dest: Vec<u8>, codec: Codecs) -> Vec<u8> {
         }
     };
     compressed_bytes.unwrap()
+}
+
+/// Encode a DNA sequence (ACGT) into a vector of u64 words (2 bits per base).
+/// Each u64 word contains up to 32 nucleotides.
+/// Returns `None` if invalid characters are found and `allow_invalid` is false.
+fn encode_sequence_2bit(seq: &[u8], allow_invalid: bool, replacement: u8) -> Option<Vec<u64>> {
+    let mut result = Vec::new();
+    let mut word: u64 = 0;
+    let mut bits_filled = 0;
+
+    // 2-bit mapping: A=00, C=01, G=10, T=11
+    fn base_to_bits(base: u8) -> Option<u64> {
+        match base {
+            b'A' => Some(0b00),
+            b'C' => Some(0b01),
+            b'G' => Some(0b10),
+            b'T' => Some(0b11),
+            _ => None,
+        }
+    }
+
+    for &base in seq {
+        let valid_base = base_to_bits(base).or_else(|| {
+            if allow_invalid {
+                base_to_bits(replacement)
+            } else {
+                None
+            }
+        })?;
+
+        word = (word << 2) | valid_base;
+        bits_filled += 2;
+
+        if bits_filled == 64 {
+            result.push(word);
+            word = 0;
+            bits_filled = 0;
+        }
+    }
+
+    if bits_filled > 0 {
+        word <<= 64 - bits_filled;
+        result.push(word);
+    }
+
+    Some(result)
 }
