@@ -5,6 +5,9 @@ import lz4.block
 import pysam
 import zstandard as zstd
 import brotli
+import shutil
+import sys
+import os
 from collections import OrderedDict
 from enum import Enum
 
@@ -16,23 +19,23 @@ class CompressionCodec(str, Enum):
 
 # Choose compression type per column
 column_compression = {
-    "RefID": CompressionCodec.LZ4,
-    "Pos": CompressionCodec.LZ4,
-    "LName": CompressionCodec.LZ4,
-    "Mapq": CompressionCodec.LZ4,
-    "Bin": CompressionCodec.LZ4,
-    "NCigar": CompressionCodec.LZ4,
-    "Flags": CompressionCodec.LZ4,
-    "SequenceLength": CompressionCodec.LZ4,
-    "NextRefID": CompressionCodec.LZ4,
-    "NextPos": CompressionCodec.ZSTD,
-    "TemplateLength": CompressionCodec.ZSTD,
-    "RawSeqLen": CompressionCodec.ZSTD,
-    "RawTagsLen": CompressionCodec.ZSTD,
+    "RefID": CompressionCodec.BROTLI,
+    "Pos": CompressionCodec.BROTLI,
+    "LName": CompressionCodec.BROTLI,
+    "Mapq": CompressionCodec.BROTLI,
+    "Bin": CompressionCodec.BROTLI,
+    "NCigar": CompressionCodec.BROTLI,
+    "Flags": CompressionCodec.BROTLI,
+    "SequenceLength": CompressionCodec.BROTLI,
+    "NextRefID": CompressionCodec.BROTLI,
+    "NextPos": CompressionCodec.BROTLI,
+    "TemplateLength": CompressionCodec.BROTLI,
+    "RawSeqLen": CompressionCodec.BROTLI,
+    "RawTagsLen": CompressionCodec.BROTLI,
     "ReadName": CompressionCodec.BROTLI,
-    "RawCigar": CompressionCodec.ZSTD,
-    "RawSequence": CompressionCodec.ZSTD,
-    "RawQual": CompressionCodec.ZSTD,
+    "RawCigar": CompressionCodec.BROTLI,
+    "RawSequence": CompressionCodec.BROTLI,
+    "RawQual": CompressionCodec.BROTLI,
     "RawTags": CompressionCodec.BROTLI,
 }
 
@@ -84,6 +87,8 @@ if hasattr(args, "compression_config") and args.compression_config:
 bam_input_path = args.input
 gbam_output_path = args.output
 
+gbam_dir = os.path.dirname(gbam_output_path) or "."
+
 # --- Helper: flush a column buffer if it exceeds a limit ---
 def flush_column(field, out_f):
     buf = columns[field]
@@ -107,10 +112,15 @@ def flush_column(field, out_f):
         cctx = zstd.ZstdCompressor(level=3)
         compressed_data = cctx.compress(uncompressed_data)
     elif codec == CompressionCodec.BROTLI:
-        compressed_data = brotli.compress(uncompressed_data, quality=5)
+        compressed_data = brotli.compress(uncompressed_data, quality=11)
     else:
         raise ValueError(f"Unknown compression codec: {codec} for field: {field}")
 
+    print(f"[DEBUG] Column '{field}' compressed size: {len(compressed_data)} bytes using {codec}")
+    total, used, free = shutil.disk_usage(gbam_dir)
+    if free < len(compressed_data) + 100 * 1024 * 1024:  # Require 100MB extra buffer
+        print(f"[ERROR] Not enough disk space to write column '{field}'. Needed: {len(compressed_data)} bytes, Available: {free} bytes")
+        sys.exit(1)
     seekpos = out_f.tell()
     out_f.write(compressed_data)
     meta = {
@@ -247,3 +257,9 @@ with open(gbam_output_path, "wb") as out_f:
     out_f.write(header)
 
 print("GBAM file successfully created: {gbam_output_path}")
+
+
+# Default brotli = -25%
+# Max Brotli = -40%
+# Default Cram = -40%
+# Max Cram = -43%

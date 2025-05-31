@@ -11,7 +11,7 @@ import os
 from collections import OrderedDict, Counter, namedtuple
 from enum import Enum
 from huffman_encoder import compress_rawqual_with_huffman
-from preprocess import preprocess_rawqual_for_brotli, preprocess_readnames_for_brotli, preprocess_readnames_for_tokenizer
+from preprocess import preprocess_rawqual_for_brotli, preprocess_readnames_for_brotli, preprocess_readnames_for_tokenizer, encode_sequence_2bit, preprocess_rawqual_fqz_style
 import heapq
 
 # Compression codec options
@@ -189,13 +189,13 @@ print(f"[INFO] Total records loaded: {len(all_records)}")
 
 # --- Sort records by reference_id and reference_start ---
 print("[INFO] Sorting records by reference_id and reference_start...")
-# all_records.sort(key=lambda r: (
-#     r.reference_id,
-#     r.mapping_quality,
-#     r.flag,
-#     r.reference_start,
-#     r.query_name
-# ))
+all_records.sort(key=lambda r: (
+    r.reference_id,
+    r.mapping_quality,
+    r.flag,
+    r.reference_start,
+    r.query_name
+))
 
 record_count = 0
 
@@ -248,6 +248,13 @@ for rec in all_records:
         i += 2
     columns["RawSequence"].extend(raw_seq)
     columns["RawSeqLen"].extend(struct.pack('<I', len(raw_seq)))
+    
+    # The implementation of BINSEQ.
+    # Reference: https://www.biorxiv.org/content/10.1101/2025.04.08.647863v1
+    # seq = rec.query_sequence
+    # encoded_seq = encode_sequence_2bit(seq)
+    # columns["RawSequence"].extend(encoded_seq)
+    # columns["RawSeqLen"].extend(struct.pack('<I', len(encoded_seq)))
 
     qual = bytes(rec.query_qualities) if rec.query_qualities else b'\xff' * rec.query_length
     columns["RawQual"].extend(qual)
@@ -257,7 +264,7 @@ for rec in all_records:
     columns["RawTags"].extend(tags_bytes)
     columns["RawTagsLen"].extend(struct.pack('<I', len(tags_bytes)))
 
-
+# Additional preproccessing.
 compressed_bytes, readname_vocab = preprocess_readnames_for_tokenizer(columns, all_records)
 columns["ReadName"] = bytearray(compressed_bytes)
 # --- Write out the GBAM file ---

@@ -186,3 +186,50 @@ def decompress_readnames_from_tokenizer(compressed_data: bytes, vocab: List[str]
         read_names.append(":".join(tokens))
 
     return read_names
+
+def encode_sequence_2bit(seq: str) -> bytes:
+    """Encode a nucleotide sequence into 2-bit packed bytes."""
+    base2bit = {
+        'A': 0b00,
+        'C': 0b01,
+        'G': 0b10,
+        'T': 0b11,
+    }
+    encoded = 0
+    bits_filled = 0
+    buffer = bytearray()
+
+    for base in seq.upper():
+        val = base2bit.get(base, 0b00)  # default to 'A' if unknown
+        encoded = (encoded << 2) | val
+        bits_filled += 2
+
+        if bits_filled == 8:
+            buffer.append(encoded)
+            encoded = 0
+            bits_filled = 0
+
+    if bits_filled > 0:
+        encoded <<= (8 - bits_filled)  # pad remaining bits
+        buffer.append(encoded)
+
+    return bytes(buffer)
+
+def preprocess_rawqual_fqz_style(raw_quals, read_lengths):
+    """
+    Emits (delta, pos_bin) as two separate bytes per base.
+    """
+    output = bytearray()
+    i = 0
+    for length in read_lengths:
+        prev = 0
+        for pos in range(length):
+            q = raw_quals[i]
+            delta = (q - prev) & 0xFF  # full byte delta
+            pos_bin = min(pos // 4, 255)  # safe cap
+            output.append(delta)
+            output.append(pos_bin)
+            prev = q
+            i += 1
+    return output
+

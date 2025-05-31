@@ -10,7 +10,7 @@ BAM_TO_GBAM_SCRIPT = "bam_to_gbam.py"
 GBAM_TO_BAM_SCRIPT = "gbam_to_bam.py"
 
 # Input/output files
-ORIGINAL_BAM = "test_data/original.bam"
+ORIGINAL_BAM = "/Users/hasitha/Documents/biology/gbam/gbam_python/test_data/HG001.bam"
 GBAM_OUTPUT = "test_data/output.gbam"
 RECONSTRUCTED_BAM = "test_data/reconstructed.bam"
 
@@ -26,11 +26,11 @@ test_cases = {
         "NextRefID", "NextPos", "TemplateLength", "RawSeqLen", "RawTagsLen",
         "ReadName", "RawCigar", "RawSequence", "RawQual", "RawTags"
     ]},
-    "all_brotli": {field: "brotli" for field in [
-        "RefID", "Pos", "LName", "Mapq", "Bin", "NCigar", "Flags", "SequenceLength",
-        "NextRefID", "NextPos", "TemplateLength", "RawSeqLen", "RawTagsLen",
-        "ReadName", "RawCigar", "RawSequence", "RawQual", "RawTags"
-    ]},
+    # "all_brotli": {field: "brotli" for field in [
+    #     "RefID", "Pos", "LName", "Mapq", "Bin", "NCigar", "Flags", "SequenceLength",
+    #     "NextRefID", "NextPos", "TemplateLength", "RawSeqLen", "RawTagsLen",
+    #     "ReadName", "RawCigar", "RawSequence", "RawQual", "RawTags"
+    # ]},
     "zstd_fixed_brotli_var": {
         field: "zstd" if index is None else "brotli"
         for field, index in [
