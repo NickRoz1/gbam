@@ -1,0 +1,4 @@
+pysam
+lz4
+zstandard
+brotli
