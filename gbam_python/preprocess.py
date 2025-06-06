@@ -94,7 +94,7 @@ def compress_vocab_brotli(vocab: List[str]) -> bytes:
     print(f"[INFO] Compressed vocab size: {len(compressed_vocab)} bytes from {len(vocab_json)} raw bytes")
     return compressed_vocab
 
-def preprocess_readnames_for_tokenizer(columns: dict, all_records: List) -> Tuple[bytes, List[str]]:
+def preprocess_readnames_for_tokenizer(columns: dict, input_read_names: List) -> Tuple[bytes, List[str]]:
     """
     Tokenizes and compresses read names using ':' as the sole separator.
     Uses binary serialization and Brotli compression.
@@ -138,13 +138,13 @@ def preprocess_readnames_for_tokenizer(columns: dict, all_records: List) -> Tupl
         return bytes(output)
 
     # Extract read names
-    read_names = [rec.query_name for rec in all_records]
-    tokens, vocab = tokenize_read_names(read_names)
+    # read_names = [rec.query_name for rec in all_records]
+    tokens, vocab = tokenize_read_names(input_read_names)
     indexed_tokens, pad_id = build_token_indices(tokens, vocab)
     binary_serialized = compress_tokenized_names_binary(indexed_tokens, pad_id)
     compressed_bytes = brotli.compress(binary_serialized, quality=11)
 
-    print(f"[INFO] Tokenizer + Brotli compressed ReadName column from {sum(len(name.encode()) for name in read_names)} to {len(compressed_bytes)} bytes.")
+    print(f"[INFO] Tokenizer + Brotli compressed ReadName column from {sum(len(name.encode()) for name in input_read_names)} to {len(compressed_bytes)} bytes.")
     print(f"[INFO] ReadName tokenizer vocab: {len(vocab)} tokens, {sum(len(t.encode()) for t in vocab)} bytes total")
 
     columns["ReadName"] = bytearray(compressed_bytes)

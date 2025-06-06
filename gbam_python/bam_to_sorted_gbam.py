@@ -199,6 +199,7 @@ all_records.sort(key=lambda r: (
 
 record_count = 0
 
+read_name_list = []
 # --- Process each record in sorted order ---
 for rec in all_records:
     record_count += 1
@@ -208,6 +209,7 @@ for rec in all_records:
     refid = struct.pack('<i', rec.reference_id)
     pos = struct.pack('<i', rec.reference_start)
     read_name = rec.query_name.encode('utf-8')
+    read_name_list.append(rec.query_name)
     lname = struct.pack('<B', len(read_name))
     mapq = struct.pack('<B', rec.mapping_quality)
     bin_val = struct.pack('<H', rec.bin)
@@ -265,7 +267,7 @@ for rec in all_records:
     columns["RawTagsLen"].extend(struct.pack('<I', len(tags_bytes)))
 
 # Additional preproccessing.
-compressed_bytes, readname_vocab = preprocess_readnames_for_tokenizer(columns, all_records)
+compressed_bytes, readname_vocab = preprocess_readnames_for_tokenizer(columns, read_name_list)
 columns["ReadName"] = bytearray(compressed_bytes)
 # --- Write out the GBAM file ---
 with open(gbam_output_path, "wb") as out_f:
