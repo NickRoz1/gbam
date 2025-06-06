@@ -1,0 +1,233 @@
+#include "defs.h"
+#include <json-c/json.h>
+#include <cstdio>
+
+#define ADJUSTED_OFFSET(COLUMNTYPE)
+    (rec_num-(reader->loaded_since_rec_num[COLUMNTYPE]))
+
+
+
+Reader* make_reader(FILE* fp){
+    if (!fp) {
+        fprintf(stderr, "File pointer is NULL\n");
+        return NULL;
+    }
+
+    uint8_t buffer[1000];
+    size_t bytes_read = fread(buffer, 1, sizeof(buffer) - 1, fp);
+    if (bytes_read < 0) {
+        perror("Failed to read from file");
+        return NULL;
+    }
+
+    struct json_object *root = json_tokener_parse(buffer);
+
+    int64_t seekpos = -1;
+    int64_t meta_size = -1;
+
+    struct json_object *seekpos_obj;
+    if (json_object_object_get_ex(root, "seekpos", &seekpos_obj)) {
+        seekpos = json_object_get_int64(seekpos_obj);
+        printf("seekpos = %lld\n", seekpos);
+    }
+    struct json_object *meta_size;
+    if (json_object_object_get_ex(root, "meta_size", &meta_size)) {
+        meta_size = json_object_get_int64(meta_size);
+        printf("meta_size = %lld\n", meta_size);
+    }
+
+    assert(seekpos >= 0);
+    assert(meta_size >= 0);
+
+    // Go get meta
+    if (fseek(fp, seekpos, SEEK_SET) != 0) {
+        perror("Failed to seek to position");
+        return NULL;
+    }
+
+    char* meta_buffer = (char*)malloc(meta_size + 1);
+    fread(meta_buffer, 1, meta_size, fp);
+
+    Reader* reader = (Reader*)malloc(sizeof(Reader));
+
+    parse_meta_from_json_string(meta_buffer, reader);
+    free(meta_buffer);
+    
+    long curr = ftell(fp);
+
+    if (fseek(fp, 0, SEEK_END) != 0) exit(EXIT_FAILURE);
+    long end = ftell(fp);
+
+    size_t size = end - curr;
+
+    // Restore original position
+    if (fseek(fp, curr, SEEK_SET) != 0) return NULL;
+
+    unsigned char *header_buffer = malloc(size);
+    if (!header_buffer) exit(1);
+
+    size_t read = fread(header_buffer, 1, size, fp);
+    if (read != size) {
+        exit(1);
+    }
+
+    reader->header = sam_hdr_parse(size, (const char*)header_buffer);
+    reader->fd = fileno(fp);
+    reader->rec_num = 0;
+    reader->columns = (Column*)calloc(COLUMNTYPE_SIZE, sizeof(Column));
+
+    for(int i = 0; i < COLUMNTYPE_SIZE; i++) {
+        ColumnChunkMeta *metas = reader->metadatas[i];
+        reader->record_counts_per_column_chunk[i] = (int64_t*)calloc(reader->metadatas_length[i], sizeof(int64_t));
+        int64_t accum = 0;
+        for (int j = 0; j < reader->metadatas_length[i]; j++)
+        {
+            accum += metas[j].rec_num;
+            reader->record_counts_per_column_chunk[i][j] = accum;
+        }
+    }
+
+    for(int i = 0; i < COLUMNTYPE_SIZE; i++) {
+        reader->currently_loaded_column_chunk[i] = -1;
+        reader->loaded_up_to_rec_num[i] = -1;
+        reader->loaded_since_rec_num[i] = -1;
+    }
+
+    return reader;
+}
+
+void fetch_field(Reader* reader, int64_t rec_num, int64_t COLUMNTYPE){
+    if(reader->loaded_up_to_rec_num[COLUMNTYPE] >= rec_num && 
+       reader->loaded_since_rec_num[COLUMNTYPE] <= rec_num) {
+        return;
+    }
+
+    int l = 0;
+    int r = reader->metadatas_length[COLUMNTYPE];
+    
+    while((r-l)>1){
+        int m = (l+r)/2;
+        if (rec_num <= reader->record_counts_per_column_chunk[COLUMNTYPE][m]) {
+            l = m;
+        } else {
+            r = m;
+        }
+    }
+    if(r != reader->currently_loaded_column_chunk[COLUMNTYPE]) {
+        if (reader->currently_loaded_column_chunk[COLUMNTYPE] >= 0) {
+            // Free the previous chunk if it was loaded
+            free(reader->columns[COLUMNTYPE].data);
+        }
+        reader->currently_loaded_column_chunk[COLUMNTYPE] = m;
+        ColumnChunkMeta *meta = reader->metadatas[COLUMNTYPE][m];
+        reader->columns[COLUMNTYPE].data = (uint8_t*)malloc(meta->uncompressed_size);
+        if (!reader->columns[COLUMNTYPE].data) {
+            fprintf(stderr, "Failed to allocate memory for column data\n");
+            return;
+        }
+        // Load the data from file
+        lseek(reader->fd, meta->file_offset, SEEK_SET);
+        read(reader->fd, reader->columns[COLUMNTYPE].data, meta->uncompressed_size);
+        if(r == 0){
+            reader->loaded_since_rec_num[COLUMNTYPE] = 0;
+        }
+        else{
+            reader->loaded_since_rec_num[COLUMNTYPE] = reader->record_counts_per_column_chunk[COLUMNTYPE][r-1];
+        }
+        reader->loaded_up_to_rec_num[COLUMNTYPE] = reader->record_counts_per_column_chunk[COLUMNTYPE][r]-1;
+    }
+    else{
+        // Impossible to reach here, but just in case.
+        exit(1);
+    }
+}
+
+void preload_chunks(Reader* reader, int64_t rec_num) {
+    for(int i = 0; i < COLUMNTYPE_SIZE; i++) {
+        fetch_field(reader, rec_num, i);
+    }
+}
+
+void read_record(Reader* reader, int64_t rec_num, bam1_t* aln) {
+    preload_chunks(reader, rec_num);
+
+    int32_t refID = read_int32_le(&reader->columns[COLUMNTYPE_refID].data[ADJUSTED_OFFSET(COLUMNTYPE_refID) * sizeof(int32_t)]);
+    int32_t pos = read_int32_le(&reader->columns[COLUMNTYPE_pos].data[ADJUSTED_OFFSET(COLUMNTYPE_pos) * sizeof(int32_t)]);
+    int8_t mapq = reader->columns[COLUMNTYPE_mapq].data[ADJUSTED_OFFSET(COLUMNTYPE_mapq)];
+    int16_t bin = read_int16_le(&reader->columns[COLUMNTYPE_bin].data[ADJUSTED_OFFSET(COLUMNTYPE_bin)] * sizeof(int16_t));
+    int16_t flag = read_int16_le(&reader->columns[COLUMNTYPE_flag].data[ADJUSTED_OFFSET(COLUMNTYPE_flag)] * sizeof(int16_t));
+    int32_t next_pos = read_int32_le(&reader->columns[COLUMNTYPE_next_pos].data[ADJUSTED_OFFSET(COLUMNTYPE_next_pos) * sizeof(int32_t)]);
+    int32_t next_refID = read_int32_le(&reader->columns[COLUMNTYPE_next_refID].data[ADJUSTED_OFFSET(COLUMNTYPE_next_refID)] * sizeof(int32_t));
+    int32_t tlen = read_int32_le(&reader->columns[COLUMNTYPE_tlen].data[ADJUSTED_OFFSET(COLUMNTYPE_tlen) * sizeof(int32_t)]);
+    
+    int64_t read_name_end = read_int32_le(&reader->columns[COLUMNTYPE_index_read_name].data[ADJUSTED_OFFSET(COLUMNTYPE_index_read_name) * sizeof(int32_t)]);
+    int64_t read_name_beg = 0;
+    if (rec_num != 0)
+    {
+        fetch_field(reader, rec_num - 1, COLUMNTYPE_index_read_name);
+        read_name_beg = read_int32_le(&reader->columns[COLUMNTYPE_index_read_name].data[(rec_num-1-(reader->loaded_since_rec_num[COLUMNTYPE_index_read_name]))
+ * sizeof(int32_t)]);
+    }
+    int64_t read_cigar_end = read_int32_le(&reader->columns[COLUMNTYPE_index_cigar].data[ADJUSTED_OFFSET(COLUMNTYPE_index_cigar) * sizeof(int32_t)]);
+    int64_t read_cigar_beg = 0;
+    if (rec_num != 0)
+    {
+        fetch_field(reader, rec_num - 1, COLUMNTYPE_index_cigar);
+        read_cigar_beg = read_int32_le(&reader->columns[COLUMNTYPE_index_cigar].data[(rec_num-1-(reader->loaded_since_rec_num[COLUMNTYPE_index_cigar]))
+ * sizeof(int32_t)]);
+    }
+    int64_t read_seq_end = read_int32_le(&reader->columns[COLUMNTYPE_index_seq].data[ADJUSTED_OFFSET(COLUMNTYPE_index_seq) * sizeof(int32_t)]);
+    int64_t read_seq_beg = 0;
+    if (rec_num != 0)
+    {
+        fetch_field(reader, rec_num - 1, COLUMNTYPE_index_seq);
+        read_seq_beg = read_int32_le(&reader->columns[COLUMNTYPE_index_seq].data[(rec_num-1-(reader->loaded_since_rec_num[COLUMNTYPE_index_seq]))
+ * sizeof(int32_t)]);
+    }
+    int64_t read_qual_end = read_int32_le(&reader->columns[COLUMNTYPE_index_qual].data[ADJUSTED_OFFSET(COLUMNTYPE_index_qual) * sizeof(int32_t)]);
+    int64_t read_qual_beg = 0;
+    if (rec_num != 0)
+    {
+        fetch_field(reader, rec_num - 1, COLUMNTYPE_index_qual);
+        read_qual_beg = read_int32_le(&reader->columns[COLUMNTYPE_index_qual].data[(rec_num-1-(reader->loaded_since_rec_num[COLUMNTYPE_index_qual]))
+ * sizeof(int32_t)]);
+    }
+    int64_t read_tags_end = read_int32_le(&reader->columns[COLUMNTYPE_index_tags].data[ADJUSTED_OFFSET(COLUMNTYPE_index_tags) * sizeof(int32_t)]);
+    int64_t read_tags_beg = 0;
+    if (rec_num != 0)
+    {
+        fetch_field(reader, rec_num - 1, COLUMNTYPE_index_tags);
+        read_tags_beg = read_int32_le(&reader->columns[COLUMNTYPE_index_tags].data[(rec_num-1-(reader->loaded_since_rec_num[COLUMNTYPE_index_tags]))
+ * sizeof(int32_t)]);
+    }
+
+    const int64_t l_qname = read_name_end - read_name_beg;
+    const int64_t l_cigar = read_cigar_end - read_cigar_beg;
+    const int64_t l_seq = read_seq_end - read_seq_beg;
+    const int64_t l_qual = read_qual_end - read_qual_beg;
+    const int64_t l_tags = read_tags_end - read_tags_beg;
+
+    char *qname = malloc(l_qname);
+    memcpy(qname, 
+           &reader->columns[COLUMNTYPE_read_name].data[read_name_beg], l_qname);
+    char *cigar = malloc(l_cigar);
+    memcpy(cigar, 
+           &reader->columns[COLUMNTYPE_cigar].data[read_cigar_beg], l_cigar);
+    char *seq = malloc((l_seq + 1) >> 1);
+    memcpy(seq, 
+           &reader->columns[COLUMNTYPE_seq].data[read_seq_beg], (l_seq + 1) >> 1);
+    char *qual = malloc(l_qual);
+    memcpy(qual, 
+           &reader->columns[COLUMNTYPE_qual].data[read_qual_beg], l_qual);
+    char *tags = malloc(l_tags);
+    memcpy(tags, 
+           &reader->columns[COLUMNTYPE_tags].data[read_tags_beg], l_tags);
+
+    bam_set1(aln, l_qname, qname, flag, refID, pos, mapq,
+                l_cigar >> 2, (const uint32_t*)cigar,
+                next_refID, next_pos, tlen,
+                l_seq, seq, qual,
+                l_tags);
+
+    return aln;
+}
