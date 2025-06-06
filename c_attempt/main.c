@@ -1,5 +1,6 @@
 #include <htslib/sam.h>
 #include <stdlib.h>
+#include "defs.h"
 
 int main() {
     // Initialize input from stdin
@@ -17,23 +18,23 @@ int main() {
         return 1;
     }
 
-    // Initialize output to stdout (SAM format)
-    samFile *out = sam_open("-", "w");
-    if (!out) {
-        fprintf(stderr, "Failed to open stdout\n");
-        bam_hdr_destroy(header);
-        sam_close(in);
-        return 1;
-    }
+    // // Initialize output to stdout (SAM format)
+    // samFile *out = sam_open("-", "w");
+    // if (!out) {
+    //     fprintf(stderr, "Failed to open stdout\n");
+    //     bam_hdr_destroy(header);
+    //     sam_close(in);
+    //     return 1;
+    // }
 
-    // Write header to output
-    if (sam_hdr_write(out, header) != 0) {
-        fprintf(stderr, "Failed to write header\n");
-        bam_hdr_destroy(header);
-        sam_close(in);
-        sam_close(out);
-        return 1;
-    }
+    // // Write header to output
+    // if (sam_hdr_write(out, header) != 0) {
+    //     fprintf(stderr, "Failed to write header\n");
+    //     bam_hdr_destroy(header);
+    //     sam_close(in);
+    //     sam_close(out);
+    //     return 1;
+    // }
 
     // Initialize alignment record
     bam1_t *aln = bam_init1();
@@ -41,23 +42,39 @@ int main() {
         fprintf(stderr, "Failed to initialize alignment\n");
         bam_hdr_destroy(header);
         sam_close(in);
-        sam_close(out);
+        // sam_close(out);
         return 1;
     }
+    // 
+    FILE *fp = fopen("output.txt", "wb+");
+    if (fp == NULL) {
+        perror("Failed to open file");
+        return 1;
+    }
+    Writer* writer = create_writer(fp, header); // Assuming 1 is the file descriptor for stdout
 
+    if (writer == NULL)
+    {
+        fprintf(stderr, "Failed to create writer\n");
+        return 1;
+    }
     // Read and write records
     while (sam_read1(in, header, aln) >= 0) {
-        if (sam_write1(out, header, aln) < 0) {
+        if (write_bam_record(writer, aln) < 0) {
             fprintf(stderr, "Error writing alignment\n");
             break;
         }
     }
 
+    close_writer(writer);
+
+    printf("Finished writing alignments.\n");
+
     // Cleanup
     bam_destroy1(aln);
     bam_hdr_destroy(header);
     sam_close(in);
-    sam_close(out);
+    // sam_close(out);
 
     return 0;
 }

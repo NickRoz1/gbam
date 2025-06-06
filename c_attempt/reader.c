@@ -1,11 +1,10 @@
 #include "defs.h"
 #include <json-c/json.h>
-#include <cstdio>
+#include "utils.h"
+#include "assert.h"
 
-#define ADJUSTED_OFFSET(COLUMNTYPE)
+#define ADJUSTED_OFFSET(COLUMNTYPE) \
     (rec_num-(reader->loaded_since_rec_num[COLUMNTYPE]))
-
-
 
 Reader* make_reader(FILE* fp){
     if (!fp) {
@@ -15,10 +14,6 @@ Reader* make_reader(FILE* fp){
 
     uint8_t buffer[1000];
     size_t bytes_read = fread(buffer, 1, sizeof(buffer) - 1, fp);
-    if (bytes_read < 0) {
-        perror("Failed to read from file");
-        return NULL;
-    }
 
     struct json_object *root = json_tokener_parse(buffer);
 
@@ -28,12 +23,10 @@ Reader* make_reader(FILE* fp){
     struct json_object *seekpos_obj;
     if (json_object_object_get_ex(root, "seekpos", &seekpos_obj)) {
         seekpos = json_object_get_int64(seekpos_obj);
-        printf("seekpos = %lld\n", seekpos);
     }
-    struct json_object *meta_size;
-    if (json_object_object_get_ex(root, "meta_size", &meta_size)) {
-        meta_size = json_object_get_int64(meta_size);
-        printf("meta_size = %lld\n", meta_size);
+    struct json_object *meta_size_obj;
+    if (json_object_object_get_ex(root, "meta_size", &meta_size_obj)) {
+        meta_size = json_object_get_int64(meta_size_obj);
     }
 
     assert(seekpos >= 0);
@@ -78,9 +71,9 @@ Reader* make_reader(FILE* fp){
 
     for(int i = 0; i < COLUMNTYPE_SIZE; i++) {
         ColumnChunkMeta *metas = reader->metadatas[i];
-        reader->record_counts_per_column_chunk[i] = (int64_t*)calloc(reader->metadatas_length[i], sizeof(int64_t));
+        reader->record_counts_per_column_chunk[i] = (int64_t*)calloc(reader->metadatas_lengths[i], sizeof(int64_t));
         int64_t accum = 0;
-        for (int j = 0; j < reader->metadatas_length[i]; j++)
+        for (int j = 0; j < reader->metadatas_lengths[i]; j++)
         {
             accum += metas[j].rec_num;
             reader->record_counts_per_column_chunk[i][j] = accum;
@@ -103,7 +96,7 @@ void fetch_field(Reader* reader, int64_t rec_num, int64_t COLUMNTYPE){
     }
 
     int l = 0;
-    int r = reader->metadatas_length[COLUMNTYPE];
+    int r = reader->metadatas_lengths[COLUMNTYPE];
     
     while((r-l)>1){
         int m = (l+r)/2;
@@ -118,15 +111,15 @@ void fetch_field(Reader* reader, int64_t rec_num, int64_t COLUMNTYPE){
             // Free the previous chunk if it was loaded
             free(reader->columns[COLUMNTYPE].data);
         }
-        reader->currently_loaded_column_chunk[COLUMNTYPE] = m;
-        ColumnChunkMeta *meta = reader->metadatas[COLUMNTYPE][m];
+        reader->currently_loaded_column_chunk[COLUMNTYPE] = r;
+        ColumnChunkMeta *meta = &reader->metadatas[COLUMNTYPE][r];
         reader->columns[COLUMNTYPE].data = (uint8_t*)malloc(meta->uncompressed_size);
         if (!reader->columns[COLUMNTYPE].data) {
             fprintf(stderr, "Failed to allocate memory for column data\n");
             return;
         }
         // Load the data from file
-        lseek(reader->fd, meta->file_offset, SEEK_SET);
+        fseek(reader->fd, meta->file_offset, SEEK_SET);
         read(reader->fd, reader->columns[COLUMNTYPE].data, meta->uncompressed_size);
         if(r == 0){
             reader->loaded_since_rec_num[COLUMNTYPE] = 0;
@@ -154,10 +147,10 @@ void read_record(Reader* reader, int64_t rec_num, bam1_t* aln) {
     int32_t refID = read_int32_le(&reader->columns[COLUMNTYPE_refID].data[ADJUSTED_OFFSET(COLUMNTYPE_refID) * sizeof(int32_t)]);
     int32_t pos = read_int32_le(&reader->columns[COLUMNTYPE_pos].data[ADJUSTED_OFFSET(COLUMNTYPE_pos) * sizeof(int32_t)]);
     int8_t mapq = reader->columns[COLUMNTYPE_mapq].data[ADJUSTED_OFFSET(COLUMNTYPE_mapq)];
-    int16_t bin = read_int16_le(&reader->columns[COLUMNTYPE_bin].data[ADJUSTED_OFFSET(COLUMNTYPE_bin)] * sizeof(int16_t));
-    int16_t flag = read_int16_le(&reader->columns[COLUMNTYPE_flag].data[ADJUSTED_OFFSET(COLUMNTYPE_flag)] * sizeof(int16_t));
+    int16_t bin = read_int16_le(&reader->columns[COLUMNTYPE_bin].data[ADJUSTED_OFFSET(COLUMNTYPE_bin) * sizeof(int16_t)] );
+    int16_t flag = read_int16_le(&reader->columns[COLUMNTYPE_flag].data[ADJUSTED_OFFSET(COLUMNTYPE_flag) * sizeof(int16_t)] );
     int32_t next_pos = read_int32_le(&reader->columns[COLUMNTYPE_next_pos].data[ADJUSTED_OFFSET(COLUMNTYPE_next_pos) * sizeof(int32_t)]);
-    int32_t next_refID = read_int32_le(&reader->columns[COLUMNTYPE_next_refID].data[ADJUSTED_OFFSET(COLUMNTYPE_next_refID)] * sizeof(int32_t));
+    int32_t next_refID = read_int32_le(&reader->columns[COLUMNTYPE_next_refID].data[ADJUSTED_OFFSET(COLUMNTYPE_next_refID) * sizeof(int32_t)] );
     int32_t tlen = read_int32_le(&reader->columns[COLUMNTYPE_tlen].data[ADJUSTED_OFFSET(COLUMNTYPE_tlen) * sizeof(int32_t)]);
     
     int64_t read_name_end = read_int32_le(&reader->columns[COLUMNTYPE_index_read_name].data[ADJUSTED_OFFSET(COLUMNTYPE_index_read_name) * sizeof(int32_t)]);
@@ -223,6 +216,7 @@ void read_record(Reader* reader, int64_t rec_num, bam1_t* aln) {
     memcpy(tags, 
            &reader->columns[COLUMNTYPE_tags].data[read_tags_beg], l_tags);
 
+    // TODO: Why BIN is missing? I guess only used for indexing..
     bam_set1(aln, l_qname, qname, flag, refID, pos, mapq,
                 l_cigar >> 2, (const uint32_t*)cigar,
                 next_refID, next_pos, tlen,

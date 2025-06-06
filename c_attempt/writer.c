@@ -3,20 +3,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <htslib/sam.h>
-#include <htslib/bam.h>
+#include <stdbool.h>
 #include "utils.h"
 #include "defs.h"
 #include "meta.h"
 
-#define WRITE_INDEX_COLUMN(COL_NAME) 
-    write_int32_le(&columns[COL_NAME].index_column.data[columns[COL_NAME].index_column.cur_ptr], columns[COL_NAME].data[columns[COL_NAME].cur_ptr]);
-    columns[COL_NAME].index_column.cur_ptr += sizeof(int32_t);
+#define WRITE_INDEX_COLUMN(COL_NAME)                                                                                                                 \
+    write_int32_le(&columns[COL_NAME].index_column->data[columns[COL_NAME].index_column->cur_ptr], columns[COL_NAME].data[columns[COL_NAME].cur_ptr]); \
+    columns[COL_NAME].index_column->cur_ptr += sizeof(int32_t);
 
-
-void init_columns(struct Writer *writer) {
+void init_columns(Writer *writer) {
     // Allocate memory for columns
     writer->columns = malloc(sizeof(Column) * COLUMNTYPE_SIZE); 
-    writer->metadatas = malloc(sizeof(Metadata*) * COLUMNTYPE_SIZE); 
+    writer->metadatas = malloc(sizeof(ColumnChunkMeta*) * COLUMNTYPE_SIZE); 
 
     if (!writer->columns) {
         fprintf(stderr, "Failed to allocate memory for columns\n");
@@ -34,23 +33,24 @@ void init_columns(struct Writer *writer) {
         writer->metadatas[i] = NULL;
     }
 
-    writer->columns[COLUMNTYPE_read_name].index_column = writer->columns[COLUMNTYPE_index_read_name];
-    writer->columns[COLUMNTYPE_cigar].index_column     = writer->columns[COLUMNTYPE_index_cigar];
-    writer->columns[COLUMNTYPE_seq].index_column       = writer->columns[COLUMNTYPE_index_seq];
-    writer->columns[COLUMNTYPE_qual].index_column      = writer->columns[COLUMNTYPE_index_qual];
-    writer->columns[COLUMNTYPE_tags].index_column      = writer->columns[COLUMNTYPE_index_tags];
+    writer->columns[COLUMNTYPE_read_name].index_column = &writer->columns[COLUMNTYPE_index_read_name];
+    writer->columns[COLUMNTYPE_cigar].index_column     = &writer->columns[COLUMNTYPE_index_cigar];
+    writer->columns[COLUMNTYPE_seq].index_column       = &writer->columns[COLUMNTYPE_index_seq];
+    writer->columns[COLUMNTYPE_qual].index_column      = &writer->columns[COLUMNTYPE_index_qual];
+    writer->columns[COLUMNTYPE_tags].index_column      = &writer->columns[COLUMNTYPE_index_tags];
+
 }
 
-struct Writer* create_writer(int fd, bam_hdr_t *header) {
-    struct Writer *writer = malloc(sizeof(struct Writer));
+Writer* create_writer(FILE* fd, bam_hdr_t *header) {
+    Writer *writer = malloc(sizeof(Writer));
     if (!writer) {
         fprintf(stderr, "Failed to allocate memory for writer\n");
         return NULL;
     }
     writer->fd = fd;
-
+    
     // Reserve space for the header
-    if (lseek(writer->fd, 1000, SEEK_CUR) == (off_t)-1) {
+    if (fseek(writer->fd, 1000, SEEK_SET) != 0) {
         perror("Failed to move file cursor");
         free(writer);
         return NULL;
@@ -65,23 +65,22 @@ struct Writer* create_writer(int fd, bam_hdr_t *header) {
     return writer;
 }
 
-void check_and_dump_if_full(struct Writer *writer, bool force_dump = false) {
+void check_and_dump_if_full(Writer *writer, bool force_dump) {
     Column *columns = writer->columns;
     for (int i = 0; i < COLUMNTYPE_SIZE; i++) {
-        cur_chunk_rec_num[i]++;
+        writer->cur_chunk_rec_num[i]++;
 
         if (force_dump || (columns[i].cur_ptr >= MAX_COLUMN_CHUNK_SIZE))
         {
             // Write the column data to the file
-            ssize_t written = write(writer->fd, columns[i].data, columns[i].cur_ptr);
+            ssize_t written = fwrite(columns[i].data, 1, columns[i].cur_ptr, writer->fd);
             if (written < 0) {
                 perror("Failed to write column data");
                 return;
             }
-            
             // Update metadata for this column
             if (writer->metadatas[i] == NULL) {
-                writer->metadatas[i] = malloc(sizeof(Metadata));
+                writer->metadatas[i] = malloc(sizeof(ColumnChunkMeta));
                 writer->metadatas[i]->next = NULL;
                 writer->metadatas[i]->prev = NULL;
                 if (!writer->metadatas[i]) {
@@ -90,28 +89,33 @@ void check_and_dump_if_full(struct Writer *writer, bool force_dump = false) {
                 }
             }
             else{
-                writer->metadatas[i]->next = malloc(sizeof(Metadata));
+                writer->metadatas[i]->next = malloc(sizeof(ColumnChunkMeta));
                 writer->metadatas[i]->next->prev = writer->metadatas[i];
                 writer->metadatas[i] = writer->metadatas[i]->next;
                 writer->metadatas[i]->next = NULL;
             }
-            
-            Metadata *metadata = &writer->metadatas[i];
+
+            ColumnChunkMeta *metadata = writer->metadatas[i];
             metadata->compressed_size += written;
             metadata->uncompressed_size += columns[i].cur_ptr;
-            metadata->file_offset = lseek(writer->fd, 0, SEEK_CUR);
-            metadata->rec_num = cur_chunk_rec_num[i];
 
-            cur_chunk_rec_num[i] = 0; // Reset the record count for this column
+            metadata->file_offset = fseek(writer->fd, 0, SEEK_CUR);
+
+            metadata->rec_num = writer->cur_chunk_rec_num[i];
+
+            writer->cur_chunk_rec_num[i] = 0; // Reset the record count for this column
             columns[i].cur_ptr = 0; // Reset the column data
+            
+            
         }
     }
+
 }
 
-void write_bam_record(struct Writer *writer, bam1_t *aln) {
+int write_bam_record(Writer *writer, bam1_t *aln) {
     if (!writer || !aln) {
         fprintf(stderr, "Invalid writer or alignment record\n");
-        return;
+        return 1;
     }
 
     // Write each field to the appropriate column
@@ -160,27 +164,28 @@ void write_bam_record(struct Writer *writer, bam1_t *aln) {
         WRITE_INDEX_COLUMN(COLUMNTYPE_tags)
     }
 
-    check_and_dump_if_full(writer);
+    check_and_dump_if_full(writer, false);
+    return 0;
 }
 
-void close_writer(struct Writer *writer) {
+void close_writer(Writer *writer) {
     if (!writer) return;
 
     // Write any remaining data in columns
     check_and_dump_if_full(writer, true);
-    const int64_t cur_file_offset = lseek(writer->fd, 0, SEEK_CUR);
+    const int64_t cur_file_offset = fseek(writer->fd, 0, SEEK_CUR);
     write_meta(writer->fd, writer->metadatas, COLUMNTYPE_SIZE);
-    fprintf(fp, "\0");
-    int64_t meta_size = cur_file_offset-ftell(fp);
+    fprintf(writer->fd, "\0");
+    int64_t meta_size = cur_file_offset-ftell(writer->fd);
     // Write SAM header after the metadata
-    fprintf(fp, sam_hdr_str(writer->header));
+    fprintf(writer->fd, sam_hdr_str(writer->header));
     // TODO: Save crc32 also and everything we had in GBAM..
     // Seek beginning of the file to write the header
-    lseek(writer->fd, 0, SEEK_SET);
+    fseek(writer->fd, 0, SEEK_SET);
     write_header(writer->fd, cur_file_offset, meta_size);
 
     // Close the file descriptor
-    close(writer->fd);
+    fclose(writer->fd);
 
     // Free allocated memory for columns and metadata
     for (int i = 0; i < COLUMNTYPE_SIZE; i++) {

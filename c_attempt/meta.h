@@ -1,7 +1,9 @@
+#pragma once
+
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <defs.h>
+#include "defs.h"
 
 
 // Write a single node as JSON object
@@ -15,10 +17,14 @@ void write_node(FILE *fp, const ColumnChunkMeta *node) {
 }
 
 // Write a linked list as JSON array
-void write_list(FILE *fp, const ColumnChunkMeta *head) {
+void write_list(FILE *fp, ColumnChunkMeta *head) {
     fprintf(fp, "[\n");
-    const ColumnChunkMeta *current = head;
-    while (current) {
+    ColumnChunkMeta *current = head;
+    while(current->prev) {
+        current = current->prev; // Move to the head of the list
+    }
+    while (current)
+    {
         write_node(fp, current);
         current = current->next;
         fprintf(fp, current ? ",\n" : "\n");
@@ -71,7 +77,7 @@ void parse_meta_from_json_string(const char *json_str, Reader *reader) {
             array[i][j].next = NULL;
             array[i][j].prev = NULL;
         }
-        reader->metadatas_sizes[i] = arr_size;
+        reader->metadatas_lengths[i] = arr_size;
     }
 
     reader->metadatas = array;
