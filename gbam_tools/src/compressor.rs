@@ -5,6 +5,7 @@ use rayon::ThreadPool;
 use super::Codecs;
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use brotli::CompressorWriter;
 // use lz4::EncoderBuilder;
 use std::io::Write;
 
@@ -122,6 +123,10 @@ pub fn compress(source: &[u8], mut dest: Vec<u8>, codec: Codecs) -> Vec<u8> {
             encoder.finish()
         }
         Codecs::Lz4 => {
+            println!(
+                "[DEBUG] Using LZ4 compression for {} bytes of input",
+                source.len()
+            );
             dest.clear();
             let res = lz4::compress_to_vec(source, &mut dest, lz4::ACC_LEVEL_DEFAULT);
             match res {
@@ -134,6 +139,19 @@ pub fn compress(source: &[u8], mut dest: Vec<u8>, codec: Codecs) -> Vec<u8> {
                     "Compression error",
                 )),
             }
+        },
+        Codecs::Brotli => {
+            println!(
+                "[DEBUG] Using Brotli compression for {} bytes of input",
+                source.len()
+            );
+            dest.clear();
+            {
+                let mut writer = CompressorWriter::new(&mut dest, 4096, 11, 22);
+                writer.write_all(source).unwrap();
+                writer.flush().unwrap();
+            }
+            Ok(dest)
         },
         Codecs::NoCompression => {
             dest.clear();

@@ -185,6 +185,7 @@ pub fn decompress_block(source: &[u8], dest: &mut Vec<u8>, codec: &Codecs) -> st
         Codecs::Lz4 => {
             lz4::decompress(source, dest).unwrap();
         }
+        &Codecs::Brotli => todo!("Implement Brotli support"),
         Codecs::NoCompression => {
             dest.clear();
             dest.extend_from_slice(source);

@@ -26,6 +26,7 @@ crossbeam = "0.8.2"
 tempdir = "0.3.7"
 md5 = "0.7.0"
 rand = "0.8"
+brotli = "3.3.4"
 
 [lib]
 crate-type = ["rlib", "cdylib"]
