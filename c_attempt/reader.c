@@ -38,10 +38,10 @@ Reader* make_reader(FILE* fp){
         return NULL;
     }
 
-    char* meta_buffer = (char*)malloc(meta_size + 1);
+    char* meta_buffer = (char*)calloc(meta_size + 1, sizeof(char));
     fread(meta_buffer, 1, meta_size, fp);
 
-    Reader* reader = (Reader*)malloc(sizeof(Reader));
+    Reader* reader = (Reader*)calloc(1, sizeof(Reader));
 
     parse_meta_from_json_string(meta_buffer, reader);
     free(meta_buffer);
@@ -54,7 +54,7 @@ Reader* make_reader(FILE* fp){
     size_t size = end - curr;
 
     // Restore original position
-    if (fseek(fp, curr, SEEK_SET) != 0) return NULL;
+    if (fseek(fp, curr, SEEK_SET) != 0) exit(EXIT_FAILURE);
 
     unsigned char *header_buffer = malloc(size);
     if (!header_buffer) exit(1);
@@ -63,9 +63,9 @@ Reader* make_reader(FILE* fp){
     if (read != size) {
         exit(1);
     }
-
+    
+    reader->fd = fp;
     reader->header = sam_hdr_parse(size, (const char*)header_buffer);
-    reader->fd = fileno(fp);
     reader->rec_num = 0;
     reader->columns = (Column*)calloc(COLUMNTYPE_SIZE, sizeof(Column));
 
@@ -78,6 +78,7 @@ Reader* make_reader(FILE* fp){
             accum += metas[j].rec_num;
             reader->record_counts_per_column_chunk[i][j] = accum;
         }
+        reader->rec_num = accum;
     }
 
     for(int i = 0; i < COLUMNTYPE_SIZE; i++) {
@@ -95,8 +96,8 @@ void fetch_field(Reader* reader, int64_t rec_num, int64_t COLUMNTYPE){
         return;
     }
 
-    int l = 0;
-    int r = reader->metadatas_lengths[COLUMNTYPE];
+    int l = -1;
+    int r = reader->metadatas_lengths[COLUMNTYPE]-1;
     
     while((r-l)>1){
         int m = (l+r)/2;
@@ -120,7 +121,8 @@ void fetch_field(Reader* reader, int64_t rec_num, int64_t COLUMNTYPE){
         }
         // Load the data from file
         fseek(reader->fd, meta->file_offset, SEEK_SET);
-        read(reader->fd, reader->columns[COLUMNTYPE].data, meta->uncompressed_size);
+        fread(reader->columns[COLUMNTYPE].data, 1, meta->uncompressed_size, reader->fd);
+
         if(r == 0){
             reader->loaded_since_rec_num[COLUMNTYPE] = 0;
         }

@@ -64,6 +64,7 @@ int main() {
             fprintf(stderr, "Error writing alignment\n");
             break;
         }
+
     }
 
     close_writer(writer);
@@ -75,6 +76,28 @@ int main() {
     bam_hdr_destroy(header);
     sam_close(in);
     // sam_close(out);
+
+    fp = fopen("output.txt", "rb");
+    if (fp == NULL) {
+        perror("Failed to open file");
+        return 1;
+    }
+   
+    aln = bam_init1();
+    Reader* reader = make_reader(fp);
+    for (int i = 0; i < reader->rec_num; i++) {
+
+        // Convert to SAM format and print
+        kstring_t str = {0, 0, NULL};
+        read_record(reader, i, aln);
+        sam_format1(header, aln, &str);
+        // printf("%s\n", str.s);
+        free(str.s);
+        break;
+        str.s = NULL;
+        str.l = str.m = 0;
+    }
+
 
     return 0;
 }

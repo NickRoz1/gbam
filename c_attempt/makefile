@@ -1,7 +1,7 @@
 # Compiler and flags
 CC = gcc
 CFLAGS = -Wall -Wextra -O0 -g -Wfatal-errors \
--g3 -ggdb -gdwarf-4 -gsplit-dwarf -O0 -fno-inline -fno-omit-frame-pointer \
+-g3 -ggdb -O0 -fno-inline -fno-omit-frame-pointer \
 -fsanitize=address,undefined -fno-eliminate-unused-debug-types
 
 LDFLAGS = -ljson-c -lhts

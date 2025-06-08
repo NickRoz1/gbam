@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "defs.h"
+#include <json-c/json.h>
 
 
 // Write a single node as JSON object
@@ -36,7 +37,7 @@ void write_list(FILE *fp, ColumnChunkMeta *head) {
 void write_meta(FILE *fp, ColumnChunkMeta **array, size_t size) {
     fprintf(fp, "{\n");
     for (size_t i = 0; i < size; i++) {
-        fprintf(fp, "  \"%zu\": ", ColumnTypeNames[i]);
+        fprintf(fp, "  \"%s\": ", ColumnTypeNames[i]);
         write_list(fp, array[i]);
         fprintf(fp, "%s\n", i < size - 1 ? "," : "");
     }
@@ -44,21 +45,30 @@ void write_meta(FILE *fp, ColumnChunkMeta **array, size_t size) {
 }
 
 void write_header(FILE *fp, int64_t seekpos, int64_t meta_size) {
-    fprintf(fp, "%s", GBAM_MAGIC);
     fprintf(fp, "{");
     fprintf(fp, "\"seekpos\": %lld,\n", (long long)seekpos);
-    fprintf(fp, "\"meta_size\": %lld\n", (long long)seekpos);
+    fprintf(fp, "\"meta_size\": %lld\n", (long long)meta_size);
     fprintf(fp, "}\0");
 }
 
-void parse_meta_from_json_string(const char *json_str, Reader *reader) {
+void parse_meta_from_json_string(char *json_str, Reader *reader) {
     ColumnChunkMeta **array = (ColumnChunkMeta **)malloc(COLUMNTYPE_SIZE * sizeof(ColumnChunkMeta *));
-    struct json_object *root = json_tokener_parse(json_str);
+    
+    struct json_object * root = json_tokener_parse(json_str);
 
-    for (size_t i = 0; i < COLUMNTYPE_SIZE; i++) {
+    if (root == NULL) {
+        fprintf(stderr, "Failed to parse JSON string\n");
+        exit(1);
+    }
+
+    for (size_t i = 0; i < COLUMNTYPE_SIZE; i++)
+    {
         array[i] = NULL; // Initialize each pointer to NULL
-        struct json_object *field; 
-        json_object_object_get_ex(root, ColumnTypeNames[i], &field);
+        struct json_object *field = NULL; 
+        if (!json_object_object_get_ex(root, ColumnTypeNames[i], &field)) {
+            fprintf(stderr, "Key '%s' not found in JSON\n", ColumnTypeNames[i]);
+            continue;
+        }
         int64_t arr_size = json_object_array_length(field);
         array[i] = (ColumnChunkMeta *)malloc(arr_size * sizeof(ColumnChunkMeta));
         for (int64_t j = 0; j < arr_size; j++) {

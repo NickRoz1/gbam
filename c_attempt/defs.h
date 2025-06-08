@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <htslib/sam.h>  
   
-static const int64_t MAX_COLUMN_CHUNK_SIZE = 1024 * 1024 * 10; // 10 MB
+static const int64_t MAX_COLUMN_CHUNK_SIZE = 1024 * 1024 * 150; // 10 MB
 
 static const char* GBAM_MAGIC = "geeBAM20";
 
@@ -78,7 +78,7 @@ typedef struct  {
 } Writer;
 
 typedef struct {
-    int fd;
+    FILE* fd;
 
     int64_t rec_num;
     bam_hdr_t *header;
