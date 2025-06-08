@@ -134,8 +134,9 @@ int write_bam_record(Writer *writer, bam1_t *aln) {
     // Variable sized fields
     // TODO: handle when input cigar is bigger than MAX_COLUMN_CHUNK_SIZE (reallocate, extend buffer)
     {
-        memcpy(&columns[COLUMNTYPE_read_name].data[columns[COLUMNTYPE_read_name].cur_ptr], bam_get_qname(aln), aln->core.l_qname);
-        columns[COLUMNTYPE_read_name].cur_ptr += aln->core.l_qname;
+        // l_extranul is not correct apparently. Strlen is slow but no other option...
+        memcpy(&columns[COLUMNTYPE_read_name].data[columns[COLUMNTYPE_read_name].cur_ptr], bam_get_qname(aln), strlen(bam_get_qname(aln)));
+        columns[COLUMNTYPE_read_name].cur_ptr += strlen(bam_get_qname(aln)); // Exclude the trailing null byte
         WRITE_INDEX_COLUMN(COLUMNTYPE_read_name)
         
         memcpy(&columns[COLUMNTYPE_cigar].data[columns[COLUMNTYPE_cigar].cur_ptr], (char*)bam_get_cigar(aln), aln->core.n_cigar<<2);
@@ -154,6 +155,7 @@ int write_bam_record(Writer *writer, bam1_t *aln) {
         columns[COLUMNTYPE_tags].cur_ptr += bam_get_l_aux(aln);
         WRITE_INDEX_COLUMN(COLUMNTYPE_tags)
     }
+
 
     for (int i = 0; i < COLUMNTYPE_SIZE; i++) writer->cur_chunk_rec_num[i]++;
 

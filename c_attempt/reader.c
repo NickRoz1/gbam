@@ -2,9 +2,27 @@
 #include <json-c/json.h>
 #include "utils.h"
 #include "assert.h"
+#include <htslib/hts.h>
 
 #define ADJUSTED_OFFSET(COLUMNTYPE) \
     (rec_num-(reader->loaded_since_rec_num[COLUMNTYPE]))
+
+#define bam_reg2bin(beg,end) hts_reg2bin((beg),(end),14,5)
+
+
+static void bam_cigar2rqlens(int n_cigar, const uint32_t *cigar,
+                             hts_pos_t *rlen, hts_pos_t *qlen)
+{
+    int k;
+    *rlen = *qlen = 0;
+    for (k = 0; k < n_cigar; ++k) {
+        int type = bam_cigar_type(bam_cigar_op(cigar[k]));
+        int len = bam_cigar_oplen(cigar[k]);
+        if (type & 1) *qlen += len;
+        if (type & 2) *rlen += len;
+    }
+}
+
 
 Reader* make_reader(FILE* fp){
     if (!fp) {
@@ -196,21 +214,37 @@ void read_record(Reader* reader, int64_t rec_num, bam1_t* aln) {
  * sizeof(int32_t)]);
     }
 
-    const int64_t l_qname = read_name_end - read_name_beg;
+    int64_t l_qname = read_name_end - read_name_beg;
     const int64_t l_cigar = read_cigar_end - read_cigar_beg;
-    const int64_t l_seq = read_seq_end - read_seq_beg;
     const int64_t l_qual = read_qual_end - read_qual_beg;
+    const int64_t l_seq = read_seq_end - read_seq_beg;
+    assert(l_seq == ((l_qual+1) >> 1)); // l_seq is always half of l_qual + 1, as per BAM format
     const int64_t l_tags = read_tags_end - read_tags_beg;
 
-    char *qname = malloc(l_qname);
+    size_t qname_nuls;
+
+    char *qname;
+
+    // use a default qname "*" if none is provided
+    if (l_qname == 0) {
+        l_qname = 1;
+        qname_nuls = 4 - l_qname % 4;
+        qname = calloc(l_qname + qname_nuls, sizeof(char));
+        qname[0] = '*'; // Default qname
+    }
+    else{
+        qname_nuls = 4 - l_qname % 4;
+        qname = calloc(l_qname + qname_nuls, sizeof(char));
+    }
+
     memcpy(qname, 
            &reader->columns[COLUMNTYPE_read_name].data[read_name_beg], l_qname);
     char *cigar = malloc(l_cigar);
     memcpy(cigar, 
            &reader->columns[COLUMNTYPE_cigar].data[read_cigar_beg], l_cigar);
-    char *seq = malloc((l_seq + 1) >> 1);
+    char *seq = malloc(l_seq);
     memcpy(seq, 
-           &reader->columns[COLUMNTYPE_seq].data[read_seq_beg], (l_seq + 1) >> 1);
+           &reader->columns[COLUMNTYPE_seq].data[read_seq_beg], l_seq);
     char *qual = malloc(l_qual);
     memcpy(qual, 
            &reader->columns[COLUMNTYPE_qual].data[read_qual_beg], l_qual);
@@ -218,12 +252,35 @@ void read_record(Reader* reader, int64_t rec_num, bam1_t* aln) {
     memcpy(tags, 
            &reader->columns[COLUMNTYPE_tags].data[read_tags_beg], l_tags);
 
-    // TODO: Why BIN is missing? I guess only used for indexing..
-    bam_set1(aln, l_qname, qname, flag, refID, pos, mapq,
-                l_cigar >> 2, (const uint32_t*)cigar,
-                next_refID, next_pos, tlen,
-                l_seq, seq, qual,
-                l_tags);
+    hts_pos_t rlen = 0, qlen = 0;
+    if (!(flag & BAM_FUNMAP)) {
+        bam_cigar2rqlens((int)(l_cigar >> 2), cigar, &rlen, &qlen);
+    }
+    if (rlen == 0) {
+        rlen = 1;
+    }
 
+
+    aln->l_data = l_qname+qname_nuls+l_cigar+l_seq+l_qual+l_tags;
+    aln->data = (uint8_t*)malloc(aln->l_data);
+    aln->core.pos = pos;
+    aln->core.tid = refID;
+    aln->core.bin = bam_reg2bin(pos, pos + rlen);
+    aln->core.qual = mapq;
+    aln->core.l_extranul = (uint8_t)(qname_nuls - 1);
+    aln->core.flag = flag;
+    aln->core.l_qname = (uint16_t)(l_qname + qname_nuls);
+    aln->core.n_cigar = (uint32_t)(l_cigar >> 2); // l_cigar is in bytes, n_cigar is in 32-bit words
+    aln->core.l_qseq = (int32_t)l_qual;
+    aln->core.mtid = next_refID;
+    aln->core.mpos = next_pos;
+    aln->core.isize = tlen;
+
+    memcpy(aln->data, qname, l_qname + qname_nuls);
+    memcpy(&aln->data[l_qname + qname_nuls], cigar, l_cigar);
+    memcpy(&aln->data[l_qname + qname_nuls + l_cigar], seq, l_seq);
+    memcpy(&aln->data[l_qname + qname_nuls + l_cigar + l_seq], qual, l_qual);
+    memcpy(&aln->data[l_qname + qname_nuls + l_cigar + l_seq + l_qual], tags, l_tags);
+    
     return aln;
 }

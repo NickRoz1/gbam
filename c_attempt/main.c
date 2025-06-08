@@ -64,12 +64,10 @@ int main() {
             fprintf(stderr, "Error writing alignment\n");
             break;
         }
-
     }
 
     close_writer(writer);
 
-    printf("Finished writing alignments.\n");
 
     // Cleanup
     bam_destroy1(aln);
@@ -90,10 +88,9 @@ int main() {
         // Convert to SAM format and print
         kstring_t str = {0, 0, NULL};
         read_record(reader, i, aln);
-        sam_format1(header, aln, &str);
-        // printf("%s\n", str.s);
+        sam_format1(reader->header, aln, &str);
+        printf("%s\n", str.s);
         free(str.s);
-        break;
         str.s = NULL;
         str.l = str.m = 0;
     }
