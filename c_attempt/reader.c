@@ -307,7 +307,6 @@ void close_reader(Reader *reader) {
     }
     free(reader->columns);
     free(reader->metadatas); 
-    fclose(reader->fd);
     free(reader);
     reader = NULL;
 }
