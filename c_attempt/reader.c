@@ -27,16 +27,13 @@ static void bam_cigar2rqlens(int n_cigar, const uint32_t *cigar,
 }
 
 
-Reader* make_reader(FILE* fp){
-    if (!fp) {
+Reader* make_reader(char* file){
+    if (!file) {
         fprintf(stderr, "File pointer is NULL\n");
         return NULL;
     }
 
-    uint8_t buffer[1000];
-    size_t bytes_read = fread(buffer, 1, sizeof(buffer) - 1, fp);
-
-    struct json_object *root = json_tokener_parse(buffer);
+    struct json_object *root = json_tokener_parse(file);
 
     int64_t seekpos = -1;
     int64_t meta_size = -1;
@@ -56,41 +53,12 @@ Reader* make_reader(FILE* fp){
     assert(seekpos >= 0);
     assert(meta_size >= 0);
 
-    // Go get meta
-    if (fseek(fp, seekpos, SEEK_SET) != 0) {
-        perror("Failed to seek to position");
-        return NULL;
-    }
-
-    char* meta_buffer = (char*)calloc(meta_size + 1, sizeof(char));
-    fread(meta_buffer, 1, meta_size, fp);
-
     Reader* reader = (Reader*)calloc(1, sizeof(Reader));
 
-    parse_meta_from_json_string(meta_buffer, reader);
-    free(meta_buffer);
-    
-    long curr = ftell(fp);
+    parse_meta_from_json_string(file+seekpos, reader);
 
-    if (fseek(fp, 0, SEEK_END) != 0) exit(EXIT_FAILURE);
-    long end = ftell(fp);
-
-    size_t size = end - curr;
-
-    // Restore original position
-    if (fseek(fp, curr, SEEK_SET) != 0) exit(EXIT_FAILURE);
-
-    unsigned char *header_buffer = malloc(size);
-    if (!header_buffer) exit(1);
-
-    size_t read = fread(header_buffer, 1, size, fp);
-    if (read != size) {
-        exit(1);
-    }
-    
-    reader->fd = fp;
-    reader->header = sam_hdr_parse(size, (const char*)header_buffer);
-    free(header_buffer);
+    reader->mmaped_file = file;
+    reader->header = sam_hdr_parse(strlen(file+seekpos+meta_size), file+seekpos+meta_size);
     reader->rec_num = 0;
     reader->columns = (Column*)calloc(COLUMNTYPE_SIZE, sizeof(Column));
 
@@ -148,28 +116,43 @@ void fetch_field(Reader* reader, int64_t rec_num, int64_t COLUMNTYPE){
         }
     }
     if(r != reader->currently_loaded_column_chunk[COLUMNTYPE]) {
-        if (reader->currently_loaded_column_chunk[COLUMNTYPE] >= 0) {
-            // Free the previous chunk if it was loaded
-            free(reader->columns[COLUMNTYPE].data);
-        }
         reader->currently_loaded_column_chunk[COLUMNTYPE] = r;
         ColumnChunkMeta *meta = &reader->metadatas[COLUMNTYPE][r];
-        reader->columns[COLUMNTYPE].data = (uint8_t*)malloc(meta->uncompressed_size);
+        if(reader->m_chunk_memory[COLUMNTYPE] < meta->uncompressed_size){
+            if(reader->columns[COLUMNTYPE].data) {
+                free(reader->columns[COLUMNTYPE].data);
+            }
+            reader->columns[COLUMNTYPE].data = (uint8_t*)malloc(meta->uncompressed_size);
+            reader->m_chunk_memory[COLUMNTYPE] = meta->uncompressed_size;
+        }
         if (!reader->columns[COLUMNTYPE].data) {
             fprintf(stderr, "Failed to allocate memory for column data\n");
             return;
         }
-        // Load the data from file
-        fseek(reader->fd, meta->file_offset, SEEK_SET);
-        void* read_buffer = malloc(meta->compressed_size);
-        fread(read_buffer, 1, meta->compressed_size, reader->fd);
-        int res = decompress_buffer(read_buffer, meta->compressed_size, 
-                          (void**)&reader->columns[COLUMNTYPE].data, 
-                          meta->uncompressed_size);
-        free(read_buffer);
-        if(res != Z_OK){
-            fprintf(stderr, "Failed to decompress column data: %d\n", res);
-            exit(1);
+        void* read_buffer = reader->mmaped_file+meta->file_offset;
+
+        if(strcmp(meta->codec, "zlib") == 0){
+            int res = decompress_buffer(read_buffer, meta->compressed_size, 
+                    (void**)&reader->columns[COLUMNTYPE].data, 
+                    meta->uncompressed_size);
+            if(res != Z_OK){
+                fprintf(stderr, "Failed to decompress column data: %d\n", res);
+                exit(1);
+            }   
+        }
+        else if(strcmp(meta->codec, "lz4") == 0){
+            int decompressed_size = LZ4_decompress_safe(read_buffer,
+                                    reader->columns[COLUMNTYPE].data,
+                                    meta->compressed_size, 
+                                    meta->uncompressed_size);
+            if (decompressed_size < 0) {
+                printf("LZ4 decompression failed with error code: %d\n", decompressed_size);
+                return -1;
+            }
+        }
+        else{
+            // No compression, just copy the data
+            memcpy(reader->columns[COLUMNTYPE].data, read_buffer, meta->uncompressed_size);
         }
 
         if(r == 0){
@@ -190,7 +173,7 @@ void preload_chunks(Reader* reader, int64_t rec_num) {
     for(int i = 0; i < COLUMNTYPE_SIZE; i++) {
         fetch_field(reader, rec_num, i);
     }
-}
+}//
 
 void read_record(Reader* reader, int64_t rec_num, bam1_t* aln) {
     preload_chunks(reader, rec_num);
@@ -299,7 +282,7 @@ void read_record(Reader* reader, int64_t rec_num, bam1_t* aln) {
     memcpy(&aln->data[l_qname + qname_nuls+l_cigar+l_seq+l_qual], 
            &reader->columns[COLUMNTYPE_tags].data[read_tags_beg], l_tags);
 
-    hts_pos_t rlen = 0, qlen = 0;
+    hts_pos_t rlen = 1, qlen = 0;
     if (!(flag & BAM_FUNMAP)) {
         bam_cigar2rqlens((int)(l_cigar >> 2), &reader->columns[COLUMNTYPE_cigar].data[read_cigar_beg], &rlen, &qlen);
     }

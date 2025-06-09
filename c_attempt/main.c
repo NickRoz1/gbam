@@ -2,6 +2,11 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include "defs.h"
+#include <sys/mman.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <sys/stat.h>
 
 int write_gbam(char* file_path){
     // Open the file for writing
@@ -72,42 +77,51 @@ int write_gbam(char* file_path){
 
 int read_gbam(char* file_path){
     // Open the file for reading
-    FILE *fp = fopen(file_path, "rb");
-    if (!fp) {
-        perror("Failed to open file for reading");
+
+    int fd = open(file_path, O_RDONLY);
+    if (fd == -1) {
+        perror("Error opening file");
         return 1;
     }
 
-    Reader* reader = make_reader(fp);
-    if (reader == NULL) {
-        fprintf(stderr, "Failed to create reader\n");
-        fclose(fp);
+    struct stat sb;
+    fstat(fd, &sb);
+    size_t file_size = sb.st_size;
+    
+    // Map file into memory (read-only)
+    char *mapped = mmap(NULL, file_size, PROT_READ, MAP_SHARED, fd, 0);
+    if (mapped == MAP_FAILED) {
+        perror("Error mapping file");
+        close(fd);
         return 1;
     }
+
+    Reader* reader = make_reader(mapped);
 
     bam1_t *aln = bam_init1();
-    if (!aln) {
-        fprintf(stderr, "Failed to initialize alignment\n");
-        close_reader(reader);
-        fclose(fp);
-        return 1;
-    }
+
+    char stdout_buffer[65536];
+    flockfile(stdout);
+
+    setvbuf(stdout, stdout_buffer, _IOFBF, sizeof(stdout_buffer));
+    kstring_t str = {0, 0, NULL};
 
     for (int i = 0; i < reader->rec_num; i++) {
         read_record(reader, i, aln);
 
         // Convert to SAM format and print
-        kstring_t str = {0, 0, NULL};
         sam_format1(reader->header, aln, &str);
         printf("%s\n", str.s);
-        free(str.s);
-        str.s = NULL;
-        str.l = str.m = 0;
+        str.l = 0;
     }
+    free(str.s);
 
+
+    funlockfile(stdout);
     close_reader(reader);
     bam_destroy1(aln);
-    fclose(fp);
+    munmap(mapped, file_size);
+    close(fd);
 
     return 0;
 }

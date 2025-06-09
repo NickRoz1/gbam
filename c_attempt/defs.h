@@ -80,7 +80,7 @@ typedef struct  {
 } Writer;
 
 typedef struct {
-    FILE* fd;
+    char* mmaped_file;
 
     int64_t rec_num;
     bam_hdr_t *header;
@@ -90,6 +90,7 @@ typedef struct {
 
     int64_t metadatas_lengths[COLUMNTYPE_SIZE]; 
     int64_t currently_loaded_column_chunk[COLUMNTYPE_SIZE]; 
+    int64_t m_chunk_memory[COLUMNTYPE_SIZE]; // Maximum memory allocated for each column chunk
     int64_t loaded_since_rec_num[COLUMNTYPE_SIZE]; // The last record number loaded for each column
     int64_t loaded_up_to_rec_num[COLUMNTYPE_SIZE]; // The last record number loaded for each column
     int64_t*  record_counts_per_column_chunk[COLUMNTYPE_SIZE]; 
@@ -102,6 +103,6 @@ Writer *create_writer(FILE* fd, bam_hdr_t  *header);
 int write_bam_record(Writer *writer, bam1_t *aln);
 void close_writer(Writer *writer);
 
-Reader *make_reader(FILE *fp);
+Reader *make_reader(char *fp);
 void close_reader(Reader *reader);
 void read_record(Reader *reader, int64_t rec_num, bam1_t *aln);

@@ -8,6 +8,7 @@
 #include "defs.h"
 #include "meta.h"
 #include <zlib.h>
+#include <lz4.h>
 
 #define WRITE_INDEX_COLUMN(COL_NAME)                                                                                                                 \
     write_int32_le(&columns[COL_NAME].index_column->data[columns[COL_NAME].index_column->cur_ptr], columns[COL_NAME].cur_ptr); \
@@ -99,6 +100,36 @@ int compress_buffer(const void* input_data, size_t input_size,
 }
 
 
+int compress_data_lz4(const char* source, int source_size, 
+                     char** compressed, int* compressed_size) {
+    // Calculate maximum possible compressed size
+    int max_compressed_size = LZ4_compressBound(source_size);
+    
+    // Allocate buffer for compressed data
+    *compressed = malloc(max_compressed_size);
+    if (!*compressed) {
+        return -1;
+    }
+    
+    // Compress the data
+    *compressed_size = LZ4_compress_default(source, *compressed, 
+                                           source_size, max_compressed_size);
+    
+    if (*compressed_size <= 0) {
+        free(*compressed);
+        *compressed = NULL;
+        return -1;
+    }
+    
+    // Resize to actual compressed size
+    char* resized = realloc(*compressed, *compressed_size);
+    if (resized) {
+        *compressed = resized;
+    }
+    
+    return 0;
+}
+
 void check_and_dump_if_full(Writer *writer, bool force_dump) {
     Column *columns = writer->columns;
     for (int i = 0; i < COLUMNTYPE_SIZE; i++) {
@@ -109,24 +140,45 @@ void check_and_dump_if_full(Writer *writer, bool force_dump) {
             ColumnChunkMeta *metadata = calloc(1, sizeof(ColumnChunkMeta));
             metadata->file_offset = ftell(writer->fd);
             metadata->uncompressed_size += columns[i].cur_ptr;
-            memcpy(metadata->codec, "zlib", 4); 
 
-            void* compressed_data = NULL;
-            size_t compressed_size = 0;
-            // Compress the data
-            if(compress_buffer(columns[i].data, columns[i].cur_ptr, 
-                &compressed_data, &compressed_size) != Z_OK) {
-                fprintf(stderr, "Failed to compress column data\n");
-                exit(1);
+            char* codec_to_use = "lz4";
+
+
+            memcpy(metadata->codec, codec_to_use, 4); 
+
+            ssize_t written = 0;
+
+            if(strcmp(metadata->codec, "zlib") == 0){
+                void* compressed_data = NULL;
+                size_t compressed_size = 0;
+                // Compress the data
+                if(compress_buffer(columns[i].data, columns[i].cur_ptr, 
+                    &compressed_data, &compressed_size) != Z_OK) {
+                    fprintf(stderr, "Failed to compress column data\n");
+                    exit(1);
+                }
+            
+                // Write the column data to the file
+                written = fwrite(compressed_data, 1, compressed_size, writer->fd);
+                free(compressed_data);
             }
-        
-            // Write the column data to the file
-            ssize_t written = fwrite(compressed_data, 1, compressed_size, writer->fd);
-            free(compressed_data);
-            if (written < 0)
-            {
-                perror("Failed to write column data");
-                return;
+            else if(strcmp(metadata->codec, "lz4") == 0){
+                void* compressed_data = NULL;
+                int compressed_size = 0;
+                
+                // Compress the data
+                if(compress_data_lz4(columns[i].data, columns[i].cur_ptr, 
+                    &compressed_data, &compressed_size) != 0) {
+                    fprintf(stderr, "Failed to compress column data\n");
+                    exit(1);
+                }
+            
+                // Write the column data to the file
+                written = fwrite(compressed_data, 1, compressed_size, writer->fd);
+                free(compressed_data);
+            }
+            else{
+                written = fwrite(columns[i].data, 1, columns[i].cur_ptr, writer->fd);
             }
 
             metadata->compressed_size += written;

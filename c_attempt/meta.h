@@ -42,7 +42,7 @@ void write_meta(FILE *fp, ColumnChunkMeta **array, size_t size) {
         write_list(fp, array[i]);
         fprintf(fp, "%s\n", i < size - 1 ? "," : "");
     }
-    fprintf(fp, "}\n");
+    fprintf(fp, "}\n\0");
 }
 
 void write_header(FILE *fp, int64_t seekpos, int64_t meta_size) {
@@ -71,7 +71,7 @@ void parse_meta_from_json_string(char *json_str, Reader *reader) {
             continue;
         }
         int64_t arr_size = json_object_array_length(field);
-        array[i] = (ColumnChunkMeta *)malloc(arr_size * sizeof(ColumnChunkMeta));
+        array[i] = (ColumnChunkMeta *)calloc(arr_size, sizeof(ColumnChunkMeta));
         for (int64_t j = 0; j < arr_size; j++) {
             struct json_object *node = json_object_array_get_idx(field, j);
             struct json_object *rec_num, *file_offset_obj, *uncompressed_size_obj, *compressed_size_obj, *codec_obj;
