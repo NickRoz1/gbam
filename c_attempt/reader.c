@@ -4,6 +4,8 @@
 #include "assert.h"
 #include <htslib/hts.h>
 #include <stdbool.h>
+#include <zlib.h>
+
 
 #define ADJUSTED_OFFSET(COLUMNTYPE) \
     (rec_num-(reader->loaded_since_rec_num[COLUMNTYPE]))
@@ -113,6 +115,21 @@ Reader* make_reader(FILE* fp){
     return reader;
 }
 
+int decompress_buffer(const void* compressed_data, size_t compressed_size,
+                     void** output_data, uLongf decompressed_size) {
+    int result = uncompress((Bytef*)*output_data, &decompressed_size,
+                           (const Bytef*)compressed_data, compressed_size);
+    
+    if (result != Z_OK) {
+        free(*output_data);
+        *output_data = NULL;
+        return result;
+    }
+    
+    return Z_OK;
+}
+
+
 void fetch_field(Reader* reader, int64_t rec_num, int64_t COLUMNTYPE){
     if(reader->loaded_up_to_rec_num[COLUMNTYPE] >= rec_num && 
        reader->loaded_since_rec_num[COLUMNTYPE] <= rec_num) {
@@ -144,7 +161,16 @@ void fetch_field(Reader* reader, int64_t rec_num, int64_t COLUMNTYPE){
         }
         // Load the data from file
         fseek(reader->fd, meta->file_offset, SEEK_SET);
-        fread(reader->columns[COLUMNTYPE].data, 1, meta->uncompressed_size, reader->fd);
+        void* read_buffer = malloc(meta->compressed_size);
+        fread(read_buffer, 1, meta->compressed_size, reader->fd);
+        int res = decompress_buffer(read_buffer, meta->compressed_size, 
+                          (void**)&reader->columns[COLUMNTYPE].data, 
+                          meta->uncompressed_size);
+        free(read_buffer);
+        if(res != Z_OK){
+            fprintf(stderr, "Failed to decompress column data: %d\n", res);
+            exit(1);
+        }
 
         if(r == 0){
             reader->loaded_since_rec_num[COLUMNTYPE] = 0;

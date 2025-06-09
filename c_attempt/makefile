@@ -1,8 +1,8 @@
 # Compiler and flags
 CC = gcc
-CFLAGS = -Wall -Wextra -O3
+CFLAGS = -O3 -march=native -mtune=native -flto -ffast-math -funroll-loops -finline-functions -fomit-frame-pointer -DNDEBUG 
 
-LDFLAGS = -ljson-c -lhts
+LDFLAGS = -ljson-c -lhts -lz
 
 # Source and object files
 SRCS = main.c reader.c writer.c

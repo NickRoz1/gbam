@@ -58,6 +58,7 @@ typedef struct ColumnChunkMeta
     int64_t file_offset;       // offset in the file where this column starts
     int64_t uncompressed_size; // size of the uncompressed data
     int64_t compressed_size;   // size of the compressed data
+    char codec[5]; // codec used for compression, 0 for no compression
     struct ColumnChunkMeta *next;      // pointer to the next metadata chunk
     struct ColumnChunkMeta *prev;      // pointer to the next metadata chunk
 } ColumnChunkMeta;
@@ -72,6 +73,7 @@ typedef struct Column
 typedef struct  {
     FILE* fd;
     bam_hdr_t *header;
+    uint8_t* compression_buffer; // Buffer for compression
     Column *columns;
     ColumnChunkMeta **metadatas; // Pointer to metadata for each column
     int64_t cur_chunk_rec_num[COLUMNTYPE_SIZE] ; // Number of records in the current chunk for each column

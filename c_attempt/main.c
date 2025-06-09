@@ -17,6 +17,11 @@ int write_gbam(char* file_path){
         return 1;
     }
 
+    if (hts_set_threads(in, 8) != 0) {
+        sam_close(fp);
+        return NULL;
+    }
+
     bam_hdr_t *header = sam_hdr_read(in);
     if (!header) {
         fprintf(stderr, "Failed to read header\n");

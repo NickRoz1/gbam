@@ -7,6 +7,7 @@
 #include "utils.h"
 #include "defs.h"
 #include "meta.h"
+#include <zlib.h>
 
 #define WRITE_INDEX_COLUMN(COL_NAME)                                                                                                                 \
     write_int32_le(&columns[COL_NAME].index_column->data[columns[COL_NAME].index_column->cur_ptr], columns[COL_NAME].cur_ptr); \
@@ -65,6 +66,39 @@ Writer* create_writer(FILE* fd, bam_hdr_t *header) {
     return writer;
 }
 
+
+int compress_buffer(const void* input_data, size_t input_size, 
+                   void** output_data, size_t* output_size) {
+    // Calculate maximum possible compressed size
+    uLongf compressed_size = compressBound(input_size);
+    
+    // Allocate output buffer
+    *output_data = malloc(compressed_size);
+    if (!*output_data) {
+        return Z_MEM_ERROR;
+    }
+    
+    // Compress the data
+    int result = compress((Bytef*)*output_data, &compressed_size,
+                         (const Bytef*)input_data, input_size);
+    
+    if (result != Z_OK) {
+        free(*output_data);
+        *output_data = NULL;
+        return result;
+    }
+    
+    // Resize buffer to actual compressed size to save memory
+    void* resized = realloc(*output_data, compressed_size);
+    if (resized) {
+        *output_data = resized;
+    }
+    
+    *output_size = compressed_size;
+    return Z_OK;
+}
+
+
 void check_and_dump_if_full(Writer *writer, bool force_dump) {
     Column *columns = writer->columns;
     for (int i = 0; i < COLUMNTYPE_SIZE; i++) {
@@ -75,10 +109,22 @@ void check_and_dump_if_full(Writer *writer, bool force_dump) {
             ColumnChunkMeta *metadata = calloc(1, sizeof(ColumnChunkMeta));
             metadata->file_offset = ftell(writer->fd);
             metadata->uncompressed_size += columns[i].cur_ptr;
+            memcpy(metadata->codec, "zlib", 4); 
 
+            void* compressed_data = NULL;
+            size_t compressed_size = 0;
+            // Compress the data
+            if(compress_buffer(columns[i].data, columns[i].cur_ptr, 
+                &compressed_data, &compressed_size) != Z_OK) {
+                fprintf(stderr, "Failed to compress column data\n");
+                exit(1);
+            }
+        
             // Write the column data to the file
-            ssize_t written = fwrite(columns[i].data, 1, columns[i].cur_ptr, writer->fd);
-            if (written < 0) {
+            ssize_t written = fwrite(compressed_data, 1, compressed_size, writer->fd);
+            free(compressed_data);
+            if (written < 0)
+            {
                 perror("Failed to write column data");
                 return;
             }
@@ -178,9 +224,6 @@ void close_writer(Writer *writer) {
     // Seek beginning of the file to write the header
     fseek(writer->fd, 0, SEEK_SET);
     write_header(writer->fd, cur_file_offset, meta_size);
-
-    // Close the file descriptor
-    fclose(writer->fd);
 
     // Free allocated memory for columns and metadata
     for (int i = 0; i < COLUMNTYPE_SIZE; i++) {

@@ -13,7 +13,8 @@ void write_node(FILE *fp, const ColumnChunkMeta *node) {
     fprintf(fp, "  \"rec_num\": %llu,\n", (unsigned long long)node->rec_num);
     fprintf(fp, "  \"file_offset\": %llu,\n", (unsigned long long)node->file_offset);
     fprintf(fp, "  \"uncompressed_size\": %llu,\n", (unsigned long long)node->uncompressed_size);
-    fprintf(fp, "  \"compressed_size\": %llu\n", (unsigned long long)node->compressed_size);
+    fprintf(fp, "  \"compressed_size\": %llu,\n", (unsigned long long)node->compressed_size);
+    fprintf(fp, "  \"codec\": \"%s\"\n", node->codec);
     fprintf(fp, "}");
 }
 
@@ -73,17 +74,21 @@ void parse_meta_from_json_string(char *json_str, Reader *reader) {
         array[i] = (ColumnChunkMeta *)malloc(arr_size * sizeof(ColumnChunkMeta));
         for (int64_t j = 0; j < arr_size; j++) {
             struct json_object *node = json_object_array_get_idx(field, j);
-            struct json_object *rec_num, *file_offset_obj, *uncompressed_size_obj, *compressed_size_obj;
+            struct json_object *rec_num, *file_offset_obj, *uncompressed_size_obj, *compressed_size_obj, *codec_obj;
 
             json_object_object_get_ex(node, "rec_num", &rec_num);
             json_object_object_get_ex(node, "file_offset", &file_offset_obj);
             json_object_object_get_ex(node, "uncompressed_size", &uncompressed_size_obj);
             json_object_object_get_ex(node, "compressed_size", &compressed_size_obj);
+            json_object_object_get_ex(node, "codec", &codec_obj);
 
             array[i][j].rec_num = json_object_get_int64(rec_num);
             array[i][j].file_offset = json_object_get_int64(file_offset_obj);
             array[i][j].uncompressed_size = json_object_get_int64(uncompressed_size_obj);
             array[i][j].compressed_size = json_object_get_int64(compressed_size_obj);
+            const char *codec_str = json_object_get_string(codec_obj);
+            strncpy(array[i][j].codec, codec_str, sizeof(array[i][j].codec) - 1);
+
             array[i][j].next = NULL;
             array[i][j].prev = NULL;
         }
