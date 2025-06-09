@@ -3,6 +3,7 @@
 #include "utils.h"
 #include "assert.h"
 #include <htslib/hts.h>
+#include <stdbool.h>
 
 #define ADJUSTED_OFFSET(COLUMNTYPE) \
     (rec_num-(reader->loaded_since_rec_num[COLUMNTYPE]))
@@ -47,6 +48,9 @@ Reader* make_reader(FILE* fp){
         meta_size = json_object_get_int64(meta_size_obj);
     }
 
+    json_object_put(root); 
+
+
     assert(seekpos >= 0);
     assert(meta_size >= 0);
 
@@ -84,6 +88,7 @@ Reader* make_reader(FILE* fp){
     
     reader->fd = fp;
     reader->header = sam_hdr_parse(size, (const char*)header_buffer);
+    free(header_buffer);
     reader->rec_num = 0;
     reader->columns = (Column*)calloc(COLUMNTYPE_SIZE, sizeof(Column));
 
@@ -223,46 +228,59 @@ void read_record(Reader* reader, int64_t rec_num, bam1_t* aln) {
 
     size_t qname_nuls;
 
-    char *qname;
-
     // use a default qname "*" if none is provided
-    if (l_qname == 0) {
+    bool default_name = false;
+    if (l_qname == 0)
+    {
+        default_name = true;
         l_qname = 1;
         qname_nuls = 4 - l_qname % 4;
-        qname = calloc(l_qname + qname_nuls, sizeof(char));
-        qname[0] = '*'; // Default qname
     }
     else{
         qname_nuls = 4 - l_qname % 4;
-        qname = calloc(l_qname + qname_nuls, sizeof(char));
     }
 
-    memcpy(qname, 
+    uint64_t bytes_we_need = l_qname + qname_nuls + l_cigar + l_seq + l_qual + l_tags;
+
+    if(aln->m_data < bytes_we_need) {
+        if (aln->data) {
+            free(aln->data);
+        }
+        aln->data = (uint8_t*)malloc(bytes_we_need);
+        aln->m_data = bytes_we_need;
+    }
+    aln->l_data = bytes_we_need;
+
+    if(default_name){
+        aln->data[0] = '*';
+        aln->data[1] = '\0';
+        aln->data[2] = '\0';
+        aln->data[3] = '\0';
+    }
+    else{
+        memcpy(aln->data, 
            &reader->columns[COLUMNTYPE_read_name].data[read_name_beg], l_qname);
-    char *cigar = malloc(l_cigar);
-    memcpy(cigar, 
+        for (int i = 0; i < qname_nuls; i++) 
+            aln->data[l_qname + i] = '\0'; // Fill with null bytes
+    }
+    
+    memcpy(&aln->data[l_qname + qname_nuls], 
            &reader->columns[COLUMNTYPE_cigar].data[read_cigar_beg], l_cigar);
-    char *seq = malloc(l_seq);
-    memcpy(seq, 
+    memcpy(&aln->data[l_qname + qname_nuls+l_cigar], 
            &reader->columns[COLUMNTYPE_seq].data[read_seq_beg], l_seq);
-    char *qual = malloc(l_qual);
-    memcpy(qual, 
+    memcpy(&aln->data[l_qname + qname_nuls+l_cigar+l_seq], 
            &reader->columns[COLUMNTYPE_qual].data[read_qual_beg], l_qual);
-    char *tags = malloc(l_tags);
-    memcpy(tags, 
+    memcpy(&aln->data[l_qname + qname_nuls+l_cigar+l_seq+l_qual], 
            &reader->columns[COLUMNTYPE_tags].data[read_tags_beg], l_tags);
 
     hts_pos_t rlen = 0, qlen = 0;
     if (!(flag & BAM_FUNMAP)) {
-        bam_cigar2rqlens((int)(l_cigar >> 2), cigar, &rlen, &qlen);
+        bam_cigar2rqlens((int)(l_cigar >> 2), &reader->columns[COLUMNTYPE_cigar].data[read_cigar_beg], &rlen, &qlen);
     }
     if (rlen == 0) {
         rlen = 1;
     }
 
-
-    aln->l_data = l_qname+qname_nuls+l_cigar+l_seq+l_qual+l_tags;
-    aln->data = (uint8_t*)malloc(aln->l_data);
     aln->core.pos = pos;
     aln->core.tid = refID;
     aln->core.bin = bam_reg2bin(pos, pos + rlen);
@@ -275,12 +293,21 @@ void read_record(Reader* reader, int64_t rec_num, bam1_t* aln) {
     aln->core.mtid = next_refID;
     aln->core.mpos = next_pos;
     aln->core.isize = tlen;
-
-    memcpy(aln->data, qname, l_qname + qname_nuls);
-    memcpy(&aln->data[l_qname + qname_nuls], cigar, l_cigar);
-    memcpy(&aln->data[l_qname + qname_nuls + l_cigar], seq, l_seq);
-    memcpy(&aln->data[l_qname + qname_nuls + l_cigar + l_seq], qual, l_qual);
-    memcpy(&aln->data[l_qname + qname_nuls + l_cigar + l_seq + l_qual], tags, l_tags);
     
     return aln;
+}
+
+void close_reader(Reader *reader) {
+    bam_hdr_destroy(reader->header);
+
+    for (int i = 0; i < COLUMNTYPE_SIZE; i++) {
+        free(reader->columns[i].data);
+        free(reader->record_counts_per_column_chunk[i]);
+        free(reader->metadatas[i]);
+    }
+    free(reader->columns);
+    free(reader->metadatas); 
+    fclose(reader->fd);
+    free(reader);
+    reader = NULL;
 }

@@ -90,6 +90,8 @@ void parse_meta_from_json_string(char *json_str, Reader *reader) {
         reader->metadatas_lengths[i] = arr_size;
     }
 
+    json_object_put(root); // Free the JSON object
+
     reader->metadatas = array;
 
     return array;

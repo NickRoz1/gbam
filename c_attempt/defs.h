@@ -101,4 +101,5 @@ int write_bam_record(Writer *writer, bam1_t *aln);
 void close_writer(Writer *writer);
 
 Reader *make_reader(FILE *fp);
+void close_reader(Reader *reader);
 void read_record(Reader *reader, int64_t rec_num, bam1_t *aln);
