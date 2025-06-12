@@ -150,10 +150,6 @@ where
             let writer = &mut self.inner;
             let meta = &mut self.file_meta;
             let compress = &mut self.compressor;
-            println!(
-                "[DEBUG] finish flushing {} field. Num items {}",
-                inner.field, inner.block_num
-            );
 
             flush_field_buffer(writer, meta, compress, inner);
             if let Some(idx_inner) = idx {
@@ -286,13 +282,9 @@ impl Inner {
         // At this point everything should be flushed.
         debug_assert!(!self.flush_required(data));
 
-        // let limit = std::cmp::max(data.len(), SIZE_LIMIT);
-        // if self.buffer.len() < limit {
-        //     self.buffer.resize(limit, 0);
-        // }
-        let required_len = self.offset + data.len();
-        if self.buffer.len() < required_len {
-            self.buffer.resize(required_len, 0);
+        let limit = std::cmp::max(data.len(), SIZE_LIMIT);
+        if self.buffer.len() < limit {
+            self.buffer.resize(limit, 0);
         }
 
         self.buffer[self.offset..self.offset + data.len()].clone_from_slice(data);
@@ -305,8 +297,7 @@ impl Inner {
 
     pub fn flush_required(&self, data: &[u8]) -> bool {
         // At least one record will be written in even if it exceeds SIZE_LIMIT.
-        // self.offset > 0 && self.offset + data.len() > SIZE_LIMIT
-        false
+        self.offset > 0 && self.offset + data.len() > SIZE_LIMIT
     }
 
     pub fn reset_for_new_block(&mut self) {
