@@ -148,7 +148,7 @@ fn convert(args: Cli, full_command: String) {
     if args.sort {
         bam_sort_to_gbam(in_path, out_path, Codecs::Brotli, args.sort_temp_mode, args.temp_dir, full_command, args.index_sort);
     } else {
-        bam_to_gbam(in_path, out_path, Codecs::Brotli, full_command);
+        bam_to_gbam(in_path, out_path, Codecs::Lz4, full_command);
     }
 }
 
