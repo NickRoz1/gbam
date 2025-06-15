@@ -46,6 +46,8 @@ pub enum Codecs {
     Lz4,
     /// Brotli encoding
     Brotli,
+    /// ZSTD encoding
+    Zstd,
     /// No compression
     NoCompression,
 }

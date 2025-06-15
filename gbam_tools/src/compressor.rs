@@ -6,6 +6,7 @@ use super::Codecs;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use brotli::CompressorWriter;
+use zstd::stream::encode_all;
 // use lz4::EncoderBuilder;
 use std::io::Write;
 
@@ -144,6 +145,16 @@ pub fn compress(source: &[u8], mut dest: Vec<u8>, codec: Codecs) -> Vec<u8> {
                 writer.flush().unwrap();
             }
             Ok(dest)
+        },
+        Codecs::Zstd => {
+            // encode_all returns a Vec<u8>
+            match encode_all(source, 15) {
+                Ok(c) => Ok(c),
+                Err(_) => Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Zstd compression error",
+                )),
+            }
         },
         Codecs::NoCompression => {
             dest.clear();

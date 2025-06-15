@@ -192,6 +192,11 @@ pub fn decompress_block(source: &[u8], dest: &mut Vec<u8>, codec: &Codecs) -> st
             let mut decompressor = brotli::Decompressor::new(source, 4096);
             decompressor.read_to_end(dest)?;
         }
+        Codecs::Zstd => {
+            dest.clear();
+            let mut decoder = zstd::stream::Decoder::new(source)?;
+            decoder.read_to_end(dest)?;
+        }
         Codecs::NoCompression => {
             dest.clear();
             dest.extend_from_slice(source);
