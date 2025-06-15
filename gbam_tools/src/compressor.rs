@@ -119,7 +119,7 @@ impl Compressor {
 pub fn compress(source: &[u8], mut dest: Vec<u8>, codec: Codecs) -> Vec<u8> {
     let compressed_bytes = match codec {
         Codecs::Gzip => {
-            let mut encoder = GzEncoder::new(dest, Compression::best());
+            let mut encoder = GzEncoder::new(dest, Compression::default());
             encoder.write_all(source).unwrap();
             encoder.finish()
         }
