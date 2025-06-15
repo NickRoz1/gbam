@@ -119,7 +119,7 @@ impl Compressor {
 pub fn compress(source: &[u8], mut dest: Vec<u8>, codec: Codecs) -> Vec<u8> {
     let compressed_bytes = match codec {
         Codecs::Gzip => {
-            let mut encoder = GzEncoder::new(dest, Compression::default());
+            let mut encoder = GzEncoder::new(dest, Compression::best());
             encoder.write_all(source).unwrap();
             encoder.finish()
         }
@@ -140,7 +140,7 @@ pub fn compress(source: &[u8], mut dest: Vec<u8>, codec: Codecs) -> Vec<u8> {
         Codecs::Brotli => {
             dest.clear();
             {
-                let mut writer = CompressorWriter::new(&mut dest, 4096, 8, 22);
+                let mut writer = CompressorWriter::new(&mut dest, 4096, 11, 22);
                 writer.write_all(source).unwrap();
                 writer.flush().unwrap();
             }
