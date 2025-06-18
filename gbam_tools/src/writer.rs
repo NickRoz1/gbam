@@ -11,6 +11,8 @@ use std::borrow::Cow;
 use std::convert::TryInto;
 use std::convert::TryFrom;
 use std::io::{Seek, SeekFrom, Write};
+use std::collections::HashMap;
+use once_cell::sync::Lazy;
 
 pub(crate) struct BlockInfo {
     pub numitems: u32,
@@ -18,6 +20,7 @@ pub(crate) struct BlockInfo {
     pub field: Fields,
     // Interpretation is up to the reader.
     pub stats: Option<Stat>,
+    pub codec: Codecs,
 }
 
 impl Default for BlockInfo {
@@ -27,9 +30,36 @@ impl Default for BlockInfo {
             uncompr_size: 0,
             field: Fields::RefID,
             stats: None,
+            codec: Codecs::Brotli,
         }
     }
 }
+
+pub static FIELD_CODEC_MAP: Lazy<HashMap<Fields, Codecs>> = Lazy::new(|| {
+    use Fields::*;
+    use Codecs::*;
+
+    HashMap::from([
+        (RefID, Zstd),
+        (Pos, Zstd),
+        (Mapq, Brotli),
+        (Bin, Brotli),
+        (Flags, Brotli),
+        (NextRefID, Zstd),
+        (NextPos, Zstd),
+        (TemplateLength, Zstd),
+        (ReadName, Brotli),
+        (RawCigar, Brotli),
+        (RawSequence, Brotli),
+        (RawQual, Brotli),
+        (RawTags, Brotli),
+        (LName, Brotli),
+        (NCigar, Brotli),
+        (SequenceLength, Brotli),
+        (RawTagsLen, Brotli),
+        (RawSeqLen, Brotli),
+    ])
+});
 
 /// The data is held in blocks.
 ///
@@ -313,11 +343,13 @@ impl Inner {
         else{
             None
         };
+        let codec = *FIELD_CODEC_MAP.get(&self.field).expect("Missing codec mapping");
         BlockInfo {
             numitems: self.rec_count,
             uncompr_size: self.offset,
             field: self.field,
             stats: stat,
+            codec: codec,
         }
     }
 }

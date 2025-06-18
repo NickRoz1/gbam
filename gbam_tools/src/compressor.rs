@@ -82,7 +82,7 @@ impl Compressor {
             rayon::spawn(move || {
                 let mut buf = buf_queue_rx.recv().unwrap();
                 buf.clear();
-                let compr_data = compress(&data[..block_info.uncompr_size], buf, codec);
+                let compr_data = compress(&data[..block_info.uncompr_size], buf, block_info.codec);
                 buf_queue_tx.send(data).unwrap();
 
                 compressed_tx
