@@ -82,7 +82,7 @@ impl Compressor {
             rayon::spawn(move || {
                 let mut buf = buf_queue_rx.recv().unwrap();
                 buf.clear();
-                let compr_data = compress(&data[..block_info.uncompr_size], buf, codec);
+                let compr_data = compress(&data[..block_info.uncompr_size], buf, block_info.codec);
                 buf_queue_tx.send(data).unwrap();
 
                 compressed_tx
@@ -140,7 +140,7 @@ pub fn compress(source: &[u8], mut dest: Vec<u8>, codec: Codecs) -> Vec<u8> {
         Codecs::Brotli => {
             dest.clear();
             {
-                let mut writer = CompressorWriter::new(&mut dest, 4096, 11, 22);
+                let mut writer = CompressorWriter::new(&mut dest, 4096, 8, 22);
                 writer.write_all(source).unwrap();
                 writer.flush().unwrap();
             }
