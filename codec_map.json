@@ -1,0 +1,20 @@
+{
+  "RefID": "Brotli",
+  "Pos": "Brotli",
+  "Mapq": "Brotli",
+  "Bin": "Brotli",
+  "Flags": "Brotli",
+  "NextRefID": "Brotli",
+  "NextPos": "Brotli",
+  "TemplateLength": "Brotli",
+  "ReadName": "Zstd",
+  "RawCigar": "Brotli",
+  "RawSequence": "Brotli",
+  "RawQual": "Zstd",
+  "RawTags": "Zstd",
+  "LName": "Brotli",
+  "NCigar": "Brotli",
+  "SequenceLength": "Brotli",
+  "RawTagsLen": "Brotli",
+  "RawSeqLen": "Brotli"
+}
