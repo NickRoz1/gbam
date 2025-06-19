@@ -13,6 +13,10 @@ use std::convert::TryFrom;
 use std::io::{Seek, SeekFrom, Write};
 use std::collections::HashMap;
 use once_cell::sync::Lazy;
+use std::fs;
+use std::path::Path;
+use serde_json::Value;
+use std::str::FromStr;
 
 pub(crate) struct BlockInfo {
     pub numitems: u32,
@@ -36,29 +40,26 @@ impl Default for BlockInfo {
 }
 
 pub static FIELD_CODEC_MAP: Lazy<HashMap<Fields, Codecs>> = Lazy::new(|| {
-    use Fields::*;
-    use Codecs::*;
+    let path = Path::new("codec_map.json");
+    let json_str = fs::read_to_string(path).expect("Failed to read codec_map.json");
 
-    HashMap::from([
-        (RefID, Brotli),
-        (Pos, Brotli),
-        (Mapq, Brotli),
-        (Bin, Brotli),
-        (Flags, Brotli),
-        (NextRefID, Brotli),
-        (NextPos, Brotli),
-        (TemplateLength, Brotli),
-        (ReadName, Brotli),
-        (RawCigar, Brotli),
-        (RawSequence, Brotli),
-        (RawQual, Zstd),
-        (RawTags, Brotli),
-        (LName, Brotli),
-        (NCigar, Brotli),
-        (SequenceLength, Brotli),
-        (RawTagsLen, Brotli),
-        (RawSeqLen, Brotli),
-    ])
+    let parsed: Value = serde_json::from_str(&json_str).expect("Invalid JSON format");
+
+    let mut map = HashMap::new();
+    for (field_str, codec_str) in parsed.as_object().unwrap() {
+        let field = Fields::from_str(field_str)
+            .unwrap_or_else(|_| panic!("Unknown field in JSON: {}", field_str));
+        let codec = match codec_str.as_str().unwrap() {
+            "Brotli" => Codecs::Brotli,
+            "Zstd" => Codecs::Zstd,
+            "Lz4" => Codecs::Lz4,
+            "Gzip" => Codecs::Gzip,
+            "NoCompression" => Codecs::NoCompression,
+            other => panic!("Unsupported codec: {}", other),
+        };
+        map.insert(field, codec);
+    }
+    map
 });
 
 /// The data is held in blocks.
