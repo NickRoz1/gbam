@@ -178,7 +178,7 @@ void preload_chunks(Reader* reader, int64_t rec_num) {
     }
 }//
 
-bam1_t* read_record(Reader* reader, int64_t rec_num, bam1_t* aln) {
+void read_record(Reader* reader, int64_t rec_num, bam1_t* aln) {
     preload_chunks(reader, rec_num);
 
     int32_t refID = read_int32_le(&reader->columns[COLUMNTYPE_refID].data[ADJUSTED_OFFSET(COLUMNTYPE_refID) * sizeof(int32_t)]);
@@ -305,8 +305,6 @@ bam1_t* read_record(Reader* reader, int64_t rec_num, bam1_t* aln) {
     aln->core.mtid = next_refID;
     aln->core.mpos = next_pos;
     aln->core.isize = tlen;
-    
-    return aln;
 }
 
 void close_reader(Reader *reader) {
