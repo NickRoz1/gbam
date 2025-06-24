@@ -5,12 +5,15 @@
 #include <htslib/hts.h>
 #include <stdbool.h>
 #include <zlib.h>
+#include <lz4.h>
 
 
 #define ADJUSTED_OFFSET(COLUMNTYPE) \
     (rec_num-(reader->loaded_since_rec_num[COLUMNTYPE]))
 
 #define bam_reg2bin(beg,end) hts_reg2bin((beg),(end),14,5)
+
+void parse_meta_from_json_string(const char *json_str, Reader *reader);
 
 
 static void bam_cigar2rqlens(int n_cigar, const uint32_t *cigar,
@@ -147,7 +150,7 @@ void fetch_field(Reader* reader, int64_t rec_num, int64_t COLUMNTYPE){
                                     meta->uncompressed_size);
             if (decompressed_size < 0) {
                 printf("LZ4 decompression failed with error code: %d\n", decompressed_size);
-                return -1;
+                return;
             }
         }
         else{
@@ -175,7 +178,7 @@ void preload_chunks(Reader* reader, int64_t rec_num) {
     }
 }//
 
-void read_record(Reader* reader, int64_t rec_num, bam1_t* aln) {
+bam1_t* read_record(Reader* reader, int64_t rec_num, bam1_t* aln) {
     preload_chunks(reader, rec_num);
 
     int32_t refID = read_int32_le(&reader->columns[COLUMNTYPE_refID].data[ADJUSTED_OFFSET(COLUMNTYPE_refID) * sizeof(int32_t)]);

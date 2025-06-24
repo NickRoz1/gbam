@@ -13,7 +13,7 @@ int write_gbam(char* file_path){
     FILE *fp = fopen(file_path, "wb");
     if (!fp) {
         perror("Failed to open file for writing");
-        return;
+        return 1;
     }
 
     samFile *in = sam_open("-", "r");
@@ -24,7 +24,7 @@ int write_gbam(char* file_path){
 
     if (hts_set_threads(in, 8) != 0) {
         sam_close(fp);
-        return NULL;
+        return -1;
     }
 
     bam_hdr_t *header = sam_hdr_read(in);

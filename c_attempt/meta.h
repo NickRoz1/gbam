@@ -99,5 +99,5 @@ void parse_meta_from_json_string(char *json_str, Reader *reader) {
 
     reader->metadatas = array;
 
-    return array;
+    // return array;
 }
