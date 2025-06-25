@@ -45,10 +45,11 @@ void write_meta(FILE *fp, ColumnChunkMeta **array, size_t size) {
     fprintf(fp, "}\n\0");
 }
 
-void write_header(FILE *fp, int64_t seekpos, int64_t meta_size) {
+void write_header(FILE *fp, int64_t seekpos, int64_t meta_size, int64_t header_len) {
     fprintf(fp, "{");
     fprintf(fp, "\"seekpos\": %lld,\n", (long long)seekpos);
-    fprintf(fp, "\"meta_size\": %lld\n", (long long)meta_size);
+    fprintf(fp, "\"meta_size\": %lld,\n", (long long)meta_size);
+    fprintf(fp, "\"header_len\": %lld\n", (long long)header_len);
     fprintf(fp, "}\0");
 }
 

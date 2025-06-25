@@ -51,6 +51,13 @@ Reader* make_reader(char* file){
         meta_size = json_object_get_int64(meta_size_obj);
     }
 
+    int64_t header_len = -1;
+    struct json_object *header_len_obj;
+    if (json_object_object_get_ex(root, "header_len", &header_len_obj)) {
+        header_len = json_object_get_int64(header_len_obj);
+    }
+    assert(header_len > 0);
+
     json_object_put(root); 
 
 
@@ -62,7 +69,12 @@ Reader* make_reader(char* file){
     parse_meta_from_json_string(file+seekpos, reader);
 
     reader->mmaped_file = file;
-    reader->header = sam_hdr_parse(strlen(file+seekpos+meta_size), file+seekpos+meta_size);
+    // reader->header = sam_hdr_parse(strlen(file+seekpos+meta_size), file+seekpos+meta_size); <- this doesn't work
+    // because strlen(...) calculates length until the first \0 byte, which is not guaranteed in binary data.
+    int32_t *header_len_ptr = (int32_t *)(file + seekpos + meta_size);
+    char *header_start = (char *)(header_len_ptr + 1);
+    assert(*header_len_ptr == header_len);  // Sanity check to confirm the calculated header length is matched with the header length stored in the metadata.
+    reader->header = sam_hdr_parse(*header_len_ptr, header_start);
     reader->rec_num = 0;
     reader->columns = (Column*)calloc(COLUMNTYPE_SIZE, sizeof(Column));
 

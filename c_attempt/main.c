@@ -106,6 +106,10 @@ int read_gbam(char* file_path){
     setvbuf(stdout, stdout_buffer, _IOFBF, sizeof(stdout_buffer));
     kstring_t str = {0, 0, NULL};
 
+    htsFile *fp = hts_open("-", "w");  // "-" means stdout
+    sam_hdr_write(fp, reader->header);
+    hts_close(fp);
+
     for (int i = 0; i < reader->rec_num; i++) {
         read_record(reader, i, aln);
 

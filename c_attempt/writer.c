@@ -223,16 +223,11 @@ void check_and_dump_if_full(Writer *writer, bool force_dump) {
                 void* compressed_data = NULL;
                 size_t compressed_size = 0;
 
-                printf("Compressing column %d: original size = %ld\n", i, columns[i].cur_ptr);
                 if (compress_buffer_brotli(columns[i].data, columns[i].cur_ptr,
                                         (uint8_t**)&compressed_data, &compressed_size) != 0) {
                     fprintf(stderr, "Failed to compress column data with Brotli\n");
                     exit(1);
                 }
-                printf("Compressed size with Brotli = %ld\n", compressed_size);
-
-                printf("Writing Brotli-compressed chunk: original=%ld compressed=%ld\n",
-                    columns[i].cur_ptr, compressed_size);
 
                 written = fwrite(compressed_data, 1, compressed_size, writer->fd);
                 free(compressed_data);
@@ -332,11 +327,13 @@ void close_writer(Writer *writer) {
     fprintf(writer->fd, "\0");
     int64_t meta_size = ftell(writer->fd)-cur_file_offset;
     // Write SAM header after the metadata
-    fprintf(writer->fd, sam_hdr_str(writer->header));
+    int32_t header_len = sam_hdr_length(writer->header);  // Get header length
+    fwrite(&header_len, sizeof(int32_t), 1, writer->fd);  // Write length prefix
+    fwrite(sam_hdr_str(writer->header), 1, header_len, writer->fd);  // Write actual header
     // TODO: Save crc32 also and everything we had in GBAM..
     // Seek beginning of the file to write the header
     fseek(writer->fd, 0, SEEK_SET);
-    write_header(writer->fd, cur_file_offset, meta_size);
+    write_header(writer->fd, cur_file_offset, meta_size, header_len);
 
     // Free allocated memory for columns and metadata
     for (int i = 0; i < COLUMNTYPE_SIZE; i++) {
