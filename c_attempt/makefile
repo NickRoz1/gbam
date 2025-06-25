@@ -2,7 +2,7 @@
 CC = gcc
 CFLAGS = -O3 -g -fno-omit-frame-pointer 
 
-LDFLAGS = -ljson-c -lhts -lz -llz4
+LDFLAGS = -ljson-c -lhts -lz -llz4 -lbrotlidec -lbrotlienc
 
 # Source and object files
 SRCS = main.c reader.c writer.c
