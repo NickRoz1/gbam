@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <zlib.h>
 #include <lz4.h>
+#include <brotli/decode.h>
 
 
 #define ADJUSTED_OFFSET(COLUMNTYPE) \
@@ -151,6 +152,27 @@ void fetch_field(Reader* reader, int64_t rec_num, int64_t COLUMNTYPE){
             if (decompressed_size < 0) {
                 printf("LZ4 decompression failed with error code: %d\n", decompressed_size);
                 return;
+            }
+        }
+        else if(strcmp(meta->codec, "brotli") == 0){
+            size_t decompressed_size = meta->uncompressed_size;
+            size_t compressed_size = meta->compressed_size;
+
+            if (reader->m_chunk_memory[COLUMNTYPE] < decompressed_size) {
+                // resize buffer to expected size
+                free(reader->columns[COLUMNTYPE].data);
+                reader->columns[COLUMNTYPE].data = (uint8_t*)malloc(decompressed_size);
+                reader->m_chunk_memory[COLUMNTYPE] = decompressed_size;
+            }
+
+            BrotliDecoderResult res = BrotliDecoderDecompress(
+                compressed_size, (const uint8_t*)read_buffer,
+                &decompressed_size, reader->columns[COLUMNTYPE].data);
+
+            if (res != BROTLI_DECODER_RESULT_SUCCESS || decompressed_size != meta->uncompressed_size) {
+                fprintf(stderr, "Failed to decompress Brotli data or unexpected size (got %zu, expected %zu)\n",
+                        decompressed_size, meta->uncompressed_size);
+                exit(1);
             }
         }
         else{

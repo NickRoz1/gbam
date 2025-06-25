@@ -9,6 +9,7 @@
 #include "meta.h"
 #include <zlib.h>
 #include <lz4.h>
+#include <brotli/encode.h>
 
 #define WRITE_INDEX_COLUMN(COL_NAME)                                                                                                                 \
     write_int32_le(&columns[COL_NAME].index_column->data[columns[COL_NAME].index_column->cur_ptr], columns[COL_NAME].cur_ptr); \
@@ -99,6 +100,47 @@ int compress_buffer(const void* input_data, size_t input_size,
     return Z_OK;
 }
 
+// int compress_buffer_brotli(const uint8_t* input, size_t input_size,
+//                            uint8_t** output, size_t* output_size) {
+//     size_t max_compressed_size = BrotliEncoderMaxCompressedSize(input_size);
+//     *output = malloc(max_compressed_size);
+//     if (*output == NULL) return -1;
+
+//     *output_size = max_compressed_size;
+
+//     if (!BrotliEncoderCompress(
+//             5, BROTLI_DEFAULT_WINDOW, BROTLI_MODE_GENERIC,
+//             input_size, input, output_size, *output)) {
+//         free(*output);
+//         *output = NULL;
+//         return -1;
+//     }
+
+//     return 0;
+// }
+
+int compress_buffer_brotli(const uint8_t* input, size_t input_size,
+                           uint8_t** output, size_t* output_size) {
+    size_t max_compressed_size = BrotliEncoderMaxCompressedSize(input_size);
+    uint8_t* temp_output = malloc(max_compressed_size);
+    if (temp_output == NULL) return -1;
+
+    size_t actual_size = max_compressed_size;
+
+    BROTLI_BOOL result = BrotliEncoderCompress(
+        5, BROTLI_DEFAULT_WINDOW, BROTLI_MODE_GENERIC,
+        input_size, input, &actual_size, temp_output);
+
+    if (!result) {
+        free(temp_output);
+        *output = NULL;
+        return -1;
+    }
+
+    *output = temp_output;
+    *output_size = actual_size;
+    return 0;
+}
 
 int compress_data_lz4(const char* source, int source_size, 
                      char** compressed, int* compressed_size) {
@@ -141,10 +183,10 @@ void check_and_dump_if_full(Writer *writer, bool force_dump) {
             metadata->file_offset = ftell(writer->fd);
             metadata->uncompressed_size += columns[i].cur_ptr;
 
-            char* codec_to_use = "lz4";
+            char* codec_to_use = "brotli";
 
 
-            memcpy(metadata->codec, codec_to_use, 4); 
+            memcpy(metadata->codec, codec_to_use, strlen(codec_to_use) + 1);
 
             ssize_t written = 0;
 
@@ -177,6 +219,25 @@ void check_and_dump_if_full(Writer *writer, bool force_dump) {
                 written = fwrite(compressed_data, 1, compressed_size, writer->fd);
                 free(compressed_data);
             }
+            else if(strcmp(metadata->codec, "brotli") == 0){
+                void* compressed_data = NULL;
+                size_t compressed_size = 0;
+
+                printf("Compressing column %d: original size = %ld\n", i, columns[i].cur_ptr);
+                if (compress_buffer_brotli(columns[i].data, columns[i].cur_ptr,
+                                        (uint8_t**)&compressed_data, &compressed_size) != 0) {
+                    fprintf(stderr, "Failed to compress column data with Brotli\n");
+                    exit(1);
+                }
+                printf("Compressed size with Brotli = %ld\n", compressed_size);
+
+                printf("Writing Brotli-compressed chunk: original=%ld compressed=%ld\n",
+                    columns[i].cur_ptr, compressed_size);
+
+                written = fwrite(compressed_data, 1, compressed_size, writer->fd);
+                free(compressed_data);
+            }
+
             else{
                 written = fwrite(columns[i].data, 1, columns[i].cur_ptr, writer->fd);
             }

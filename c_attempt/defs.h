@@ -58,7 +58,7 @@ typedef struct ColumnChunkMeta
     int64_t file_offset;       // offset in the file where this column starts
     int64_t uncompressed_size; // size of the uncompressed data
     int64_t compressed_size;   // size of the compressed data
-    char codec[5]; // codec used for compression, 0 for no compression
+    char codec[7]; // codec used for compression, 0 for no compression
     struct ColumnChunkMeta *next;      // pointer to the next metadata chunk
     struct ColumnChunkMeta *prev;      // pointer to the next metadata chunk
 } ColumnChunkMeta;
