@@ -77,6 +77,7 @@ typedef struct  {
     Column *columns;
     ColumnChunkMeta **metadatas; // Pointer to metadata for each column
     int64_t cur_chunk_rec_num[COLUMNTYPE_SIZE] ; // Number of records in the current chunk for each column
+    char codec_map[COLUMNTYPE_SIZE][8];
 } Writer;
 
 typedef struct {

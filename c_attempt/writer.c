@@ -10,6 +10,7 @@
 #include <zlib.h>
 #include <lz4.h>
 #include <brotli/encode.h>
+#include <json-c/json.h>
 
 #define WRITE_INDEX_COLUMN(COL_NAME)                                                                                                                 \
     write_int32_le(&columns[COL_NAME].index_column->data[columns[COL_NAME].index_column->cur_ptr], columns[COL_NAME].cur_ptr); \
@@ -44,6 +45,42 @@ void init_columns(Writer *writer) {
 
 }
 
+void load_codec_map(const char* json_path, Writer* writer) {
+    FILE *fp = fopen(json_path, "r");
+    if (!fp) {
+        perror("Could not open codec map file");
+        exit(1);
+    }
+
+    fseek(fp, 0, SEEK_END);
+    long len = ftell(fp);
+    rewind(fp);
+
+    char *buffer = malloc(len + 1);
+    fread(buffer, 1, len, fp);
+    buffer[len] = '\0';
+    fclose(fp);
+
+    struct json_object *root = json_tokener_parse(buffer);
+    if (!root) {
+        fprintf(stderr, "Invalid JSON in codec map\n");
+        free(buffer);
+        exit(1);
+    }
+
+    for (int i = 0; i < COLUMNTYPE_SIZE; i++) {
+        struct json_object *val;
+        if (json_object_object_get_ex(root, ColumnTypeNames[i], &val)) {
+            strncpy(writer->codec_map[i], json_object_get_string(val), sizeof(writer->codec_map[i]) - 1);
+        } else {
+            strcpy(writer->codec_map[i], "none");  // default if not specified
+        }
+    }
+
+    json_object_put(root);
+    free(buffer);
+}
+
 Writer* create_writer(FILE* fd, bam_hdr_t *header) {
     Writer *writer = calloc(1, sizeof(Writer));
     if (!writer) {
@@ -62,6 +99,8 @@ Writer* create_writer(FILE* fd, bam_hdr_t *header) {
     writer->metadatas = NULL;
     writer->header = header;
     writer->columns = NULL; // Initialize columns to NULL
+
+    load_codec_map("codec_map.json", writer);
 
     init_columns(writer);
 
@@ -183,10 +222,14 @@ void check_and_dump_if_full(Writer *writer, bool force_dump) {
             metadata->file_offset = ftell(writer->fd);
             metadata->uncompressed_size += columns[i].cur_ptr;
 
-            char* codec_to_use = "brotli";
+            // char* codec_to_use = "brotli";
 
 
-            memcpy(metadata->codec, codec_to_use, strlen(codec_to_use) + 1);
+            // memcpy(metadata->codec, codec_to_use, strlen(codec_to_use) + 1);
+
+            const char* codec_to_use = writer->codec_map[i];
+            strncpy(metadata->codec, codec_to_use, sizeof(metadata->codec) - 1);
+            metadata->codec[sizeof(metadata->codec) - 1] = '\0';
 
             ssize_t written = 0;
 
