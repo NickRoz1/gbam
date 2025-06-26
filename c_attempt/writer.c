@@ -11,6 +11,7 @@
 #include <lz4.h>
 #include <brotli/encode.h>
 #include <json-c/json.h>
+#include <zstd.h>
 
 #define WRITE_INDEX_COLUMN(COL_NAME)                                                                                                                 \
     write_int32_le(&columns[COL_NAME].index_column->data[columns[COL_NAME].index_column->cur_ptr], columns[COL_NAME].cur_ptr); \
@@ -158,6 +159,22 @@ int compress_buffer(const void* input_data, size_t input_size,
 //     return 0;
 // }
 
+int compress_buffer_zstd(const void* input, size_t input_size,
+                         void** output, size_t* output_size) {
+    size_t bound = ZSTD_compressBound(input_size);
+    *output = malloc(bound);
+    if (!*output) return 1;
+
+    size_t actual = ZSTD_compress(*output, bound, input, input_size, 3);
+    if (ZSTD_isError(actual)) {
+        fprintf(stderr, "Zstd compression error: %s\n", ZSTD_getErrorName(actual));
+        free(*output);
+        return 1;
+    }
+    *output_size = actual;
+    return 0;
+}
+
 int compress_buffer_brotli(const uint8_t* input, size_t input_size,
                            uint8_t** output, size_t* output_size) {
     size_t max_compressed_size = BrotliEncoderMaxCompressedSize(input_size);
@@ -275,7 +292,17 @@ void check_and_dump_if_full(Writer *writer, bool force_dump) {
                 written = fwrite(compressed_data, 1, compressed_size, writer->fd);
                 free(compressed_data);
             }
+            else if(strcmp(metadata->codec, "zstd") == 0){
+                void* compressed_data = NULL;
+                size_t compressed_size = 0;
 
+                if (compress_buffer_zstd(columns[i].data, columns[i].cur_ptr, &compressed_data, &compressed_size) != 0) {
+                    fprintf(stderr, "Zstd compression failed\n");
+                    exit(1);
+                }
+                written = fwrite(compressed_data, 1, compressed_size, writer->fd);
+                free(compressed_data);
+            }
             else{
                 written = fwrite(columns[i].data, 1, columns[i].cur_ptr, writer->fd);
             }

@@ -7,6 +7,7 @@
 #include <zlib.h>
 #include <lz4.h>
 #include <brotli/decode.h>
+#include <zstd.h>
 
 
 #define ADJUSTED_OFFSET(COLUMNTYPE) \
@@ -184,6 +185,14 @@ void fetch_field(Reader* reader, int64_t rec_num, int64_t COLUMNTYPE){
             if (res != BROTLI_DECODER_RESULT_SUCCESS || decompressed_size != meta->uncompressed_size) {
                 fprintf(stderr, "Failed to decompress Brotli data or unexpected size (got %zu, expected %zu)\n",
                         decompressed_size, meta->uncompressed_size);
+                exit(1);
+            }
+        }
+        else if(strcmp(meta->codec, "zstd") == 0){
+            size_t result = ZSTD_decompress(reader->columns[COLUMNTYPE].data, meta->uncompressed_size,
+                                            read_buffer, meta->compressed_size);
+            if (ZSTD_isError(result) || result != meta->uncompressed_size) {
+                fprintf(stderr, "Zstd decompression failed: %s\n", ZSTD_getErrorName(result));
                 exit(1);
             }
         }
