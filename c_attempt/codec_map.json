@@ -1,0 +1,21 @@
+{
+    "COLUMNTYPE_refID": "brotli",
+    "COLUMNTYPE_pos": "brotli",
+    "COLUMNTYPE_mapq": "zlib",
+    "COLUMNTYPE_bin": "zlib",
+    "COLUMNTYPE_flag": "zlib",
+    "COLUMNTYPE_next_refID": "zlib",
+    "COLUMNTYPE_next_pos": "zlib",
+    "COLUMNTYPE_tlen": "zlib",
+    "COLUMNTYPE_read_name": "zlib",
+    "COLUMNTYPE_cigar": "brotli",
+    "COLUMNTYPE_seq": "lz4",
+    "COLUMNTYPE_qual": "zlib",
+    "COLUMNTYPE_tags": "brotli",
+    "COLUMNTYPE_index_read_name": "zlib",
+    "COLUMNTYPE_index_cigar": "zlib",
+    "COLUMNTYPE_index_seq": "zlib",
+    "COLUMNTYPE_index_tags": "zlib",
+    "COLUMNTYPE_index_qual": "zlib"
+  }
+  
