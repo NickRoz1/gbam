@@ -7,8 +7,13 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <sys/stat.h>
+#include <time.h>
+
+void print_progress_eta(int count, time_t start_time);
 
 int write_gbam(char* file_path){
+    time_t start_time = time(NULL);
+    int record_count = 0;
     // Open the file for writing
     FILE *fp = fopen(file_path, "wb");
     if (!fp) {
@@ -62,7 +67,11 @@ int write_gbam(char* file_path){
             fclose(fp);
             return 1;
         }
+        record_count++;
+        print_progress_eta(record_count, start_time);
     }
+
+    printf("\nCompleted writing %d records.\n", record_count);
 
     close_writer(writer);
 
@@ -128,6 +137,25 @@ int read_gbam(char* file_path){
     close(fd);
 
     return 0;
+}
+
+void print_progress_eta(int count, time_t start_time) {
+    if (count % 1000 != 0) return;  // throttle updates
+
+    time_t now = time(NULL);
+    double elapsed = difftime(now, start_time);
+    if (elapsed < 1.0) elapsed = 1.0;  // avoid division by zero
+
+    double records_per_sec = count / elapsed;
+    int est_total = (int)(elapsed > 5 ? (count * 1.3) : (count * 2));  // dynamic guess
+    int est_remaining = est_total - count;
+    int eta_seconds = (int)(est_remaining / records_per_sec);
+
+    int mins = eta_seconds / 60;
+    int secs = eta_seconds % 60;
+
+    printf("\rProcessed: %d | Speed: %.1f rec/s | ETA: %02d:%02d", count, records_per_sec, mins, secs);
+    fflush(stdout);
 }
 
 int main(int argc, char *argv[]) {
