@@ -1,6 +1,6 @@
 # Compiler and flags
 CC = gcc
-CFLAGS = -O3 -g -fno-omit-frame-pointer 
+CFLAGS = -O3 -g -fno-omit-frame-pointer -fsanitize=address
 
 LDFLAGS = -ljson-c -lhts -lz -llz4 -lbrotlidec -lbrotlienc -lzstd
 

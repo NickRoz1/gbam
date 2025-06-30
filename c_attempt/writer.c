@@ -17,6 +17,8 @@
     write_int32_le(&columns[COL_NAME].index_column->data[columns[COL_NAME].index_column->cur_ptr], columns[COL_NAME].cur_ptr); \
     columns[COL_NAME].index_column->cur_ptr += sizeof(int32_t);
 
+FILE *log_fp = NULL;
+
 void init_columns(Writer *writer) {
     // Allocate memory for columns
     writer->columns = malloc(sizeof(Column) * COLUMNTYPE_SIZE); 
@@ -89,6 +91,12 @@ Writer* create_writer(FILE* fd, bam_hdr_t *header) {
         return NULL;
     }
     writer->fd = fd;
+
+    log_fp = fopen("compression_log.txt", "w");
+    if (!log_fp) {
+        perror("Failed to open compression log file");
+        exit(1);
+    }
     
     // Reserve space for the header
     if (fseek(writer->fd, 1000, SEEK_SET) != 0) {
@@ -184,7 +192,7 @@ int compress_buffer_brotli(const uint8_t* input, size_t input_size,
     size_t actual_size = max_compressed_size;
 
     BROTLI_BOOL result = BrotliEncoderCompress(
-        5, BROTLI_DEFAULT_WINDOW, BROTLI_MODE_GENERIC,
+        8, BROTLI_DEFAULT_WINDOW, BROTLI_MODE_GENERIC,
         input_size, input, &actual_size, temp_output);
 
     if (!result) {
@@ -289,6 +297,16 @@ void check_and_dump_if_full(Writer *writer, bool force_dump) {
                     exit(1);
                 }
 
+                if (log_fp && columns[i].cur_ptr > 0) {
+                    fprintf(log_fp,
+                        "Field: %s, Uncompressed Size: %ld, Compressed Size: %ld\n",
+                        ColumnTypeNames[i],
+                        metadata->uncompressed_size,
+                        compressed_size
+                    );
+                    fflush(log_fp); // optional but helpful for real-time viewing
+                }
+
                 written = fwrite(compressed_data, 1, compressed_size, writer->fd);
                 free(compressed_data);
             }
@@ -359,8 +377,12 @@ int write_bam_record(Writer *writer, bam1_t *aln) {
     // TODO: handle when input cigar is bigger than MAX_COLUMN_CHUNK_SIZE (reallocate, extend buffer)
     {
         // l_extranul is not correct apparently. Strlen is slow but no other option...
-        memcpy(&columns[COLUMNTYPE_read_name].data[columns[COLUMNTYPE_read_name].cur_ptr], bam_get_qname(aln), strlen(bam_get_qname(aln)));
-        columns[COLUMNTYPE_read_name].cur_ptr += strlen(bam_get_qname(aln)); // Exclude the trailing null byte
+        memcpy(&columns[COLUMNTYPE_read_name].data[columns[COLUMNTYPE_read_name].cur_ptr], bam_get_qname(aln), strlen(bam_get_qname(aln)) + 1);
+        columns[COLUMNTYPE_read_name].cur_ptr += strlen(bam_get_qname(aln)) + 1; // Exclude the trailing null byte
+        // int l_qname = aln->core.l_qname;
+        // memcpy(&columns[COLUMNTYPE_read_name].data[columns[COLUMNTYPE_read_name].cur_ptr],
+        //     bam_get_qname(aln), l_qname);
+        // columns[COLUMNTYPE_read_name].cur_ptr += l_qname;
         WRITE_INDEX_COLUMN(COLUMNTYPE_read_name)
         
         memcpy(&columns[COLUMNTYPE_cigar].data[columns[COLUMNTYPE_cigar].cur_ptr], (char*)bam_get_cigar(aln), aln->core.n_cigar<<2);
@@ -418,4 +440,9 @@ void close_writer(Writer *writer) {
     
     // Free the writer itself
     free(writer);
+
+    if (log_fp) {
+        fclose(log_fp);
+        log_fp = NULL;
+    }
 }

@@ -289,10 +289,10 @@ void read_record(Reader* reader, int64_t rec_num, bam1_t* aln) {
     {
         default_name = true;
         l_qname = 1;
-        qname_nuls = 4 - l_qname % 4;
+        qname_nuls = 0;
     }
     else{
-        qname_nuls = 4 - l_qname % 4;
+        qname_nuls = 0;
     }
 
     uint64_t bytes_we_need = l_qname + qname_nuls + l_cigar + l_seq + l_qual + l_tags;
@@ -314,9 +314,7 @@ void read_record(Reader* reader, int64_t rec_num, bam1_t* aln) {
     }
     else{
         memcpy(aln->data, 
-           &reader->columns[COLUMNTYPE_read_name].data[read_name_beg], l_qname);
-        for (int i = 0; i < qname_nuls; i++) 
-            aln->data[l_qname + i] = '\0'; // Fill with null bytes
+            &reader->columns[COLUMNTYPE_read_name].data[read_name_beg], l_qname);
     }
     
     memcpy(&aln->data[l_qname + qname_nuls], 
@@ -340,9 +338,9 @@ void read_record(Reader* reader, int64_t rec_num, bam1_t* aln) {
     aln->core.tid = refID;
     aln->core.bin = bam_reg2bin(pos, pos + rlen);
     aln->core.qual = mapq;
-    aln->core.l_extranul = (uint8_t)(qname_nuls - 1);
+    aln->core.l_extranul = 0;
     aln->core.flag = flag;
-    aln->core.l_qname = (uint16_t)(l_qname + qname_nuls);
+    aln->core.l_qname = (uint16_t)(l_qname);
     aln->core.n_cigar = (uint32_t)(l_cigar >> 2); // l_cigar is in bytes, n_cigar is in 32-bit words
     aln->core.l_qseq = (int32_t)l_qual;
     aln->core.mtid = next_refID;
