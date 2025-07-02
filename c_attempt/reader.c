@@ -5,12 +5,17 @@
 #include <htslib/hts.h>
 #include <stdbool.h>
 #include <zlib.h>
+#include <lz4.h>
+#include <brotli/decode.h>
+#include <zstd.h>
 
 
 #define ADJUSTED_OFFSET(COLUMNTYPE) \
     (rec_num-(reader->loaded_since_rec_num[COLUMNTYPE]))
 
 #define bam_reg2bin(beg,end) hts_reg2bin((beg),(end),14,5)
+
+void parse_meta_from_json_string(const char *json_str, Reader *reader);
 
 
 static void bam_cigar2rqlens(int n_cigar, const uint32_t *cigar,
@@ -47,6 +52,13 @@ Reader* make_reader(char* file){
         meta_size = json_object_get_int64(meta_size_obj);
     }
 
+    int64_t header_len = -1;
+    struct json_object *header_len_obj;
+    if (json_object_object_get_ex(root, "header_len", &header_len_obj)) {
+        header_len = json_object_get_int64(header_len_obj);
+    }
+    assert(header_len > 0);
+
     json_object_put(root); 
 
 
@@ -58,7 +70,12 @@ Reader* make_reader(char* file){
     parse_meta_from_json_string(file+seekpos, reader);
 
     reader->mmaped_file = file;
-    reader->header = sam_hdr_parse(strlen(file+seekpos+meta_size), file+seekpos+meta_size);
+    // reader->header = sam_hdr_parse(strlen(file+seekpos+meta_size), file+seekpos+meta_size); <- this doesn't work
+    // because strlen(...) calculates length until the first \0 byte, which is not guaranteed in binary data.
+    int32_t *header_len_ptr = (int32_t *)(file + seekpos + meta_size);
+    char *header_start = (char *)(header_len_ptr + 1);
+    assert(*header_len_ptr == header_len);  // Sanity check to confirm the calculated header length is matched with the header length stored in the metadata.
+    reader->header = sam_hdr_parse(*header_len_ptr, header_start);
     reader->rec_num = 0;
     reader->columns = (Column*)calloc(COLUMNTYPE_SIZE, sizeof(Column));
 
@@ -147,7 +164,36 @@ void fetch_field(Reader* reader, int64_t rec_num, int64_t COLUMNTYPE){
                                     meta->uncompressed_size);
             if (decompressed_size < 0) {
                 printf("LZ4 decompression failed with error code: %d\n", decompressed_size);
-                return -1;
+                return;
+            }
+        }
+        else if(strcmp(meta->codec, "brotli") == 0){
+            size_t decompressed_size = meta->uncompressed_size;
+            size_t compressed_size = meta->compressed_size;
+
+            if (reader->m_chunk_memory[COLUMNTYPE] < decompressed_size) {
+                // resize buffer to expected size
+                free(reader->columns[COLUMNTYPE].data);
+                reader->columns[COLUMNTYPE].data = (uint8_t*)malloc(decompressed_size);
+                reader->m_chunk_memory[COLUMNTYPE] = decompressed_size;
+            }
+
+            BrotliDecoderResult res = BrotliDecoderDecompress(
+                compressed_size, (const uint8_t*)read_buffer,
+                &decompressed_size, reader->columns[COLUMNTYPE].data);
+
+            if (res != BROTLI_DECODER_RESULT_SUCCESS || decompressed_size != meta->uncompressed_size) {
+                fprintf(stderr, "Failed to decompress Brotli data or unexpected size (got %zu, expected %zu)\n",
+                        decompressed_size, meta->uncompressed_size);
+                exit(1);
+            }
+        }
+        else if(strcmp(meta->codec, "zstd") == 0){
+            size_t result = ZSTD_decompress(reader->columns[COLUMNTYPE].data, meta->uncompressed_size,
+                                            read_buffer, meta->compressed_size);
+            if (ZSTD_isError(result) || result != meta->uncompressed_size) {
+                fprintf(stderr, "Zstd decompression failed: %s\n", ZSTD_getErrorName(result));
+                exit(1);
             }
         }
         else{
@@ -243,10 +289,10 @@ void read_record(Reader* reader, int64_t rec_num, bam1_t* aln) {
     {
         default_name = true;
         l_qname = 1;
-        qname_nuls = 4 - l_qname % 4;
+        qname_nuls = 0;
     }
     else{
-        qname_nuls = 4 - l_qname % 4;
+        qname_nuls = 0;
     }
 
     uint64_t bytes_we_need = l_qname + qname_nuls + l_cigar + l_seq + l_qual + l_tags;
@@ -268,9 +314,7 @@ void read_record(Reader* reader, int64_t rec_num, bam1_t* aln) {
     }
     else{
         memcpy(aln->data, 
-           &reader->columns[COLUMNTYPE_read_name].data[read_name_beg], l_qname);
-        for (int i = 0; i < qname_nuls; i++) 
-            aln->data[l_qname + i] = '\0'; // Fill with null bytes
+            &reader->columns[COLUMNTYPE_read_name].data[read_name_beg], l_qname);
     }
     
     memcpy(&aln->data[l_qname + qname_nuls], 
@@ -294,16 +338,14 @@ void read_record(Reader* reader, int64_t rec_num, bam1_t* aln) {
     aln->core.tid = refID;
     aln->core.bin = bam_reg2bin(pos, pos + rlen);
     aln->core.qual = mapq;
-    aln->core.l_extranul = (uint8_t)(qname_nuls - 1);
+    aln->core.l_extranul = 0;
     aln->core.flag = flag;
-    aln->core.l_qname = (uint16_t)(l_qname + qname_nuls);
+    aln->core.l_qname = (uint16_t)(l_qname);
     aln->core.n_cigar = (uint32_t)(l_cigar >> 2); // l_cigar is in bytes, n_cigar is in 32-bit words
     aln->core.l_qseq = (int32_t)l_qual;
     aln->core.mtid = next_refID;
     aln->core.mpos = next_pos;
     aln->core.isize = tlen;
-    
-    return aln;
 }
 
 void close_reader(Reader *reader) {
