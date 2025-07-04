@@ -10,10 +10,17 @@ use zstd::stream::encode_all;
 // use lz4::EncoderBuilder;
 use std::io::Write;
 
+use std::sync::{Mutex, OnceLock};
+use std::fmt::Write as FmtWrite; // For formatting into String
+use bam_tools::record::fields::Fields;
+use std::fs::File;
+
 // use lz4_flex::block::{compress_into, get_maximum_output_size};
 use lzzzz::lz4;
 
 use crate::writer::BlockInfo;
+
+static LOG_FILE: OnceLock<Mutex<File>> = OnceLock::new();
 
 pub(crate) enum OrderingKey {
     Key(u64),
@@ -84,6 +91,22 @@ impl Compressor {
                 buf.clear();
                 let compr_data = compress(&data[..block_info.uncompr_size], buf, block_info.codec);
                 buf_queue_tx.send(data).unwrap();
+
+                let field_name = format!("{:?}", block_info.field);
+                let uncompressed_size = block_info.uncompr_size;
+                let compressed_size = compr_data.len();
+
+                let log_line = format!(
+                    "Field: {}, Uncompressed: {}, Compressed: {}\n",
+                    field_name, uncompressed_size, compressed_size
+                );
+
+                let file = LOG_FILE.get_or_init(|| {
+                    Mutex::new(File::create("compression_log.txt").expect("Failed to open log file"))
+                });
+
+                let mut log_file = file.lock().unwrap();
+                log_file.write_all(log_line.as_bytes()).unwrap();
 
                 compressed_tx
                     .send(CompressTask {
