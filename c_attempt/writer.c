@@ -417,12 +417,13 @@ void close_writer(Writer *writer) {
     const int64_t cur_file_offset = ftell(writer->fd);
     write_meta(writer->fd, writer->metadatas, COLUMNTYPE_SIZE);
     fprintf(writer->fd, "\0");
-    int64_t meta_size = ftell(writer->fd)-cur_file_offset;
+    int64_t meta_size = ftell(writer->fd) - cur_file_offset;
+
     // Write SAM header after the metadata
-    int32_t header_len = sam_hdr_length(writer->header);  // Get header length
-    fwrite(&header_len, sizeof(int32_t), 1, writer->fd);  // Write length prefix
-    fwrite(sam_hdr_str(writer->header), 1, header_len, writer->fd);  // Write actual header
-    // TODO: Save crc32 also and everything we had in GBAM..
+    int32_t header_len = sam_hdr_length(writer->header);
+    fwrite(&header_len, sizeof(int32_t), 1, writer->fd);
+    fwrite(sam_hdr_str(writer->header), 1, header_len, writer->fd);
+
     // Seek beginning of the file to write the header
     fseek(writer->fd, 0, SEEK_SET);
     write_header(writer->fd, cur_file_offset, meta_size, header_len);
@@ -430,15 +431,23 @@ void close_writer(Writer *writer) {
     // Free allocated memory for columns and metadata
     for (int i = 0; i < COLUMNTYPE_SIZE; i++) {
         free(writer->columns[i].data);
-        if (writer->metadatas[i]) {
-            free(writer->metadatas[i]);
+
+        // Go to head of metadata list
+        ColumnChunkMeta *meta = writer->metadatas[i];
+        while (meta && meta->prev) {
+            meta = meta->prev;
+        }
+
+        // Free entire metadata chain
+        while (meta) {
+            ColumnChunkMeta *tmp = meta;
+            meta = meta->next;
+            free(tmp);
         }
     }
-    
+
     free(writer->columns);
     free(writer->metadatas);
-    
-    // Free the writer itself
     free(writer);
 
     if (log_fp) {
