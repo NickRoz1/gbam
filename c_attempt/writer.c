@@ -9,10 +9,16 @@
 #include "meta.h"
 #include <zlib.h>
 #include <lz4.h>
+#include <brotli/encode.h>
+#include <json-c/json.h>
+#include <zstd.h>
+#include <omp.h>
 
 #define WRITE_INDEX_COLUMN(COL_NAME)                                                                                                                 \
     write_int32_le(&columns[COL_NAME].index_column->data[columns[COL_NAME].index_column->cur_ptr], columns[COL_NAME].cur_ptr); \
     columns[COL_NAME].index_column->cur_ptr += sizeof(int32_t);
+
+FILE *log_fp = NULL;
 
 void init_columns(Writer *writer) {
     // Allocate memory for columns
@@ -43,6 +49,42 @@ void init_columns(Writer *writer) {
 
 }
 
+void load_codec_map(const char* json_path, Writer* writer) {
+    FILE *fp = fopen(json_path, "r");
+    if (!fp) {
+        perror("Could not open codec map file");
+        exit(1);
+    }
+
+    fseek(fp, 0, SEEK_END);
+    long len = ftell(fp);
+    rewind(fp);
+
+    char *buffer = malloc(len + 1);
+    fread(buffer, 1, len, fp);
+    buffer[len] = '\0';
+    fclose(fp);
+
+    struct json_object *root = json_tokener_parse(buffer);
+    if (!root) {
+        fprintf(stderr, "Invalid JSON in codec map\n");
+        free(buffer);
+        exit(1);
+    }
+
+    for (int i = 0; i < COLUMNTYPE_SIZE; i++) {
+        struct json_object *val;
+        if (json_object_object_get_ex(root, ColumnTypeNames[i], &val)) {
+            strncpy(writer->codec_map[i], json_object_get_string(val), sizeof(writer->codec_map[i]) - 1);
+        } else {
+            strcpy(writer->codec_map[i], "none");  // default if not specified
+        }
+    }
+
+    json_object_put(root);
+    free(buffer);
+}
+
 Writer* create_writer(FILE* fd, bam_hdr_t *header) {
     Writer *writer = calloc(1, sizeof(Writer));
     if (!writer) {
@@ -50,6 +92,12 @@ Writer* create_writer(FILE* fd, bam_hdr_t *header) {
         return NULL;
     }
     writer->fd = fd;
+
+    log_fp = fopen("compression_log.txt", "w");
+    if (!log_fp) {
+        perror("Failed to open compression log file");
+        exit(1);
+    }
     
     // Reserve space for the header
     if (fseek(writer->fd, 1000, SEEK_SET) != 0) {
@@ -61,6 +109,8 @@ Writer* create_writer(FILE* fd, bam_hdr_t *header) {
     writer->metadatas = NULL;
     writer->header = header;
     writer->columns = NULL; // Initialize columns to NULL
+
+    load_codec_map("codec_map.json", writer);
 
     init_columns(writer);
 
@@ -99,6 +149,63 @@ int compress_buffer(const void* input_data, size_t input_size,
     return Z_OK;
 }
 
+// int compress_buffer_brotli(const uint8_t* input, size_t input_size,
+//                            uint8_t** output, size_t* output_size) {
+//     size_t max_compressed_size = BrotliEncoderMaxCompressedSize(input_size);
+//     *output = malloc(max_compressed_size);
+//     if (*output == NULL) return -1;
+
+//     *output_size = max_compressed_size;
+
+//     if (!BrotliEncoderCompress(
+//             5, BROTLI_DEFAULT_WINDOW, BROTLI_MODE_GENERIC,
+//             input_size, input, output_size, *output)) {
+//         free(*output);
+//         *output = NULL;
+//         return -1;
+//     }
+
+//     return 0;
+// }
+
+int compress_buffer_zstd(const void* input, size_t input_size,
+                         void** output, size_t* output_size) {
+    size_t bound = ZSTD_compressBound(input_size);
+    *output = malloc(bound);
+    if (!*output) return 1;
+
+    size_t actual = ZSTD_compress(*output, bound, input, input_size, 3);
+    if (ZSTD_isError(actual)) {
+        fprintf(stderr, "Zstd compression error: %s\n", ZSTD_getErrorName(actual));
+        free(*output);
+        return 1;
+    }
+    *output_size = actual;
+    return 0;
+}
+
+int compress_buffer_brotli(const uint8_t* input, size_t input_size,
+                           uint8_t** output, size_t* output_size) {
+    size_t max_compressed_size = BrotliEncoderMaxCompressedSize(input_size);
+    uint8_t* temp_output = malloc(max_compressed_size);
+    if (temp_output == NULL) return -1;
+
+    size_t actual_size = max_compressed_size;
+
+    BROTLI_BOOL result = BrotliEncoderCompress(
+        8, BROTLI_DEFAULT_WINDOW, BROTLI_MODE_GENERIC,
+        input_size, input, &actual_size, temp_output);
+
+    if (!result) {
+        free(temp_output);
+        *output = NULL;
+        return -1;
+    }
+
+    *output = temp_output;
+    *output_size = actual_size;
+    return 0;
+}
 
 int compress_data_lz4(const char* source, int source_size, 
                      char** compressed, int* compressed_size) {
@@ -132,72 +239,78 @@ int compress_data_lz4(const char* source, int source_size,
 
 void check_and_dump_if_full(Writer *writer, bool force_dump) {
     Column *columns = writer->columns;
-    for (int i = 0; i < COLUMNTYPE_SIZE; i++) {
 
-        if (force_dump || (columns[i].cur_ptr >= MAX_COLUMN_CHUNK_SIZE))
+    #pragma omp parallel
+    {
+        #pragma omp single
         {
+            for (int i = 0; i < COLUMNTYPE_SIZE; i++) {
+                if (force_dump || (columns[i].cur_ptr >= MAX_COLUMN_CHUNK_SIZE)) {
+                    #pragma omp task firstprivate(i)
+                    {
+                        ColumnChunkMeta *metadata = calloc(1, sizeof(ColumnChunkMeta));
+                        metadata->file_offset = -1;  // Will set in critical section later
+                        metadata->uncompressed_size = columns[i].cur_ptr;
 
-            ColumnChunkMeta *metadata = calloc(1, sizeof(ColumnChunkMeta));
-            metadata->file_offset = ftell(writer->fd);
-            metadata->uncompressed_size += columns[i].cur_ptr;
+                        const char *codec = writer->codec_map[i];
+                        strncpy(metadata->codec, codec, sizeof(metadata->codec) - 1);
+                        metadata->codec[sizeof(metadata->codec) - 1] = '\0';
 
-            char* codec_to_use = "lz4";
+                        void *compressed_data = NULL;
+                        size_t compressed_size = 0;
 
+                        int result = 0;
+                        if (strcmp(codec, "zlib") == 0) {
+                            result = compress_buffer(columns[i].data, columns[i].cur_ptr, &compressed_data, &compressed_size);
+                        } else if (strcmp(codec, "lz4") == 0) {
+                            int compressed_int_size;
+                            result = compress_data_lz4((char *)columns[i].data, columns[i].cur_ptr, (char **)&compressed_data, &compressed_int_size);
+                            compressed_size = compressed_int_size;
+                        } else if (strcmp(codec, "brotli") == 0) {
+                            result = compress_buffer_brotli(columns[i].data, columns[i].cur_ptr, (uint8_t **)&compressed_data, &compressed_size);
+                        } else if (strcmp(codec, "zstd") == 0) {
+                            result = compress_buffer_zstd(columns[i].data, columns[i].cur_ptr, &compressed_data, &compressed_size);
+                        }
 
-            memcpy(metadata->codec, codec_to_use, 4); 
+                        if (result != 0) {
+                            fprintf(stderr, "Compression failed for %s\n", ColumnTypeNames[i]);
+                            exit(1);
+                        }
 
-            ssize_t written = 0;
+                        // Critical section to write to file
+                        #pragma omp critical
+                        {
+                            metadata->file_offset = ftell(writer->fd);
+                            fwrite(compressed_data, 1, compressed_size, writer->fd);
+                        }
 
-            if(strcmp(metadata->codec, "zlib") == 0){
-                void* compressed_data = NULL;
-                size_t compressed_size = 0;
-                // Compress the data
-                if(compress_buffer(columns[i].data, columns[i].cur_ptr, 
-                    &compressed_data, &compressed_size) != Z_OK) {
-                    fprintf(stderr, "Failed to compress column data\n");
-                    exit(1);
+                        metadata->compressed_size = compressed_size;
+                        metadata->rec_num = writer->cur_chunk_rec_num[i];
+                        writer->cur_chunk_rec_num[i] = 0;
+                        columns[i].cur_ptr = 0;
+
+                        if (writer->metadatas[i] == NULL) {
+                            writer->metadatas[i] = metadata;
+                        } else {
+                            writer->metadatas[i]->next = metadata;
+                            metadata->prev = writer->metadatas[i];
+                            writer->metadatas[i] = metadata;
+                        }
+
+                        if (log_fp && compressed_size > 0) {
+                            #pragma omp critical
+                            {
+                                fprintf(log_fp, "Field: %s, Uncompressed Size: %ld, Compressed Size: %ld\n",
+                                        ColumnTypeNames[i], metadata->uncompressed_size, compressed_size);
+                            }
+                        }
+
+                        free(compressed_data);
+                    }  // end omp task
                 }
-            
-                // Write the column data to the file
-                written = fwrite(compressed_data, 1, compressed_size, writer->fd);
-                free(compressed_data);
-            }
-            else if(strcmp(metadata->codec, "lz4") == 0){
-                void* compressed_data = NULL;
-                int compressed_size = 0;
-                
-                // Compress the data
-                if(compress_data_lz4(columns[i].data, columns[i].cur_ptr, 
-                    &compressed_data, &compressed_size) != 0) {
-                    fprintf(stderr, "Failed to compress column data\n");
-                    exit(1);
-                }
-            
-                // Write the column data to the file
-                written = fwrite(compressed_data, 1, compressed_size, writer->fd);
-                free(compressed_data);
-            }
-            else{
-                written = fwrite(columns[i].data, 1, columns[i].cur_ptr, writer->fd);
-            }
-
-            metadata->compressed_size += written;
-            metadata->rec_num = writer->cur_chunk_rec_num[i];
-            writer->cur_chunk_rec_num[i] = 0; // Reset the record count for this column
-            columns[i].cur_ptr = 0; // Reset the column data
-            
-            // Update metadata for this column
-            if (writer->metadatas[i] == NULL) {
-                writer->metadatas[i] = metadata; // First metadata for this column
-            }
-            else{
-                writer->metadatas[i]->next = metadata;
-                writer->metadatas[i]->next->prev = writer->metadatas[i];
-                writer->metadatas[i] = writer->metadatas[i]->next;
-            }
-        }
-    }
-
+            }  // end for
+        }  // end single
+    }  // end parallel
 }
 
 int write_bam_record(Writer *writer, bam1_t *aln) {
@@ -233,8 +346,12 @@ int write_bam_record(Writer *writer, bam1_t *aln) {
     // TODO: handle when input cigar is bigger than MAX_COLUMN_CHUNK_SIZE (reallocate, extend buffer)
     {
         // l_extranul is not correct apparently. Strlen is slow but no other option...
-        memcpy(&columns[COLUMNTYPE_read_name].data[columns[COLUMNTYPE_read_name].cur_ptr], bam_get_qname(aln), strlen(bam_get_qname(aln)));
-        columns[COLUMNTYPE_read_name].cur_ptr += strlen(bam_get_qname(aln)); // Exclude the trailing null byte
+        memcpy(&columns[COLUMNTYPE_read_name].data[columns[COLUMNTYPE_read_name].cur_ptr], bam_get_qname(aln), strlen(bam_get_qname(aln)) + 1);
+        columns[COLUMNTYPE_read_name].cur_ptr += strlen(bam_get_qname(aln)) + 1; // Exclude the trailing null byte
+        // int l_qname = aln->core.l_qname;
+        // memcpy(&columns[COLUMNTYPE_read_name].data[columns[COLUMNTYPE_read_name].cur_ptr],
+        //     bam_get_qname(aln), l_qname);
+        // columns[COLUMNTYPE_read_name].cur_ptr += l_qname;
         WRITE_INDEX_COLUMN(COLUMNTYPE_read_name)
         
         memcpy(&columns[COLUMNTYPE_cigar].data[columns[COLUMNTYPE_cigar].cur_ptr], (char*)bam_get_cigar(aln), aln->core.n_cigar<<2);
@@ -269,25 +386,41 @@ void close_writer(Writer *writer) {
     const int64_t cur_file_offset = ftell(writer->fd);
     write_meta(writer->fd, writer->metadatas, COLUMNTYPE_SIZE);
     fprintf(writer->fd, "\0");
-    int64_t meta_size = ftell(writer->fd)-cur_file_offset;
+    int64_t meta_size = ftell(writer->fd) - cur_file_offset;
+
     // Write SAM header after the metadata
-    fprintf(writer->fd, sam_hdr_str(writer->header));
-    // TODO: Save crc32 also and everything we had in GBAM..
+    int32_t header_len = sam_hdr_length(writer->header);
+    fwrite(&header_len, sizeof(int32_t), 1, writer->fd);
+    fwrite(sam_hdr_str(writer->header), 1, header_len, writer->fd);
+
     // Seek beginning of the file to write the header
     fseek(writer->fd, 0, SEEK_SET);
-    write_header(writer->fd, cur_file_offset, meta_size);
+    write_header(writer->fd, cur_file_offset, meta_size, header_len);
 
     // Free allocated memory for columns and metadata
     for (int i = 0; i < COLUMNTYPE_SIZE; i++) {
         free(writer->columns[i].data);
-        if (writer->metadatas[i]) {
-            free(writer->metadatas[i]);
+
+        // Go to head of metadata list
+        ColumnChunkMeta *meta = writer->metadatas[i];
+        while (meta && meta->prev) {
+            meta = meta->prev;
+        }
+
+        // Free entire metadata chain
+        while (meta) {
+            ColumnChunkMeta *tmp = meta;
+            meta = meta->next;
+            free(tmp);
         }
     }
-    
+
     free(writer->columns);
     free(writer->metadatas);
-    
-    // Free the writer itself
     free(writer);
+
+    if (log_fp) {
+        fclose(log_fp);
+        log_fp = NULL;
+    }
 }

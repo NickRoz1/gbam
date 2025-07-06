@@ -1,0 +1,21 @@
+{
+    "COLUMNTYPE_refID": "brotli",
+    "COLUMNTYPE_pos": "brotli",
+    "COLUMNTYPE_mapq": "brotli",
+    "COLUMNTYPE_bin": "brotli",
+    "COLUMNTYPE_flag": "brotli",
+    "COLUMNTYPE_next_refID": "brotli",
+    "COLUMNTYPE_next_pos": "brotli",
+    "COLUMNTYPE_tlen": "brotli",
+    "COLUMNTYPE_read_name": "brotli",
+    "COLUMNTYPE_cigar": "brotli",
+    "COLUMNTYPE_seq": "brotli",
+    "COLUMNTYPE_qual": "brotli",
+    "COLUMNTYPE_tags": "brotli",
+    "COLUMNTYPE_index_read_name": "brotli",
+    "COLUMNTYPE_index_cigar": "brotli",
+    "COLUMNTYPE_index_seq": "brotli",
+    "COLUMNTYPE_index_tags": "brotli",
+    "COLUMNTYPE_index_qual": "brotli"
+  }
+  
