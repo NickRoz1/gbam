@@ -1,20 +1,8 @@
 # Compiler and flags
 CC = gcc
-# CFLAGS = -O3 -g -fno-omit-frame-pointer -fsanitize=address -fopenmp
+CFLAGS = -O3 -g -fno-omit-frame-pointer -fsanitize=address
 
-# Default
-# LDFLAGS = -ljson-c -lhts -lz -llz4 -lbrotlidec -lbrotlienc -lzstd -fopenmp
-# Tell Clang to use libomp's headers and link the runtime correctly
-
-# Needed for mac.
-CFLAGS = -O3 -g -fno-omit-frame-pointer -fsanitize=address \
-         -Xpreprocessor -fopenmp -I/usr/local/opt/libomp/include
-
-LDFLAGS = -L/usr/local/opt/libomp/lib -lomp -ljson-c -lhts -lz -llz4 -lbrotlidec -lbrotlienc -lzstd
-
-# Needed for linux
-CFLAGS = -O3 -g -fno-omit-frame-pointer -I$(HOME)/.local/include
-LDFLAGS = -L$(HOME)/.local/lib -ljson-c -lhts -lz -llz4 -lbrotlidec -lbrotlienc -lzstd
+LDFLAGS = -ljson-c -lhts -lz -llz4 -lbrotlidec -lbrotlienc -lzstd
 
 # Source and object files
 SRCS = main.c reader.c writer.c
