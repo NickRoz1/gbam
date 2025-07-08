@@ -4,6 +4,13 @@ CC = gcc
 
 # LDFLAGS = -ljson-c -lhts -lz -llz4 -lbrotlidec -lbrotlienc -lzstd
 
+
+# Needed for mac.
+# CFLAGS = -O3 -g -fno-omit-frame-pointer -fsanitize=address \
+#          -Xpreprocessor -fopenmp -I/usr/local/opt/libomp/include
+
+# LDFLAGS = -L/usr/local/opt/libomp/lib -lomp -ljson-c -lhts -lz -llz4 -lbrotlidec -lbrotlienc -lzstd
+
 CFLAGS = -O3 -g -fno-omit-frame-pointer -I$(HOME)/.local/include -fopenmp
 LDFLAGS = -L$(HOME)/.local/lib -ljson-c -lhts -lz -llz4 -lbrotlidec -lbrotlienc -lbrotlicommon -lzstd -fopenmp
 
