@@ -66,6 +66,7 @@ typedef struct ColumnChunkMeta
 typedef struct Column
 {
     uint8_t *data;
+    int capacity;
     int64_t cur_ptr;
     struct Column* index_column;
 } Column;
@@ -102,6 +103,7 @@ struct bam_hdr_t ;
 
 Writer *create_writer(FILE* fd, bam_hdr_t  *header);
 int write_bam_record(Writer *writer, bam1_t *aln);
+void ensure_column_capacity(Column* col, int needed_size);
 void close_writer(Writer *writer);
 
 Reader *make_reader(char *fp);

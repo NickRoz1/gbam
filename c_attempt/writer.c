@@ -30,6 +30,7 @@ void init_columns(Writer *writer) {
     }
 
     for (int i = 0; i < COLUMNTYPE_SIZE; i++) {
+        writer->columns[i].capacity = MAX_COLUMN_CHUNK_SIZE;
         writer->columns[i].data = malloc(MAX_COLUMN_CHUNK_SIZE);
         if (!writer->columns[i].data) {
             fprintf(stderr, "Failed to allocate memory for column data\n");
@@ -377,26 +378,61 @@ int write_bam_record(Writer *writer, bam1_t *aln) {
     // TODO: handle when input cigar is bigger than MAX_COLUMN_CHUNK_SIZE (reallocate, extend buffer)
     {
         // l_extranul is not correct apparently. Strlen is slow but no other option...
-        memcpy(&columns[COLUMNTYPE_read_name].data[columns[COLUMNTYPE_read_name].cur_ptr], bam_get_qname(aln), strlen(bam_get_qname(aln)) + 1);
-        columns[COLUMNTYPE_read_name].cur_ptr += strlen(bam_get_qname(aln)) + 1; // Exclude the trailing null byte
+        // memcpy(&columns[COLUMNTYPE_read_name].data[columns[COLUMNTYPE_read_name].cur_ptr], bam_get_qname(aln), strlen(bam_get_qname(aln)) + 1);
+        // columns[COLUMNTYPE_read_name].cur_ptr += strlen(bam_get_qname(aln)) + 1; // Exclude the trailing null byte
         // int l_qname = aln->core.l_qname;
         // memcpy(&columns[COLUMNTYPE_read_name].data[columns[COLUMNTYPE_read_name].cur_ptr],
         //     bam_get_qname(aln), l_qname);
         // columns[COLUMNTYPE_read_name].cur_ptr += l_qname;
-        WRITE_INDEX_COLUMN(COLUMNTYPE_read_name)
+        // WRITE_INDEX_COLUMN(COLUMNTYPE_read_name)
         
-        memcpy(&columns[COLUMNTYPE_cigar].data[columns[COLUMNTYPE_cigar].cur_ptr], (char*)bam_get_cigar(aln), aln->core.n_cigar<<2);
-        columns[COLUMNTYPE_cigar].cur_ptr += aln->core.n_cigar<<2;
+        // memcpy(&columns[COLUMNTYPE_cigar].data[columns[COLUMNTYPE_cigar].cur_ptr], (char*)bam_get_cigar(aln), aln->core.n_cigar<<2);
+        // columns[COLUMNTYPE_cigar].cur_ptr += aln->core.n_cigar<<2;
+        // WRITE_INDEX_COLUMN(COLUMNTYPE_cigar)
+
+        // memcpy(&columns[COLUMNTYPE_seq].data[columns[COLUMNTYPE_seq].cur_ptr], bam_get_seq(aln), (((aln)->core.l_qseq + 1)>>1));
+        // columns[COLUMNTYPE_seq].cur_ptr += (((aln)->core.l_qseq + 1)>>1);
+        // WRITE_INDEX_COLUMN(COLUMNTYPE_seq)
+
+        // memcpy(&columns[COLUMNTYPE_qual].data[columns[COLUMNTYPE_qual].cur_ptr], bam_get_qual(aln), aln->core.l_qseq);
+        // columns[COLUMNTYPE_qual].cur_ptr += aln->core.l_qseq;
+        // WRITE_INDEX_COLUMN(COLUMNTYPE_qual)
+
+        // memcpy(&columns[COLUMNTYPE_tags].data[columns[COLUMNTYPE_tags].cur_ptr], bam_get_aux(aln), bam_get_l_aux(aln));
+        // columns[COLUMNTYPE_tags].cur_ptr += bam_get_l_aux(aln);
+        // WRITE_INDEX_COLUMN(COLUMNTYPE_tags)
+
+        int l_qname = aln->core.l_qname;
+        ensure_column_capacity(&columns[COLUMNTYPE_read_name], l_qname);
+        memcpy(&columns[COLUMNTYPE_read_name].data[columns[COLUMNTYPE_read_name].cur_ptr],
+                bam_get_qname(aln), l_qname);
+        columns[COLUMNTYPE_read_name].cur_ptr += l_qname;
+        WRITE_INDEX_COLUMN(COLUMNTYPE_read_name)
+
+        int cigar_size = aln->core.n_cigar << 2;
+        ensure_column_capacity(&columns[COLUMNTYPE_cigar], cigar_size);
+        memcpy(&columns[COLUMNTYPE_cigar].data[columns[COLUMNTYPE_cigar].cur_ptr],
+                bam_get_cigar(aln), cigar_size);
+        columns[COLUMNTYPE_cigar].cur_ptr += cigar_size;
         WRITE_INDEX_COLUMN(COLUMNTYPE_cigar)
 
-        memcpy(&columns[COLUMNTYPE_seq].data[columns[COLUMNTYPE_seq].cur_ptr], bam_get_seq(aln), (((aln)->core.l_qseq + 1)>>1));
-        columns[COLUMNTYPE_seq].cur_ptr += (((aln)->core.l_qseq + 1)>>1);
+        int seq_size = (aln->core.l_qseq + 1) >> 1;
+        ensure_column_capacity(&columns[COLUMNTYPE_seq], seq_size);
+        memcpy(&columns[COLUMNTYPE_seq].data[columns[COLUMNTYPE_seq].cur_ptr],
+                bam_get_seq(aln), seq_size);
+        columns[COLUMNTYPE_seq].cur_ptr += seq_size;
         WRITE_INDEX_COLUMN(COLUMNTYPE_seq)
 
-        memcpy(&columns[COLUMNTYPE_qual].data[columns[COLUMNTYPE_qual].cur_ptr], bam_get_qual(aln), aln->core.l_qseq);
-        columns[COLUMNTYPE_qual].cur_ptr += aln->core.l_qseq;
+        int qual_size = aln->core.l_qseq;
+        ensure_column_capacity(&columns[COLUMNTYPE_qual], qual_size);
+        memcpy(&columns[COLUMNTYPE_qual].data[columns[COLUMNTYPE_qual].cur_ptr],
+                bam_get_qual(aln), qual_size);
+        columns[COLUMNTYPE_qual].cur_ptr += qual_size;
         WRITE_INDEX_COLUMN(COLUMNTYPE_qual)
 
+
+        int tag_size = bam_get_l_aux(aln);
+        ensure_column_capacity(&columns[COLUMNTYPE_tags], tag_size);
         memcpy(&columns[COLUMNTYPE_tags].data[columns[COLUMNTYPE_tags].cur_ptr], bam_get_aux(aln), bam_get_l_aux(aln));
         columns[COLUMNTYPE_tags].cur_ptr += bam_get_l_aux(aln);
         WRITE_INDEX_COLUMN(COLUMNTYPE_tags)
@@ -408,6 +444,28 @@ int write_bam_record(Writer *writer, bam1_t *aln) {
     check_and_dump_if_full(writer, false);
     return 0;
 }
+
+void ensure_column_capacity(Column* col, int needed_size) {
+    if (col->cur_ptr + needed_size <= col->capacity) {
+        return; // enough space
+    }
+
+    // Double the buffer size until it's big enough
+    int new_capacity = col->capacity;
+    while (col->cur_ptr + needed_size > new_capacity) {
+        new_capacity *= 2;
+    }
+
+    void* new_data = realloc(col->data, new_capacity);
+    if (!new_data) {
+        fprintf(stderr, "Failed to realloc buffer to %d bytes\n", new_capacity);
+        exit(1);
+    }
+
+    col->data = new_data;
+    col->capacity = new_capacity;
+}
+
 
 void close_writer(Writer *writer) {
     if (!writer) return;
