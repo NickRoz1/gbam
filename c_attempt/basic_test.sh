@@ -15,5 +15,6 @@ samtools view ../test_data/100recs.bam > "$t2"
 if diff -q "$t1" "$t2" > /dev/null; then
     exit 0
 else
+    echo "Test failed: Outputs differ!"
     exit 1
 fi
