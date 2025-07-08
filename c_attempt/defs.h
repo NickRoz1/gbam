@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <htslib/sam.h>  
   
-static const int64_t MAX_COLUMN_CHUNK_SIZE = 1024 * 1024 * 150; // 10 MB
+static const int64_t MAX_COLUMN_CHUNK_SIZE = 1024 * 1024 * 6; // 10 MB
 
 static const char* GBAM_MAGIC = "geeBAM20";
 

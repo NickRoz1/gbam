@@ -1,8 +1,11 @@
 # Compiler and flags
 CC = gcc
-CFLAGS = -O3 -g -fno-omit-frame-pointer -fsanitize=address
+# CFLAGS = -O3 -g -fno-omit-frame-pointer -fsanitize=address
 
-LDFLAGS = -ljson-c -lhts -lz -llz4 -lbrotlidec -lbrotlienc -lzstd
+# LDFLAGS = -ljson-c -lhts -lz -llz4 -lbrotlidec -lbrotlienc -lzstd
+
+CFLAGS = -O3 -g -fno-omit-frame-pointer -I$(HOME)/.local/include -fopenmp
+LDFLAGS = -L$(HOME)/.local/lib -ljson-c -lhts -lz -llz4 -lbrotlidec -lbrotlienc -lbrotlicommon -lzstd -fopenmp
 
 # Source and object files
 SRCS = main.c reader.c writer.c
