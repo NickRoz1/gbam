@@ -10,10 +10,6 @@
 #include <zlib.h>
 #include <lz4.h>
 
-#define WRITE_INDEX_COLUMN(COL_NAME)                                                                                                                 \
-    write_int32_le(&columns[COL_NAME].index_column->data[columns[COL_NAME].index_column->cur_ptr], columns[COL_NAME].cur_ptr); \
-    columns[COL_NAME].index_column->cur_ptr += sizeof(int32_t);
-
 void init_columns(Writer *writer) {
     // Allocate memory for columns
     writer->columns = malloc(sizeof(Column) * COLUMNTYPE_SIZE); 
@@ -200,6 +196,18 @@ void check_and_dump_if_full(Writer *writer, bool force_dump) {
 
 }
 
+void write_var_size_field(Column *dest_column, const void * src, size_t n){
+    int64_t new_size = dest_column->cur_ptr + n;
+    if(new_size > dest_column->data_size) {
+        dest_column->data = realloc(dest_column->data, new_size);
+        dest_column->data_size = new_size;
+    }
+    memcpy(&dest_column->data[dest_column->cur_ptr], src, n);
+    dest_column->cur_ptr += n;
+    write_int32_le(&dest_column->index_column->data[dest_column->index_column->cur_ptr], dest_column->cur_ptr);
+    dest_column->index_column->cur_ptr += sizeof(int32_t);
+}
+
 int write_bam_record(Writer *writer, bam1_t *aln) {
     if (!writer || !aln) {
         fprintf(stderr, "Invalid writer or alignment record\n");
@@ -230,30 +238,14 @@ int write_bam_record(Writer *writer, bam1_t *aln) {
         columns[COLUMNTYPE_tlen].cur_ptr += sizeof(int32_t);
     }    
     // Variable sized fields
-    // TODO: handle when input cigar is bigger than MAX_COLUMN_CHUNK_SIZE (reallocate, extend buffer)
     {
         // l_extranul is not correct apparently. Strlen is slow but no other option...
-        memcpy(&columns[COLUMNTYPE_read_name].data[columns[COLUMNTYPE_read_name].cur_ptr], bam_get_qname(aln), strlen(bam_get_qname(aln)));
-        columns[COLUMNTYPE_read_name].cur_ptr += strlen(bam_get_qname(aln)); // Exclude the trailing null byte
-        WRITE_INDEX_COLUMN(COLUMNTYPE_read_name)
-        
-        memcpy(&columns[COLUMNTYPE_cigar].data[columns[COLUMNTYPE_cigar].cur_ptr], (char*)bam_get_cigar(aln), aln->core.n_cigar<<2);
-        columns[COLUMNTYPE_cigar].cur_ptr += aln->core.n_cigar<<2;
-        WRITE_INDEX_COLUMN(COLUMNTYPE_cigar)
-
-        memcpy(&columns[COLUMNTYPE_seq].data[columns[COLUMNTYPE_seq].cur_ptr], bam_get_seq(aln), (((aln)->core.l_qseq + 1)>>1));
-        columns[COLUMNTYPE_seq].cur_ptr += (((aln)->core.l_qseq + 1)>>1);
-        WRITE_INDEX_COLUMN(COLUMNTYPE_seq)
-
-        memcpy(&columns[COLUMNTYPE_qual].data[columns[COLUMNTYPE_qual].cur_ptr], bam_get_qual(aln), aln->core.l_qseq);
-        columns[COLUMNTYPE_qual].cur_ptr += aln->core.l_qseq;
-        WRITE_INDEX_COLUMN(COLUMNTYPE_qual)
-
-        memcpy(&columns[COLUMNTYPE_tags].data[columns[COLUMNTYPE_tags].cur_ptr], bam_get_aux(aln), bam_get_l_aux(aln));
-        columns[COLUMNTYPE_tags].cur_ptr += bam_get_l_aux(aln);
-        WRITE_INDEX_COLUMN(COLUMNTYPE_tags)
+        write_var_size_field(&columns[COLUMNTYPE_read_name], bam_get_qname(aln), strlen(bam_get_qname(aln))); // Exclude trailing Null byte
+        write_var_size_field(&columns[COLUMNTYPE_cigar], (char*)bam_get_cigar(aln), aln->core.n_cigar<<2);
+        write_var_size_field(&columns[COLUMNTYPE_seq], bam_get_seq(aln), (((aln)->core.l_qseq + 1)>>1));
+        write_var_size_field(&columns[COLUMNTYPE_qual], bam_get_qual(aln), aln->core.l_qseq);
+        write_var_size_field(&columns[COLUMNTYPE_tags], bam_get_aux(aln), bam_get_l_aux(aln));
     }
-
 
     for (int i = 0; i < COLUMNTYPE_SIZE; i++) writer->cur_chunk_rec_num[i]++;
 

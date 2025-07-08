@@ -67,6 +67,7 @@ typedef struct Column
 {
     uint8_t *data;
     int64_t cur_ptr;
+    int64_t data_size; // Currently allocated size of the data buffer
     struct Column* index_column;
 } Column;
 
