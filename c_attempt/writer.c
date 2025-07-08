@@ -240,7 +240,7 @@ int write_bam_record(Writer *writer, bam1_t *aln) {
     // Variable sized fields
     {
         // l_extranul is not correct apparently. Strlen is slow but no other option...
-        write_var_size_field(&columns[COLUMNTYPE_read_name], bam_get_qname(aln), strlen(bam_get_qname(aln))); // Exclude trailing Null byte
+        write_var_size_field(&columns[COLUMNTYPE_read_name], bam_get_qname(aln), strlen(bam_get_qname(aln))); // Exclude trailing Null byte, because of strlen, as it doesnt count the null byte.
         write_var_size_field(&columns[COLUMNTYPE_cigar], (char*)bam_get_cigar(aln), aln->core.n_cigar<<2);
         write_var_size_field(&columns[COLUMNTYPE_seq], bam_get_seq(aln), (((aln)->core.l_qseq + 1)>>1));
         write_var_size_field(&columns[COLUMNTYPE_qual], bam_get_qual(aln), aln->core.l_qseq);
