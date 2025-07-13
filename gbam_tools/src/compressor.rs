@@ -117,7 +117,7 @@ impl Compressor {
 pub fn compress(source: &[u8], mut dest: Vec<u8>, codec: Codecs) -> Vec<u8> {
     let compressed_bytes = match codec {
         Codecs::Gzip => {
-            let mut encoder = GzEncoder::new(dest, Compression::default());
+            let mut encoder = GzEncoder::new(dest, Compression::new(9));
             encoder.write_all(source).unwrap();
             encoder.finish()
         }
@@ -145,14 +145,14 @@ pub fn compress(source: &[u8], mut dest: Vec<u8>, codec: Codecs) -> Vec<u8> {
             Ok(dest)
         },
         Codecs::Xz => {
-            let mut encoder = XzEncoder::new(Vec::new(), 7);
+            let mut encoder = XzEncoder::new(Vec::new(), 6);
             encoder.write_all(source).unwrap();
             let compressed = encoder.finish().unwrap();
             Ok(compressed)
         },
         Codecs::Zstd => {
             // encode_all returns a Vec<u8>
-            match encode_all(source, 15) {
+            match encode_all(source, 14) {
                 Ok(c) => Ok(c),
                 Err(_) => Err(std::io::Error::new(
                     std::io::ErrorKind::Other,
