@@ -272,11 +272,12 @@ pub fn decode_seq(bytes: &[u8], res: &mut String) {
     }
 }
 
-
 /// From NOODLES crate.
-pub fn put_sequence(mut dst: &mut [u8], read_length: usize, sequence: &String) -> std::io::Result<()>
-
-{
+pub fn put_sequence(
+    mut dst: &mut [u8],
+    read_length: usize,
+    sequence: &String,
+) -> std::io::Result<()> {
     if sequence.is_empty() {
         return Ok(());
     }

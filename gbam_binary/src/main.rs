@@ -5,21 +5,25 @@ use gbam_tools::{
     bam::bam_to_gbam::bam_sort_to_gbam,
     bam::gbam_to_bam::gbam_to_bam,
     query::depth::main_depth,
+    query::flagstat::collect_stats,
     reader::{parse_tmplt::ParsingTemplate, reader::Reader, record::GbamRecord},
     {bam_to_gbam, Codecs},
-    query::flagstat::collect_stats,
 };
 use itertools::zip_eq;
 use std::fs::OpenOptions;
 
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 
-
-use std::{path::PathBuf, convert::TryInto, io::{Read}, io::{BufWriter, Write}};
-use std::time::Instant;
-use std::fs::File;
-use structopt::StructOpt;
 use std::env;
+use std::fs::File;
+use std::time::Instant;
+use std::{
+    convert::TryInto,
+    io::Read,
+    io::{BufWriter, Write},
+    path::PathBuf,
+};
+use structopt::StructOpt;
 
 use gbam_tools::query::cigar::base_coverage;
 
@@ -123,11 +127,11 @@ fn main() {
         view_file(args, template);
     } else if args.markdup_view {
         let mut template = ParsingTemplate::new();
-        template.set_all_except(&[Fields::RawQual,Fields::RawSequence]);
+        template.set_all_except(&[Fields::RawQual, Fields::RawSequence]);
         view_file(args, template);
     } else if args.patch_gbam_with_dups {
         patch_dups(args);
-    }else if args.calc_uncompressed_size {
+    } else if args.calc_uncompressed_size {
         test_file_uncompressed_size_fetch(args);
     }
 }
@@ -146,7 +150,15 @@ fn convert(args: Cli, full_command: String) {
         .to_str()
         .unwrap();
     if args.sort {
-        bam_sort_to_gbam(in_path, out_path, Codecs::Brotli, args.sort_temp_mode, args.temp_dir, full_command, args.index_sort);
+        bam_sort_to_gbam(
+            in_path,
+            out_path,
+            Codecs::Brotli,
+            args.sort_temp_mode,
+            args.temp_dir,
+            full_command,
+            args.index_sort,
+        );
     } else {
         bam_to_gbam(in_path, out_path, Codecs::Brotli, full_command);
     }
@@ -208,21 +220,25 @@ fn test_parallel_cigar_fetch(args: Cli) {
     let file_meta = temp_reader.file_meta;
     let total_records = temp_reader.amount;
     let now = Instant::now();
-    
-    (0..total_records).into_par_iter().chunks(500_000).for_each(|records_range| {
-        let mut rec =  GbamRecord::default();
-        let mut tmplt = ParsingTemplate::new();
-        tmplt.set(&Fields::RawCigar, true);
-    
-        let mut reader = Reader::new_with_meta(file.try_clone().unwrap(), tmplt, &file_meta, None).unwrap();
 
-        let mut collector = Vec::with_capacity(records_range.len());
+    (0..total_records)
+        .into_par_iter()
+        .chunks(500_000)
+        .for_each(|records_range| {
+            let mut rec = GbamRecord::default();
+            let mut tmplt = ParsingTemplate::new();
+            tmplt.set(&Fields::RawCigar, true);
 
-        for rec_num in records_range {
-            reader.fill_record(rec_num, &mut rec);
-            collector.push(base_coverage(&rec.cigar.as_ref().unwrap().0[..]));
-        }
-    });
+            let mut reader =
+                Reader::new_with_meta(file.try_clone().unwrap(), tmplt, &file_meta, None).unwrap();
+
+            let mut collector = Vec::with_capacity(records_range.len());
+
+            for rec_num in records_range {
+                reader.fill_record(rec_num, &mut rec);
+                collector.push(base_coverage(&rec.cigar.as_ref().unwrap().0[..]));
+            }
+        });
 
     println!(
         "Fetching CIGAR in parallel took: {}",
@@ -240,38 +256,49 @@ fn test_file_uncompressed_size_fetch(args: Cli) {
     }
 
     let mut reader = file;
-    
 
     let mut buf: [u8; 1000] = [0; 1000];
-    const OFFEST_IN_BGZF_FILE_TILL_BLOCK_SIZE_VALUE : usize = 128/8;
-    let mut total_uncrompressed_size_of_file : usize = 0;
-    const ERR : &str = "Couldn't parse the bgzf block.";
+    const OFFEST_IN_BGZF_FILE_TILL_BLOCK_SIZE_VALUE: usize = 128 / 8;
+    let mut total_uncrompressed_size_of_file: usize = 0;
+    const ERR: &str = "Couldn't parse the bgzf block.";
     loop {
         let cur_reader_pos = reader.seek(std::io::SeekFrom::Current(0)).unwrap();
         if file_sz == cur_reader_pos {
             break;
         }
-        if file_sz-cur_reader_pos == 28 {
+        if file_sz - cur_reader_pos == 28 {
             break;
         }
-        reader.read_exact(&mut buf[..OFFEST_IN_BGZF_FILE_TILL_BLOCK_SIZE_VALUE]).expect(ERR); 
-        let block_size = reader.read_u16::<LittleEndian>().expect(ERR)+1;
-        let uncompressed_info_start = cur_reader_pos+block_size as u64 - std::mem::size_of::<u32>() as u64;
+        reader
+            .read_exact(&mut buf[..OFFEST_IN_BGZF_FILE_TILL_BLOCK_SIZE_VALUE])
+            .expect(ERR);
+        let block_size = reader.read_u16::<LittleEndian>().expect(ERR) + 1;
+        let uncompressed_info_start =
+            cur_reader_pos + block_size as u64 - std::mem::size_of::<u32>() as u64;
         assert!(uncompressed_info_start < file_sz);
-        reader.seek(std::io::SeekFrom::Start(uncompressed_info_start)).unwrap();
+        reader
+            .seek(std::io::SeekFrom::Start(uncompressed_info_start))
+            .unwrap();
         let uncompressed_block_size = reader.read_u32::<LittleEndian>().expect(ERR);
         total_uncrompressed_size_of_file += uncompressed_block_size as usize;
-        
     }
 
-    println!("Total uncompressed size of file is: {}", total_uncrompressed_size_of_file);
+    println!(
+        "Total uncompressed size of file is: {}",
+        total_uncrompressed_size_of_file
+    );
 }
 
 fn read_index(index: PathBuf) -> Option<std::sync::Arc<Vec<u32>>> {
     let file = File::open(index).unwrap();
     let size = file.metadata().unwrap().len();
     let mut f = std::io::BufReader::new(file);
-    let mut res = vec![0 as u32; (size/(std::mem::size_of::<u32>() as u64)).try_into().unwrap()];
+    let mut res = vec![
+        0 as u32;
+        (size / (std::mem::size_of::<u32>() as u64))
+            .try_into()
+            .unwrap()
+    ];
 
     for slot in &mut res {
         *slot = f.read_u32::<LittleEndian>().unwrap();
@@ -283,18 +310,29 @@ fn read_index(index: PathBuf) -> Option<std::sync::Arc<Vec<u32>>> {
 fn depth(args: Cli) {
     let in_path = args.in_path.as_path().to_str().unwrap();
     let gbam_file = File::open(in_path).unwrap();
-    main_depth(gbam_file, args.bed_file.as_ref(), args.index_file.and_then(read_index), args.query, args.mapq, args.out_path, args.thread_num);
+    main_depth(
+        gbam_file,
+        args.bed_file.as_ref(),
+        args.index_file.and_then(read_index),
+        args.query,
+        args.mapq,
+        args.out_path,
+        args.thread_num,
+    );
 }
 
-fn view_header(args: Cli){
+fn view_header(args: Cli) {
     let file = File::open(args.in_path.as_path().to_str().unwrap()).unwrap();
     let reader = Reader::new(file, ParsingTemplate::new()).unwrap();
-    
-    let header_len = (&reader.file_meta.get_sam_header()[..std::mem::size_of::<u32>()]).read_u32::<LittleEndian>().unwrap() as usize;
-    let header_bytes = reader.file_meta.get_sam_header()[std::mem::size_of::<u32>()..std::mem::size_of::<u32>()+header_len].to_owned();
-    let header = 
-        String::from_utf8(header_bytes).unwrap();
-   
+
+    let header_len = (&reader.file_meta.get_sam_header()[..std::mem::size_of::<u32>()])
+        .read_u32::<LittleEndian>()
+        .unwrap() as usize;
+    let header_bytes = reader.file_meta.get_sam_header()
+        [std::mem::size_of::<u32>()..std::mem::size_of::<u32>() + header_len]
+        .to_owned();
+    let header = String::from_utf8(header_bytes).unwrap();
+
     println!("{}", header);
 }
 
@@ -331,11 +369,11 @@ fn parse_tag(tags: &[u8], target_tag: &str) -> Option<String> {
     None
 }
 
-
-fn view_file(args: Cli, template: ParsingTemplate){
+fn view_file(args: Cli, template: ParsingTemplate) {
     let file = File::open(args.in_path.as_path().to_str().unwrap()).unwrap();
 
-    let mut reader = Reader::new_with_index(file, template, args.index_file.and_then(read_index)).unwrap();
+    let mut reader =
+        Reader::new_with_index(file, template, args.index_file.and_then(read_index)).unwrap();
 
     let st = std::io::stdout();
     let lock = st.lock();
@@ -344,7 +382,7 @@ fn view_file(args: Cli, template: ParsingTemplate){
     const BAM_MAGIC: &[u8; 4] = b"BAM\x01";
     stdout.write_all(BAM_MAGIC).unwrap();
     stdout.write_all(reader.file_meta.get_sam_header()).unwrap();
-    
+
     let mut records = reader.records();
     let mut buf = Vec::new();
     while let Some(rec) = records.next_rec() {
@@ -355,17 +393,19 @@ fn view_file(args: Cli, template: ParsingTemplate){
     }
 }
 
-
-
-fn patch_dups(args: Cli){
-
+fn patch_dups(args: Cli) {
     let file = OpenOptions::new()
         .write(true)
         .read(true)
         .open(args.in_path.as_path().to_str().unwrap())
         .unwrap();
 
-    let reader = Reader::new_with_index(file.try_clone().unwrap(), ParsingTemplate::new(), args.index_file.and_then(read_index)).unwrap();
+    let reader = Reader::new_with_index(
+        file.try_clone().unwrap(),
+        ParsingTemplate::new(),
+        args.index_file.and_then(read_index),
+    )
+    .unwrap();
     let file_meta = reader.file_meta.clone();
 
     let mut buf = Vec::new();
@@ -375,18 +415,26 @@ fn patch_dups(args: Cli){
 
     let mut read_manual = BufReader::with_capacity(MEGA_BYTE_SIZE, file.try_clone().unwrap());
     let mut write_manual = BufWriter::with_capacity(MEGA_BYTE_SIZE, file.try_clone().unwrap());
-    for block in file_meta.view_blocks(&Fields::Flags){
+    for block in file_meta.view_blocks(&Fields::Flags) {
         let available_in_block = block.numitems;
         buf.resize(block.block_size as usize, 0);
         read_manual.seek(SeekFrom::Start(block.seekpos)).unwrap();
         read_manual.read_exact(&mut buf).unwrap();
         let slice = &mut buf[..];
-        for (chunk, is_dup) in zip_eq(slice.chunks_mut(2), std::io::stdin().lock().lines().take(available_in_block as usize)){
+        for (chunk, is_dup) in zip_eq(
+            slice.chunks_mut(2),
+            std::io::stdin()
+                .lock()
+                .lines()
+                .take(available_in_block as usize),
+        ) {
             let mut val = (&chunk[..]).read_u16::<byteorder::LittleEndian>().unwrap();
             if is_dup.unwrap() == "1" {
                 val = val | 0x400;
             }
-            (&mut chunk[..]).write_u16::<byteorder::LittleEndian>(val).unwrap();
+            (&mut chunk[..])
+                .write_u16::<byteorder::LittleEndian>(val)
+                .unwrap();
         }
         write_manual.seek(SeekFrom::Start(block.seekpos)).unwrap();
         write_manual.write_all(&buf).unwrap();

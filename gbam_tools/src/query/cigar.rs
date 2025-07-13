@@ -1,7 +1,6 @@
-use std::{slice::Iter};
+use std::slice::Iter;
 
-use serde::{Serialize, Deserialize};
-
+use serde::{Deserialize, Serialize};
 
 use byteorder::ByteOrder;
 use byteorder::WriteBytesExt;
@@ -96,8 +95,7 @@ impl Cigar {
 
 impl std::fmt::Display for Cigar {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.ops().try_for_each(|op| {
-            write!(f, "{}{}", op.length(), op.op_type())
-        })
+        self.ops()
+            .try_for_each(|op| write!(f, "{}{}", op.length(), op.op_type()))
     }
 }

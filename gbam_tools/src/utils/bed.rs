@@ -1,7 +1,7 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufRead, Read};
 use std::path::Path;
-use std::{collections::HashMap};
 
 /// Source: https://github.com/zaeleus/noodles/blob/90e70874eaa6dd41ac8339933d6dd95bd98080c2/noodles-tabix/examples/tabix_write.rs#L24
 fn parse_record(s: &str) -> io::Result<(String, u32, u32)> {
@@ -28,17 +28,17 @@ fn parse_record(s: &str) -> io::Result<(String, u32, u32)> {
     Ok((reference_sequence_name, start, end))
 }
 
-pub fn parse_bed_from_file(path: &Path) -> io::Result<HashMap::<String, Vec<(u32, u32)>>> {
+pub fn parse_bed_from_file(path: &Path) -> io::Result<HashMap<String, Vec<(u32, u32)>>> {
     let mut file = File::open(path)?;
     parse_bed(&mut file)
 }
 
-pub fn parse_bed<R: Read>(source: &mut R) -> io::Result<HashMap::<String, Vec<(u32, u32)>>> {
+pub fn parse_bed<R: Read>(source: &mut R) -> io::Result<HashMap<String, Vec<(u32, u32)>>> {
     let mut res = HashMap::<String, Vec<(u32, u32)>>::new();
     let lines = read_lines(source)?;
 
     for line in lines {
-        let rec = parse_record(&line?)?; 
+        let rec = parse_record(&line?)?;
         res.entry(rec.0).or_insert(Vec::new()).push((rec.1, rec.2));
     }
 

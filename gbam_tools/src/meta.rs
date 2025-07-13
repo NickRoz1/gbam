@@ -21,14 +21,20 @@ pub(crate) struct FileInfo {
 }
 
 impl FileInfo {
-    pub fn new(gbam_version: [u32; 2], seekpos: u64, crc32: u32, full_command: String, is_sorted: bool) -> Self {
+    pub fn new(
+        gbam_version: [u32; 2],
+        seekpos: u64,
+        crc32: u32,
+        full_command: String,
+        is_sorted: bool,
+    ) -> Self {
         FileInfo {
             magic: String::from_utf8(GBAM_MAGIC.to_owned()).unwrap(),
             gbam_version,
             seekpos,
             crc32,
             creation_command: full_command,
-            is_sorted
+            is_sorted,
         }
     }
 }
@@ -81,10 +87,10 @@ impl Stat {
 }
 
 impl Default for Stat {
-    fn default() -> Self { 
+    fn default() -> Self {
         Self {
-            min_value:std::i32::MAX,
-            max_value:std::i32::MIN,
+            min_value: std::i32::MAX,
+            max_value: std::i32::MIN,
         }
     }
 }

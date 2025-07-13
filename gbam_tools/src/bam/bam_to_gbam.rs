@@ -13,12 +13,12 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use tempdir::TempDir;
 
-
 const MEM_LIMIT: usize = 2000 * MEGA_BYTE_SIZE;
 
 /// Converts BAM file to GBAM file. This uses the `bam_parallel` reader.
 pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs, full_command: String) {
-    let (mut bam_reader, mut writer) = get_bam_reader_gbam_writer(in_path, out_path, codec, full_command);
+    let (mut bam_reader, mut writer) =
+        get_bam_reader_gbam_writer(in_path, out_path, codec, full_command);
 
     let mut records = bam_reader.records();
     while let Some(Ok(rec)) = records.next_rec() {
@@ -30,13 +30,19 @@ pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs, full_command: S
 }
 
 /// Converts BAM file to GBAM file. Sorts BAM file in process. This uses the `bam_parallel` reader.
-pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs, mut sort_temp_mode: Option<String>, temp_dir: Option<PathBuf>, full_command: String, index_sort: bool) {
+pub fn bam_sort_to_gbam(
+    in_path: &str,
+    out_path: &str,
+    codec: Codecs,
+    mut sort_temp_mode: Option<String>,
+    temp_dir: Option<PathBuf>,
+    full_command: String,
+    index_sort: bool,
+) {
     let fin_for_ref_seqs = File::open(in_path).expect("failed");
-    
-    let mut reader_for_header_only = Reader::new(fin_for_ref_seqs, 1, None);
-    let (sam_header, ref_seqs, _) =
-        read_sam_header_and_ref_seqs(&mut reader_for_header_only);
 
+    let mut reader_for_header_only = Reader::new(fin_for_ref_seqs, 1, None);
+    let (sam_header, ref_seqs, _) = read_sam_header_and_ref_seqs(&mut reader_for_header_only);
 
     let fin = File::open(in_path).expect("failed");
     let fout = File::create(out_path).expect("failed");
@@ -54,7 +60,7 @@ pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs, mut sort_t
         ref_seqs,
         sam_header,
         full_command,
-        true
+        true,
     );
 
     let tmp_dir_path = temp_dir.map_or(std::env::temp_dir(), |path| path);
@@ -68,11 +74,15 @@ pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs, mut sort_t
         "lz4_ram" => TempFilesMode::InMemoryBlocksLZ4,
         _ => panic!("Unknown sort_temp_mode mode."),
     };
-    
+
     let index_file = if index_sort {
-        Some(BufWriter::with_capacity(33_554_432, File::create(out_path.clone().to_owned()+".gbai").unwrap()))
-    }
-    else{None};
+        Some(BufWriter::with_capacity(
+            33_554_432,
+            File::create(out_path.clone().to_owned() + ".gbai").unwrap(),
+        ))
+    } else {
+        None
+    };
 
     let dir = TempDir::new_in(tmp_dir_path, "BAM sort temporary directory.").unwrap();
 
@@ -86,7 +96,7 @@ pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs, mut sort_t
         tmp_medium_mode,
         index_file,
         sort::SortBy::CoordinatesAndStrand,
-        Some(file_size)
+        Some(file_size),
     )
     .unwrap();
 

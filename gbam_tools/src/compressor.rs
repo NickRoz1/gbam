@@ -1,15 +1,15 @@
+use super::Codecs;
 use crate::writer::BlockInfo;
 use crate::SIZE_LIMIT;
-use super::Codecs;
 use flume::{Receiver, Sender};
 use rayon::ThreadPool;
 
+use brotli::CompressorWriter;
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use brotli::CompressorWriter;
-use zstd::stream::encode_all;
 use lzzzz::lz4;
 use xz2::write::XzEncoder;
+use zstd::stream::encode_all;
 
 use std::io::Write;
 
@@ -134,7 +134,7 @@ pub fn compress(source: &[u8], mut dest: Vec<u8>, codec: Codecs) -> Vec<u8> {
                     "Compression error",
                 )),
             }
-        },
+        }
         Codecs::Brotli => {
             dest.clear();
             {
@@ -143,13 +143,13 @@ pub fn compress(source: &[u8], mut dest: Vec<u8>, codec: Codecs) -> Vec<u8> {
                 writer.flush().unwrap();
             }
             Ok(dest)
-        },
+        }
         Codecs::Xz => {
             let mut encoder = XzEncoder::new(Vec::new(), 6);
             encoder.write_all(source).unwrap();
             let compressed = encoder.finish().unwrap();
             Ok(compressed)
-        },
+        }
         Codecs::Zstd => {
             // encode_all returns a Vec<u8>
             match encode_all(source, 14) {
@@ -159,7 +159,7 @@ pub fn compress(source: &[u8], mut dest: Vec<u8>, codec: Codecs) -> Vec<u8> {
                     "Zstd compression error",
                 )),
             }
-        },
+        }
         Codecs::NoCompression => {
             dest.clear();
             dest.extend_from_slice(source);

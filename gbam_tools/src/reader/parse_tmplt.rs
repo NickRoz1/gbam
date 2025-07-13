@@ -1,8 +1,5 @@
-
-
 use bam_tools::record::fields::{
-    field_type, is_data_field, var_size_field_to_index, FieldType, Fields,
-    FIELDS_NUM,
+    field_type, is_data_field, var_size_field_to_index, FieldType, Fields, FIELDS_NUM,
 };
 
 /// This struct regulates what fields are getting parsed from GBAM file.
@@ -54,9 +51,7 @@ impl ParsingTemplate {
     /// Get iterator over fields currently requested for parsing
     #[allow(clippy::needless_lifetimes)]
     pub fn get_active_fields_iter<'a>(&'a self) -> impl Iterator<Item = &'a Fields> {
-        self.inner
-            .iter()
-            .filter_map(|x| x.as_ref())
+        self.inner.iter().filter_map(|x| x.as_ref())
     }
 
     /// Get iterator over data fields (no index fields) currently requested for parsing
@@ -95,7 +90,7 @@ impl ParsingTemplate {
     pub fn set_all_except(&mut self, disable: &[Fields]) {
         for (field, val) in Fields::iterator().zip(self.inner.iter_mut()) {
             let mut good = true;
-            for f in disable{
+            for f in disable {
                 if f == field {
                     good = false;
                     break;
