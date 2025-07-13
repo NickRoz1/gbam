@@ -11,10 +11,9 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 use rayon::prelude::*;
 use std::cmp::min;
-use std::convert::TryInto;
 use std::fs::File;
 use std::io::{BufWriter, StdoutLock, Write};
-use std::ops::{Range, RangeInclusive};
+use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
@@ -84,7 +83,7 @@ fn calc_depth(
 
     let mut last_rec: i64 = preparsed_records.len() as i64;
 
-    while (last_rec - first_rec > 1) {
+    while last_rec - first_rec > 1 {
         let mid: usize = ((first_rec + last_rec) / 2) as usize;
         let buf = preparsed_records[index_file.as_ref().unwrap()[mid] as usize];
         if buf.refid >= ref_id || buf.refid == -1 {
@@ -154,7 +153,7 @@ pub fn main_depth(
         queries = bed::parse_bed_from_file(bed_path).expect("BED file is corrupted.");
     }
     if let Some(query) = bed_cli_request {
-        queries.extend(bed::parse_bed(&mut query.as_bytes()).unwrap().into_iter());
+        queries.extend(bed::parse_bed(&mut query.as_bytes()).unwrap());
     }
 
     let mut reader = Reader::new(gbam_file.try_clone().unwrap(), ParsingTemplate::new()).unwrap();

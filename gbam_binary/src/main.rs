@@ -206,7 +206,7 @@ fn test(args: Cli) {
     while let Some(rec) = records.next_rec() {
         u += base_coverage(&rec.cigar.as_ref().unwrap().0[..]);
     }
-    println!("Record count {}", u);
+    println!("Record count {u}");
     println!(
         "GBAM. Time elapsed querying POS and RAWCIGAR field throughout whole file: {}ms",
         now.elapsed().as_millis()
@@ -262,7 +262,7 @@ fn test_file_uncompressed_size_fetch(args: Cli) {
     let mut total_uncrompressed_size_of_file: usize = 0;
     const ERR: &str = "Couldn't parse the bgzf block.";
     loop {
-        let cur_reader_pos = reader.seek(std::io::SeekFrom::Current(0)).unwrap();
+        let cur_reader_pos = reader.stream_position().unwrap();
         if file_sz == cur_reader_pos {
             break;
         }
@@ -284,8 +284,7 @@ fn test_file_uncompressed_size_fetch(args: Cli) {
     }
 
     println!(
-        "Total uncompressed size of file is: {}",
-        total_uncrompressed_size_of_file
+        "Total uncompressed size of file is: {total_uncrompressed_size_of_file}"
     );
 }
 
@@ -294,7 +293,7 @@ fn read_index(index: PathBuf) -> Option<std::sync::Arc<Vec<u32>>> {
     let size = file.metadata().unwrap().len();
     let mut f = std::io::BufReader::new(file);
     let mut res = vec![
-        0 as u32;
+        0_u32;
         (size / (std::mem::size_of::<u32>() as u64))
             .try_into()
             .unwrap()
@@ -333,7 +332,7 @@ fn view_header(args: Cli) {
         .to_owned();
     let header = String::from_utf8(header_bytes).unwrap();
 
-    println!("{}", header);
+    println!("{header}");
 }
 
 fn parse_tag(tags: &[u8], target_tag: &str) -> Option<String> {
@@ -347,7 +346,7 @@ fn parse_tag(tags: &[u8], target_tag: &str) -> Option<String> {
     }
 
     let mut i = 0;
-    while i <= tags.len() - tag_length - 1 {
+    while i < tags.len() - tag_length {
         // Look for the target tag followed by its type identifier
         if tags[i..i + tag_length] == target_bytes[..] {
             // Skip the tag name and type
@@ -430,7 +429,7 @@ fn patch_dups(args: Cli) {
         ) {
             let mut val = (&chunk[..]).read_u16::<byteorder::LittleEndian>().unwrap();
             if is_dup.unwrap() == "1" {
-                val = val | 0x400;
+                val |= 0x400;
             }
             (&mut chunk[..])
                 .write_u16::<byteorder::LittleEndian>(val)

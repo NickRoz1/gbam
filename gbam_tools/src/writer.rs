@@ -195,7 +195,7 @@ fn flush_field_buffer<WS: Write + Seek>(
 ) {
     // Use an empty buffer to start the flushing process
     // Don't worry, Vec::new() is temporary, it won't need to fully allocate the Vec as it replaces the reference with the &mut from the reused Buffer
-    let data = std::mem::replace(&mut inner.buffer, Vec::new());
+    let data = std::mem::take(&mut inner.buffer);
 
     let field = &inner.field;
     let codec = *file_meta.get_field_codec(field);

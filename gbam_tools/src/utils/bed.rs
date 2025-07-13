@@ -39,7 +39,7 @@ pub fn parse_bed<R: Read>(source: &mut R) -> io::Result<HashMap<String, Vec<(u32
 
     for line in lines {
         let rec = parse_record(&line?)?;
-        res.entry(rec.0).or_insert(Vec::new()).push((rec.1, rec.2));
+        res.entry(rec.0).or_default().push((rec.1, rec.2));
     }
 
     Ok(res)

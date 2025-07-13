@@ -129,8 +129,7 @@ pub fn compress(source: &[u8], mut dest: Vec<u8>, codec: Codecs) -> Vec<u8> {
                     dest.resize(size, 0);
                     Ok(dest)
                 }
-                Err(_) => Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                Err(_) => Err(std::io::Error::other(
                     "Compression error",
                 )),
             }
@@ -154,8 +153,7 @@ pub fn compress(source: &[u8], mut dest: Vec<u8>, codec: Codecs) -> Vec<u8> {
             // encode_all returns a Vec<u8>
             match encode_all(source, 14) {
                 Ok(c) => Ok(c),
-                Err(_) => Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                Err(_) => Err(std::io::Error::other(
                     "Zstd compression error",
                 )),
             }

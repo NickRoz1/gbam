@@ -105,8 +105,8 @@ pub enum TempFilesMode {
 /// Only coordinate sort is currently supported.
 fn do_index_sort<W: Write, IndexW: std::io::Write>(
     bam_reader: &mut Reader,
-    mut writer: &mut W,
-    mut index_writer: &mut IndexW,
+    writer: &mut W,
+    index_writer: &mut IndexW,
 ) -> std::io::Result<()> {
     let temp_me = Instant::now();
     let mut records = bam_reader.records();
@@ -130,7 +130,7 @@ fn do_index_sort<W: Write, IndexW: std::io::Write>(
             .write_u32::<LittleEndian>(rng.start as u32)
             .unwrap();
     }
-    return Ok(());
+    Ok(())
 }
 
 /// Memory limit won't be strictly obeyed, but it probably won't be overflowed significantly.
@@ -143,7 +143,7 @@ pub fn sort_bam<R: Read + Send + 'static, W: Write, IndexW: Write>(
     _out_compr_level: usize,
     reader_thread_num: usize,
     temp_files_mode: TempFilesMode,
-    mut index_file_to_create: Option<IndexW>,
+    index_file_to_create: Option<IndexW>,
     sort_by: SortBy,
     bam_file_size: Option<u64>,
 ) -> std::io::Result<()> {
@@ -160,7 +160,7 @@ pub fn sort_bam<R: Read + Send + 'static, W: Write, IndexW: Write>(
     let temp_files = read_split_sort_dump_chunks::<W>(
         &mut parallel_reader,
         mem_limit,
-        &tmp_dir,
+        tmp_dir,
         &temp_files_mode,
         None,
         sort_by,
@@ -216,7 +216,7 @@ fn read_split_sort_dump_chunks<W: Write>(
     recs_buf = Some(RecordsBuffer::new(mem_limit / 2));
 
     // If writer exists it means we are going to index sort, immediately dumping records into sink.
-    let mut offset = writer.as_ref().map(|_| 0 as u32);
+    let mut offset = writer.as_ref().map(|_| 0_u32);
     let mut buff_for_keys = RecordsBuffer::new(mem_limit / 2);
     if offset.is_some() && sort_by != SortBy::CoordinatesAndStrand {
         panic!("Index sort is only supported for coordinates and strand sort for now.");
@@ -267,7 +267,7 @@ fn read_split_sort_dump_chunks<W: Write>(
                     *offs += 1;
                 }
 
-                std::mem::swap(&mut buff_for_keys, &mut recs_buf.as_mut().unwrap());
+                std::mem::swap(&mut buff_for_keys, recs_buf.as_mut().unwrap());
             }
 
             match *temp_files_mode {
@@ -283,7 +283,7 @@ fn read_split_sort_dump_chunks<W: Write>(
                 TempFilesMode::InMemoryBlocks | TempFilesMode::InMemoryBlocksLZ4 => {
                     let mut vec = Vec::new();
                     // Don't waste memory if index sorting.
-                    if !writer.is_some() {
+                    if writer.is_none() {
                         // 1GB of BAM data occupies approximately 520-600 MB if compressed with LZ4.
                         vec.reserve(MEGA_BYTE_SIZE * 640);
                     } else {

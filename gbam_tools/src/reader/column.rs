@@ -4,13 +4,12 @@ use super::reader::generate_block_treemap;
 use super::record::GbamRecord;
 use crate::SIZE_LIMIT;
 use bam_tools::record::fields::Fields;
-use brotli::Decompressor as BrotliDecompressorReader;
 use byteorder::{LittleEndian, ReadBytesExt};
 use flate2::write::GzDecoder;
 use lzzzz::lz4;
 use memmap2::Mmap;
 use std::convert::TryFrom;
-use std::io::{self, Read, Write};
+use std::io::{Read, Write};
 use xz2::read::XzDecoder;
 
 use crate::{meta::FileMeta, Codecs};

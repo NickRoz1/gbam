@@ -78,7 +78,7 @@ pub fn bam_sort_to_gbam(
     let index_file = if index_sort {
         Some(BufWriter::with_capacity(
             33_554_432,
-            File::create(out_path.clone().to_owned() + ".gbai").unwrap(),
+            File::create(out_path.to_owned() + ".gbai").unwrap(),
         ))
     } else {
         None

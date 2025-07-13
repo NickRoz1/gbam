@@ -109,7 +109,7 @@ impl GbamRecord {
             + mem::size_of::<i32>() * 3
             + self.cigar.as_ref().unwrap().0.len() * mem::size_of::<u32>()
             + self.read_name.as_ref().unwrap().len()
-            + (self.seq.as_ref().unwrap_or(&String::new()).len() + 1) / 2
+            + self.seq.as_ref().unwrap_or(&String::new()).len().div_ceil(2)
             + self.qual.as_ref().unwrap_or(&Vec::new()).len()
             + self.tags.as_ref().unwrap().len();
 
@@ -164,7 +164,7 @@ impl GbamRecord {
             .ops()
             .zip_eq(cigar.chunks_mut(mem::size_of::<u32>()))
             .for_each(|(op, mut buf)| buf.write_u32::<LittleEndian>(op.0).unwrap());
-        let seq_len = (self.seq.as_ref().unwrap_or(&String::new()).len() + 1) / 2;
+        let seq_len = self.seq.as_ref().unwrap_or(&String::new()).len().div_ceil(2);
         let (seq, unsized_data) = unsized_data.split_at_mut(seq_len);
         put_sequence(
             seq,
@@ -207,7 +207,7 @@ impl GbamRecord {
 
     pub fn is_reverse(&self) -> bool {
         let flag = self.flag.unwrap();
-        (flag & 0x10) == 0x10 as u16
+        (flag & 0x10) == 0x10_u16
     }
 
     pub fn is_reverse_complemented(&self) -> bool {

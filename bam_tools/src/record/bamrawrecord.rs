@@ -50,7 +50,7 @@ impl<'a> BAMRawRecord<'a> {
         match field {
             Fields::ReadName => self.l_read_name() as usize,
             Fields::RawCigar => U32_SIZE * self.n_cigar_op() as usize,
-            Fields::RawSequence => ((self.l_seq() + 1) / 2) as usize,
+            Fields::RawSequence => self.l_seq().div_ceil(2) as usize,
             Fields::RawQual => self.l_seq() as usize,
             Fields::RawTags => self.0.len() - self.get_offset(&Fields::RawTags),
             _ => panic!("This field is not supported: {} \n", *field as usize),
@@ -81,7 +81,7 @@ impl<'a> BAMRawRecord<'a> {
         let get_cigar_offset = || -> usize { (32 + self.l_read_name()) as usize };
         let get_seq_offset =
             || -> usize { get_cigar_offset() + U32_SIZE * self.n_cigar_op() as usize };
-        let get_qual_offset = || -> usize { get_seq_offset() + ((self.l_seq() + 1) / 2) as usize };
+        let get_qual_offset = || -> usize { get_seq_offset() + self.l_seq().div_ceil(2) as usize };
         let get_tags_offset = || -> usize { get_qual_offset() + self.l_seq() as usize };
         match field {
             Fields::RefID => self.get_slice(0, U32_SIZE),
@@ -149,7 +149,7 @@ impl<'a> BAMRawRecord<'a> {
         {
             return cigar_field_data;
         }
-        let cigar_tag = &[b'C', b'G'];
+        let cigar_tag = b"CG";
         match self.get_tag(cigar_tag) {
             Some(cigar) => cigar,
             None => cigar_field_data, //panic!("CIGAR in tags not found!"),

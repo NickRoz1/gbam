@@ -5,7 +5,6 @@ use std::{borrow::Borrow, fs::File};
 use bam_tools::record::fields::{
     field_type, var_size_field_to_index, FieldType, Fields, FIELDS_NUM,
 };
-use byteorder::LittleEndian;
 use memmap2::Mmap;
 use memmap2::MmapOptions;
 
