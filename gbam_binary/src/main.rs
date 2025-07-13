@@ -95,6 +95,9 @@ struct Cli {
     /// Calculate uncompressed size of BAM file.
     #[structopt(long)]
     calc_uncompressed_size: bool,
+    /// Calculate metadata's memory size and JSON size.
+    #[structopt(long)]
+    calc_metadata_size: bool,
 }
 
 /// Limited wrapper of `gbam_tools` converts BAM file to GBAM
@@ -146,9 +149,9 @@ fn convert(args: Cli, full_command: String) {
         .to_str()
         .unwrap();
     if args.sort {
-        bam_sort_to_gbam(in_path, out_path, Codecs::Brotli, args.sort_temp_mode, args.temp_dir, full_command, args.index_sort);
+        bam_sort_to_gbam(in_path, out_path, Codecs::Brotli, args.sort_temp_mode, args.temp_dir, full_command, args.index_sort, args.calc_metadata_size);
     } else {
-        bam_to_gbam(in_path, out_path, Codecs::Brotli, full_command);
+        bam_to_gbam(in_path, out_path, Codecs::Brotli, full_command, args.calc_metadata_size);
     }
 }
 
