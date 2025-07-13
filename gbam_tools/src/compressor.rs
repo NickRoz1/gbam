@@ -1,19 +1,17 @@
+use crate::writer::BlockInfo;
 use crate::SIZE_LIMIT;
+use super::Codecs;
 use flume::{Receiver, Sender};
 use rayon::ThreadPool;
 
-use super::Codecs;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use brotli::CompressorWriter;
 use zstd::stream::encode_all;
-// use lz4::EncoderBuilder;
-use std::io::Write;
-
-// use lz4_flex::block::{compress_into, get_maximum_output_size};
 use lzzzz::lz4;
+use xz2::write::XzEncoder;
 
-use crate::writer::BlockInfo;
+use std::io::Write;
 
 pub(crate) enum OrderingKey {
     Key(u64),
@@ -145,6 +143,12 @@ pub fn compress(source: &[u8], mut dest: Vec<u8>, codec: Codecs) -> Vec<u8> {
                 writer.flush().unwrap();
             }
             Ok(dest)
+        },
+        Codecs::Xz => {
+            let mut encoder = XzEncoder::new(Vec::new(), 7);
+            encoder.write_all(source).unwrap();
+            let compressed = encoder.finish().unwrap();
+            Ok(compressed)
         },
         Codecs::Zstd => {
             // encode_all returns a Vec<u8>

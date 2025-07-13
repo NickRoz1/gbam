@@ -48,6 +48,8 @@ pub enum Codecs {
     Brotli,
     /// ZSTD encoding
     Zstd,
+    /// XZ encoding, using the liblzma implementation
+    Xz,
     /// No compression
     NoCompression,
 }

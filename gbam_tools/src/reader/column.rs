@@ -7,10 +7,11 @@ use lzzzz::{lz4};
 use bam_tools::record::fields::Fields;
 use byteorder::{LittleEndian, ReadBytesExt};
 use flate2::write::GzDecoder;
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use brotli::Decompressor as BrotliDecompressorReader;
 use memmap2::Mmap;
 use std::convert::TryFrom;
+use xz2::read::XzDecoder;
 
 use crate::{meta::FileMeta, Codecs};
 
@@ -195,6 +196,10 @@ pub fn decompress_block(source: &[u8], dest: &mut Vec<u8>, codec: &Codecs) -> st
         Codecs::Zstd => {
             dest.clear();
             let mut decoder = zstd::stream::Decoder::new(source)?;
+            decoder.read_to_end(dest)?;
+        }
+        Codecs::Xz => {
+            let mut decoder = XzDecoder::new(source);
             decoder.read_to_end(dest)?;
         }
         Codecs::NoCompression => {
