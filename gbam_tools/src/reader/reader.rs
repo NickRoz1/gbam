@@ -5,11 +5,10 @@ use std::{borrow::Borrow, fs::File};
 use bam_tools::record::fields::{
     field_type, var_size_field_to_index, FieldType, Fields, FIELDS_NUM,
 };
-use byteorder::LittleEndian;
-use memmap2::MmapOptions;
 use memmap2::Mmap;
+use memmap2::MmapOptions;
 
-use crate::meta::{FileInfo, FileMeta, FILE_INFO_SIZE, BlockMeta};
+use crate::meta::{BlockMeta, FileInfo, FileMeta, FILE_INFO_SIZE};
 use crate::writer::calc_crc_for_meta_bytes;
 
 use super::{
@@ -31,7 +30,7 @@ pub struct Reader {
     // Kept so File won't drop while used by mmap.
     _inner: Box<File>,
     index_mapping: Option<Arc<Vec<u32>>>,
-    pub mmap: Arc<Mmap>
+    pub mmap: Arc<Mmap>,
 }
 
 impl Reader {
@@ -42,28 +41,39 @@ impl Reader {
         Self::new_with_meta(inner, parsing_template, &Arc::new(file_meta), None)
     }
 
-    pub fn new_with_index(inner: File, parsing_template: ParsingTemplate, index_mapping: Option<Arc<Vec<u32>>>) -> std::io::Result<Self> {
+    pub fn new_with_index(
+        inner: File,
+        parsing_template: ParsingTemplate,
+        index_mapping: Option<Arc<Vec<u32>>>,
+    ) -> std::io::Result<Self> {
         let inner = inner;
         let mmap = unsafe { Mmap::map(inner.borrow())? };
         let file_meta = verify_and_parse_meta(&mmap)?;
         Self::new_with_meta(inner, parsing_template, &Arc::new(file_meta), index_mapping)
     }
 
-    pub fn new_with_meta(_inner: File, parsing_template: ParsingTemplate, file_meta: &Arc<FileMeta>, index_mapping: Option<Arc<Vec<u32>>>) -> std::io::Result<Self> {
+    pub fn new_with_meta(
+        _inner: File,
+        parsing_template: ParsingTemplate,
+        file_meta: &Arc<FileMeta>,
+        index_mapping: Option<Arc<Vec<u32>>>,
+    ) -> std::io::Result<Self> {
         let _copy = _inner.try_clone()?;
         let _inner: Box<File> = Box::new(_inner);
-        
+
         let mmap = Arc::new(unsafe { MmapOptions::new().map(&_copy)? });
         // mmap.advise(memmap2::Advice::WillNeed)?;
         // Consumes up to 16 percent of runtime on big files (20GB).
         // verify(&mmap)?;
-        let amount = usize::try_from(file_meta
-            .view_blocks(&Fields::RefID)
-            .iter()
-            .fold(0, |acc: u64, x| acc + u64::from(x.numitems))).unwrap();
+        let amount = usize::try_from(
+            file_meta
+                .view_blocks(&Fields::RefID)
+                .iter()
+                .fold(0, |acc: u64, x| acc + u64::from(x.numitems)),
+        )
+        .unwrap();
         let meta = file_meta.clone();
 
-        
         Ok(Self {
             columns: init_columns(&mmap, &parsing_template, &meta),
             original_template: parsing_template.clone(),
@@ -91,9 +101,7 @@ impl Reader {
     }
 
     pub fn get_column(&mut self, field: &Fields) -> &mut Box<dyn Column + Send> {
-        self.columns[*field as usize]
-            .as_mut()
-            .unwrap()
+        self.columns[*field as usize].as_mut().unwrap()
     }
 
     // Temporarily disable fetching for fields which are not needed
@@ -131,11 +139,15 @@ fn init_columns(
 fn init_col(field: Fields, mmap: &Arc<Mmap>, meta: &Arc<FileMeta>) -> Box<dyn Column + Send> {
     let inner = Inner::new(meta.clone(), field, mmap.clone());
     match field_type(&field) {
-        FieldType::FixedSized => Box::new(FixedColumn::new(inner, meta.get_field_size(&field).unwrap() as usize)),
+        FieldType::FixedSized => Box::new(FixedColumn::new(
+            inner,
+            meta.get_field_size(&field).unwrap() as usize,
+        )),
         FieldType::VariableSized => {
             let idx_field = var_size_field_to_index(&field);
             let idx_inner = Inner::new(meta.clone(), idx_field, mmap.clone());
-            let idx_col = FixedColumn::new(idx_inner, meta.get_field_size(&idx_field).unwrap() as usize);
+            let idx_col =
+                FixedColumn::new(idx_inner, meta.get_field_size(&idx_field).unwrap() as usize);
             Box::new(VariableColumn::new(inner, idx_col))
         }
     }
@@ -149,7 +161,7 @@ fn parse_file_info(mmap: &Mmap) -> FileInfo {
 }
 
 #[allow(dead_code)]
-fn verify(mmap: &Mmap) -> std::io::Result<()>{
+fn verify(mmap: &Mmap) -> std::io::Result<()> {
     let file_info = parse_file_info(mmap);
     // Read file meta
     let buf = &mmap[file_info.seekpos as usize..];
@@ -182,7 +194,7 @@ pub(crate) fn generate_block_treemap(meta: &FileMeta, field: &Fields) -> BTreeMa
         .enumerate()
         // Prefix sum.
         .scan(0, |acc: &mut u64, (block_index, x): (usize, &BlockMeta)| {
-            let current_chunk = Some((usize::try_from(*acc).unwrap() , block_index));
+            let current_chunk = Some((usize::try_from(*acc).unwrap(), block_index));
             *acc += x.numitems as u64;
             current_chunk
         })

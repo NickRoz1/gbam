@@ -28,6 +28,7 @@ md5 = "0.7.0"
 rand = "0.8"
 brotli = "3.3.4"
 zstd = "0.12"
+xz2 = "0.1.7"
 
 [lib]
 crate-type = ["rlib", "cdylib"]

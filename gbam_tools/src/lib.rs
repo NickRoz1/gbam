@@ -23,7 +23,6 @@ pub mod reader {
     pub mod reader;
     pub mod record;
     pub mod records;
-
 }
 
 #[cfg(not(feature = "python-ffi"))]
@@ -38,8 +37,6 @@ pub mod query {
     //}
 }
 
-
-
 /// Manages parallel compression
 mod compressor;
 /// Meta information for GBAM file
@@ -53,9 +50,8 @@ pub mod writer;
 // pub use {ParsingTemplate, Reader};
 use self::writer::Writer;
 pub use bam::bam_to_gbam::{bam_sort_to_gbam, bam_to_gbam};
-pub use meta::Codecs;
 pub use bam_tools::record::fields::Fields;
-
+pub use meta::Codecs;
 
 const U32_SIZE: usize = mem::size_of::<u32>();
 const MEGA_BYTE_SIZE: usize = 1_048_576;

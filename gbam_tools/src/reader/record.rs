@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use itertools::Itertools;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use bam_tools::record::{
     bamrawrecord::{decode_seq, put_sequence},
@@ -12,9 +12,7 @@ use crate::query::cigar::base_coverage;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::mem;
 
-
 use crate::{query::cigar::Cigar, query::cigar::Op, U32_SIZE};
-
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 /// Represents a GBAM record in which some fields may be omitted.
@@ -71,9 +69,7 @@ impl GbamRecord {
             Fields::RawCigar => {
                 parse_cigar(bytes, self.cigar.get_or_insert(Cigar::new(Vec::new())));
             }
-            Fields::RawSequence => {
-                decode_seq(bytes, self.seq.get_or_insert(String::new()))
-            },
+            Fields::RawSequence => decode_seq(bytes, self.seq.get_or_insert(String::new())),
             Fields::RawQual => self.qual = Some(bytes.to_vec()),
             Fields::RawTags => self.tags = Some(bytes.to_vec()),
             _ => panic!("Not yet covered type: {}", field),
@@ -113,7 +109,7 @@ impl GbamRecord {
             + mem::size_of::<i32>() * 3
             + self.cigar.as_ref().unwrap().0.len() * mem::size_of::<u32>()
             + self.read_name.as_ref().unwrap().len()
-            + (self.seq.as_ref().unwrap_or(&String::new()).len()+1)/2
+            + self.seq.as_ref().unwrap_or(&String::new()).len().div_ceil(2)
             + self.qual.as_ref().unwrap_or(&Vec::new()).len()
             + self.tags.as_ref().unwrap().len();
 
@@ -168,16 +164,20 @@ impl GbamRecord {
             .ops()
             .zip_eq(cigar.chunks_mut(mem::size_of::<u32>()))
             .for_each(|(op, mut buf)| buf.write_u32::<LittleEndian>(op.0).unwrap());
-        let seq_len = (self.seq.as_ref().unwrap_or(&String::new()).len()+1)/2;
+        let seq_len = self.seq.as_ref().unwrap_or(&String::new()).len().div_ceil(2);
         let (seq, unsized_data) = unsized_data.split_at_mut(seq_len);
-        put_sequence(seq, self.seq.as_ref().unwrap_or(&String::new()).len(), self.seq.as_ref().unwrap_or(&String::new())).unwrap();
+        put_sequence(
+            seq,
+            self.seq.as_ref().unwrap_or(&String::new()).len(),
+            self.seq.as_ref().unwrap_or(&String::new()),
+        )
+        .unwrap();
         let (mut qual, mut unsized_data) =
             unsized_data.split_at_mut(self.qual.as_ref().unwrap_or(&Vec::new()).len());
-        qual.write_all(self.qual.as_ref().unwrap_or(&Vec::new())).unwrap();
-        assert!(unsized_data.len() == self.tags.as_ref().unwrap().len());
-        unsized_data
-            .write_all(self.tags.as_ref().unwrap())
+        qual.write_all(self.qual.as_ref().unwrap_or(&Vec::new()))
             .unwrap();
+        assert!(unsized_data.len() == self.tags.as_ref().unwrap().len());
+        unsized_data.write_all(self.tags.as_ref().unwrap()).unwrap();
         assert!(unsized_data.is_empty());
     }
 
@@ -201,19 +201,19 @@ impl GbamRecord {
 
     /// Calculates the end position.
     pub fn alignment_end(&self) -> Option<u32> {
-        self.alignment_start().and_then(|alignment_start| {
-            Option::from(alignment_start + self.alignment_span() - 1)
-        })
+        self.alignment_start()
+            .and_then(|alignment_start| Option::from(alignment_start + self.alignment_span() - 1))
     }
 
     pub fn is_reverse(&self) -> bool {
         let flag = self.flag.unwrap();
-        (flag & 0x10) == 0x10 as u16
+        (flag & 0x10) == 0x10_u16
     }
 
     pub fn is_reverse_complemented(&self) -> bool {
         let flag = self.flag.unwrap();
-        (flag & rust_htslib::htslib::BAM_FREVERSE as u16) == rust_htslib::htslib::BAM_FREVERSE as u16
+        (flag & rust_htslib::htslib::BAM_FREVERSE as u16)
+            == rust_htslib::htslib::BAM_FREVERSE as u16
     }
 
     pub fn is_unmapped(&self) -> bool {
