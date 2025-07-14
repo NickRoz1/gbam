@@ -31,14 +31,9 @@ jobs:
       # Only on macOS: install both Apple-Darwin targets so you can build for either arch
       - name: Set up Rust (macOS cross‐targets)
         if: matrix.os == 'macos-latest'
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          targets: |
-            x86_64-apple-darwin
-            aarch64-apple-darwin
+        run: |
+          rustup target add x86_64-apple-darwin
+          rustup target add aarch64-apple-darwin
 
       # On macOS, explicitly pick the right target triple; elsewhere just build normally
       - name: Build
