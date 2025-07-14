@@ -18,8 +18,8 @@ jobs:
         include:
           - os: ubuntu-latest
             arch: x86_64
-          # - os: windows-latest  # Temporarily disabled due to hts-sys build issues
-          #   arch: x86_64
+          - os: windows-latest  # Temporarily disabled due to hts-sys build issues
+            arch: x86_64
           - os: macos-latest
             arch: x86_64
           - os: macos-latest
