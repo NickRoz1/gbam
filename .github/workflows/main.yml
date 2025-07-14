@@ -1,0 +1,46 @@
+name: Compile GBAM
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }} / ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x86_64
+          - os: windows-latest
+            arch: x86_64
+          - os: macos-latest
+            arch: x86_64
+          - os: macos-latest
+            arch: arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Only on macOS: install both Apple-Darwin targets so you can build for either arch
+      - name: Set up Rust (macOS cross‐targets)
+        if: matrix.os == 'macos-latest'
+        run: |
+          rustup target add x86_64-apple-darwin
+          rustup target add aarch64-apple-darwin
+
+      # Build for macOS with specific target
+      - name: Build (macOS)
+        if: matrix.os == 'macos-latest'
+        run: cargo build --verbose --target ${{ matrix.arch == 'x86_64' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin' }}
+
+      # Build for other platforms normally
+      - name: Build (Other platforms)
+        if: matrix.os != 'macos-latest'
+        run: cargo build --verbose
