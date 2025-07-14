@@ -1,0 +1,43 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }} / ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x86_64
+          - os: windows-latest
+            arch: x86_64
+          - os: macos-latest
+            arch: x86_64
+          - os: macos-latest
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      # (Optional) Explicitly install Rust for the right arch on macOS:
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          target: |
+            x86_64-apple-darwin
+            aarch64-apple-darwin
+        if: matrix.os == 'macos-latest'
+
+      - name: Build
+        run: cargo build --verbose
