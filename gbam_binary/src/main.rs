@@ -6,7 +6,7 @@ use gbam_tools::{
     bam::gbam_to_bam::gbam_to_bam,
     query::depth::main_depth,
     reader::{parse_tmplt::ParsingTemplate, reader::Reader, record::GbamRecord},
-    {bam_to_gbam, Codecs},
+    {bam_to_gbam, sam_to_gbam, Codecs},
     query::flagstat::collect_stats,
 };
 use itertools::zip_eq;
@@ -95,6 +95,9 @@ struct Cli {
     /// Calculate uncompressed size of BAM file.
     #[structopt(long)]
     calc_uncompressed_size: bool,
+    /// Convert SAM to GBAM
+    #[structopt(long)]
+    convert_sam_to_gbam: bool,
 }
 
 /// Limited wrapper of `gbam_tools` converts BAM file to GBAM
@@ -118,7 +121,7 @@ fn main() {
     } else if args.header {
         view_header(args);
     } else if args.view {
-        let mut template = ParsingTemplate::new();
+        let mut template: ParsingTemplate = ParsingTemplate::new();
         template.set_all();
         view_file(args, template);
     } else if args.markdup_view {
@@ -129,7 +132,9 @@ fn main() {
         patch_dups(args);
     }else if args.calc_uncompressed_size {
         test_file_uncompressed_size_fetch(args);
-    }
+    }else if args.convert_sam_to_gbam {
+        convert_sam(args, full_command);
+    }    
 }
 
 fn convert(args: Cli, full_command: String) {
@@ -148,8 +153,32 @@ fn convert(args: Cli, full_command: String) {
     if args.sort {
         bam_sort_to_gbam(in_path, out_path, Codecs::Brotli, args.sort_temp_mode, args.temp_dir, full_command, args.index_sort);
     } else {
+        let start = Instant::now();
         bam_to_gbam(in_path, out_path, Codecs::Brotli, full_command);
+        // sam_to_gbam(in_path, out_path, Codecs::Brotli, full_command);
+        let duration = start.elapsed();
+        println!("BAM → GBAM conversion completed in: {:.2?}", duration);
     }
+}
+
+fn convert_sam(args: Cli, full_command: String) {
+    let in_path = args
+        .in_path
+        .as_path()
+        .to_str()
+        .expect("Couldn't parse input path");
+    let out_path = args
+        .out_path
+        .as_ref()
+        .expect("Output path is mandatory for this operation.")
+        .as_path()
+        .to_str()
+        .unwrap();
+
+    let start = Instant::now();
+    sam_to_gbam(in_path, out_path, Codecs::Brotli, full_command);
+    let duration = start.elapsed();
+    println!("SAM → GBAM conversion completed in: {:.2?}", duration);
 }
 
 fn convert_to_bam(args: Cli) {
