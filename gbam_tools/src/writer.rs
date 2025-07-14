@@ -11,6 +11,7 @@ use std::borrow::Cow;
 use std::convert::TryInto;
 use std::convert::TryFrom;
 use std::io::{Seek, SeekFrom, Write};
+use deepsize::DeepSizeOf;
 
 pub(crate) struct BlockInfo {
     pub numitems: u32,
@@ -49,6 +50,7 @@ where
     columns: Vec<Box<dyn Column>>,
     compressor: Compressor,
     inner: WS,
+    calc_metadata_size: bool,
 }
 
 impl<WS> Writer<WS>
@@ -65,6 +67,7 @@ where
         sam_header: Vec<u8>,
         full_command: String,
         is_sorted: bool,
+        calc_metadata_size: bool,
     ) -> Self {
         inner
             .seek(SeekFrom::Start((FILE_INFO_SIZE) as u64))
@@ -97,6 +100,7 @@ where
             compressor: Compressor::new(thread_num),
             columns,
             file_info: FileInfo::new([1, 0], 0, 0, full_command, is_sorted),
+            calc_metadata_size,
         }
     }
 
@@ -108,6 +112,7 @@ where
         sam_header: Vec<u8>,
         full_command: String,
         is_sorted: bool,
+        calc_metadata_size: bool,
     ) -> Self {
         Self::new(
             inner,
@@ -117,7 +122,8 @@ where
             ref_seqs,
             sam_header,
             full_command,
-            is_sorted
+            is_sorted,
+            calc_metadata_size,
         )
     }
 
@@ -151,6 +157,10 @@ where
             let meta = &mut self.file_meta;
             let compress = &mut self.compressor;
 
+            if self.calc_metadata_size {
+                println!("Memory size of meta (by-column): {:?}", meta.clone().get_size() );
+            }
+
             flush_field_buffer(writer, meta, compress, inner);
             if let Some(idx_inner) = idx {
                 flush_field_buffer(writer, meta, compress, idx_inner);
@@ -167,6 +177,12 @@ where
         // Write meta
         let main_meta = serde_json::to_string(&self.file_meta).unwrap();
         let main_meta_bytes = main_meta.as_bytes();
+
+        if self.calc_metadata_size {
+            println!("Memory size of meta (main): {:?}", self.file_meta.clone().get_size() );
+            println!("JSON size of meta (main) [using len]: {:?}", main_meta_bytes.len() );
+        }
+
         let crc32 = calc_crc_for_meta_bytes(main_meta_bytes);
         self.inner.write_all(main_meta_bytes)?;
 
@@ -228,6 +244,7 @@ fn write_data_and_update_meta<WS: Write + Seek>(
         &mut task.block_info,
         compressed_size.try_into().unwrap(),
     );
+
 
     writer.write_all(&task.buf).unwrap();
 

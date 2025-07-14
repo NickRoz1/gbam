@@ -17,8 +17,8 @@ use tempdir::TempDir;
 const MEM_LIMIT: usize = 2000 * MEGA_BYTE_SIZE;
 
 /// Converts BAM file to GBAM file. This uses the `bam_parallel` reader.
-pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs, full_command: String) {
-    let (mut bam_reader, mut writer) = get_bam_reader_gbam_writer(in_path, out_path, codec, full_command);
+pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs, full_command: String, calc_metadata_size: bool) {
+    let (mut bam_reader, mut writer) = get_bam_reader_gbam_writer(in_path, out_path, codec, full_command, calc_metadata_size);
 
     let mut records = bam_reader.records();
     while let Some(Ok(rec)) = records.next_rec() {
@@ -30,7 +30,7 @@ pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs, full_command: S
 }
 
 /// Converts BAM file to GBAM file. Sorts BAM file in process. This uses the `bam_parallel` reader.
-pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs, mut sort_temp_mode: Option<String>, temp_dir: Option<PathBuf>, full_command: String, index_sort: bool) {
+pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs, mut sort_temp_mode: Option<String>, temp_dir: Option<PathBuf>, full_command: String, index_sort: bool, calc_metadata_size: bool) {
     let fin_for_ref_seqs = File::open(in_path).expect("failed");
     
     let mut reader_for_header_only = Reader::new(fin_for_ref_seqs, 1, None);
@@ -54,7 +54,8 @@ pub fn bam_sort_to_gbam(in_path: &str, out_path: &str, codec: Codecs, mut sort_t
         ref_seqs,
         sam_header,
         full_command,
-        true
+        true,
+        calc_metadata_size,
     );
 
     let tmp_dir_path = temp_dir.map_or(std::env::temp_dir(), |path| path);
@@ -115,6 +116,7 @@ fn get_bam_reader_gbam_writer(
     out_path: &str,
     codec: Codecs,
     full_command: String,
+    calc_metadata_size: bool,
 ) -> (Reader, Writer<BufWriter<File>>) {
     let fin = File::open(in_path).expect("failed");
     let fout = File::create(out_path).expect("failed");
@@ -137,6 +139,7 @@ fn get_bam_reader_gbam_writer(
         sam_header,
         full_command,
         false,
+        calc_metadata_size,
     );
 
     (bgzf_reader, writer)
