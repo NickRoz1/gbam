@@ -157,7 +157,9 @@ where
             let meta = &mut self.file_meta;
             let compress = &mut self.compressor;
 
-            //println!("Memory size of meta (by-column): {:?}", meta.deep_size_of() );
+            if self.calc_metadata_size {
+                println!("Memory size of meta (by-column): {:?}", meta.clone().get_size() );
+            }
 
             flush_field_buffer(writer, meta, compress, inner);
             if let Some(idx_inner) = idx {
@@ -177,7 +179,8 @@ where
         let main_meta_bytes = main_meta.as_bytes();
 
         if self.calc_metadata_size {
-            println!("JSON size of meta (main) [using capacity]: {:?}", main_meta.capacity() );
+            println!("Memory size of meta (main): {:?}", self.file_meta.clone().get_size() );
+            println!("JSON size of meta (main) [using len]: {:?}", main_meta_bytes.len() );
         }
 
         let crc32 = calc_crc_for_meta_bytes(main_meta_bytes);

@@ -8,6 +8,7 @@ use serde::de::{MapAccess, Visitor};
 // use serde::de::{Deserialize, Deserializer};
 // use serde_json::Result;
 use std::collections::HashMap;
+use std::convert::TryInto;
 
 /// Holds data related to GBAM file: gbam version, seekpos to meta.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -111,6 +112,11 @@ impl FieldMeta {
             blocks: Vec::<BlockMeta>::new(),
         }
     }
+
+    pub fn get_size(self) -> usize {
+        let blocks_size: usize = 32 * self.blocks.len(); // 32 bytes is the size of each BlockMeta
+        return 32 + std::mem::size_of::<Codecs>() + blocks_size;
+    }
 }
 
 impl Default for FieldMeta {
@@ -143,6 +149,20 @@ impl FileMeta {
     #[allow(dead_code)]
     pub fn get_sam_header(&self) -> &[u8] {
         &self.sam_header[..]
+    }
+
+    pub fn get_size(self) -> u64 {
+        let field_size_usize: usize = self.field_to_meta.iter().map(|field| field.clone().get_size()).sum();
+        let field_size: u64 = field_size_usize as u64;
+        let header_size: u64 = self.sam_header.len().try_into().unwrap(); // 1 element = 1 byte
+        let name_to_ref_size_usize = std::mem::size_of_val(&self.name_to_ref_id) + // Vec metadata (ptr, len, capacity)
+            self.name_to_ref_id.iter()
+                          .map(|(name, _)| name.capacity()) // String heap allocation
+                          .sum::<usize>() +
+            self.name_to_ref_id.capacity() * std::mem::size_of::<(String, u32)>(); // Vec heap allocation
+        let name_to_ref_size: u64 = name_to_ref_size_usize as u64;
+
+        return field_size + header_size + name_to_ref_size
     }
 }
 
