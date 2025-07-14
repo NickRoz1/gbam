@@ -1,4 +1,4 @@
-name: Rust
+name: Compile GBAM
 
 on:
   push:
@@ -24,20 +24,27 @@ jobs:
             arch: x86_64
           - os: macos-latest
             arch: arm64
+
     steps:
       - uses: actions/checkout@v4
 
-      # (Optional) Explicitly install Rust for the right arch on macOS:
-      - name: Set up Rust
+      # Only on macOS: install both Apple-Darwin targets so you can build for either arch
+      - name: Set up Rust (macOS cross‐targets)
+        if: matrix.os == 'macos-latest'
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: stable
           override: true
-          target: |
+          targets: |
             x86_64-apple-darwin
             aarch64-apple-darwin
-        if: matrix.os == 'macos-latest'
 
+      # On macOS, explicitly pick the right target triple; elsewhere just build normally
       - name: Build
-        run: cargo build --verbose
+        run: |
+          if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+            cargo build --verbose --target "${{ matrix.arch == 'x86_64' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin' }}"
+          else
+            cargo build --verbose
+          fi
