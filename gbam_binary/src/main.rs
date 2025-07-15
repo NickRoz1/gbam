@@ -52,8 +52,10 @@ struct Cli {
     #[structopt(short, long)]
     flagstat: bool,
     /// The path to the BAM file to read
-    #[structopt(parse(from_os_str))]
-    in_path: PathBuf,
+    // #[structopt(parse(from_os_str))]
+    // in_path: PathBuf,
+    #[structopt(parse(from_os_str), required_unless = "convert_sam_to_gbam")]
+    in_path: Option<PathBuf>,
     /// The path to write output GBAM file
     #[structopt(short, parse(from_os_str))]
     out_path: Option<PathBuf>,
@@ -140,7 +142,7 @@ fn main() {
 fn convert(args: Cli, full_command: String) {
     let in_path = args
         .in_path
-        .as_path()
+        .as_ref().expect("Missing input path")
         .to_str()
         .expect("Couldn't parse input path");
     let out_path = args
@@ -162,11 +164,6 @@ fn convert(args: Cli, full_command: String) {
 }
 
 fn convert_sam(args: Cli, full_command: String) {
-    let in_path = args
-        .in_path
-        .as_path()
-        .to_str()
-        .expect("Couldn't parse input path");
     let out_path = args
         .out_path
         .as_ref()
@@ -176,7 +173,7 @@ fn convert_sam(args: Cli, full_command: String) {
         .unwrap();
 
     let start = Instant::now();
-    sam_to_gbam(in_path, out_path, Codecs::Brotli, full_command);
+    sam_to_gbam(None, out_path, Codecs::Brotli, full_command);
     let duration = start.elapsed();
     println!("SAM → GBAM conversion completed in: {:.2?}", duration);
 }
@@ -184,7 +181,7 @@ fn convert_sam(args: Cli, full_command: String) {
 fn convert_to_bam(args: Cli) {
     let in_path = args
         .in_path
-        .as_path()
+        .as_ref().expect("Missing input path")
         .to_str()
         .expect("Couldn't parse input path.");
     let out_path = args
@@ -200,7 +197,7 @@ fn convert_to_bam(args: Cli) {
 fn flagstat(args: Cli) {
     let in_path = args
         .in_path
-        .as_path()
+        .as_ref().expect("Missing input path")
         .to_str()
         .expect("Couldn't parse input path.");
 
@@ -212,7 +209,7 @@ fn test(args: Cli) {
     let mut tmplt = ParsingTemplate::new();
     tmplt.set(&Fields::RawCigar, true);
 
-    let file = File::open(args.in_path.as_path().to_str().unwrap()).unwrap();
+    let file = File::open(args.in_path.as_ref().expect("Missing input path").to_str().unwrap()).unwrap();
 
     let mut reader = Reader::new(file, tmplt).unwrap();
     let mut records = reader.records();
@@ -232,7 +229,7 @@ fn test(args: Cli) {
 }
 
 fn test_parallel_cigar_fetch(args: Cli) {
-    let file = File::open(args.in_path.as_path().to_str().unwrap()).unwrap();
+    let file = File::open(args.in_path.as_ref().expect("Missing input path").to_str().unwrap()).unwrap();
     let temp_reader = Reader::new(file.try_clone().unwrap(), ParsingTemplate::new()).unwrap();
     let file_meta = temp_reader.file_meta;
     let total_records = temp_reader.amount;
@@ -260,7 +257,7 @@ fn test_parallel_cigar_fetch(args: Cli) {
 }
 
 fn test_file_uncompressed_size_fetch(args: Cli) {
-    let file = File::open(args.in_path.as_path().to_str().unwrap()).unwrap();
+    let file = File::open(args.in_path.as_ref().expect("Missing input path").to_str().unwrap()).unwrap();
 
     let file_sz = file.metadata().unwrap().len();
     if file_sz == 0 {
@@ -310,13 +307,13 @@ fn read_index(index: PathBuf) -> Option<std::sync::Arc<Vec<u32>>> {
 }
 
 fn depth(args: Cli) {
-    let in_path = args.in_path.as_path().to_str().unwrap();
+    let in_path = args.in_path.as_ref().expect("Missing input path").to_str().unwrap();
     let gbam_file = File::open(in_path).unwrap();
     main_depth(gbam_file, args.bed_file.as_ref(), args.index_file.and_then(read_index), args.query, args.mapq, args.out_path, args.thread_num);
 }
 
 fn view_header(args: Cli){
-    let file = File::open(args.in_path.as_path().to_str().unwrap()).unwrap();
+    let file = File::open(args.in_path.as_ref().expect("Missing input path").to_str().unwrap()).unwrap();
     let reader = Reader::new(file, ParsingTemplate::new()).unwrap();
     
     let header_len = (&reader.file_meta.get_sam_header()[..std::mem::size_of::<u32>()]).read_u32::<LittleEndian>().unwrap() as usize;
@@ -362,7 +359,7 @@ fn parse_tag(tags: &[u8], target_tag: &str) -> Option<String> {
 
 
 fn view_file(args: Cli, template: ParsingTemplate){
-    let file = File::open(args.in_path.as_path().to_str().unwrap()).unwrap();
+    let file = File::open(args.in_path.as_ref().expect("Missing input path").to_str().unwrap()).unwrap();
 
     let mut reader = Reader::new_with_index(file, template, args.index_file.and_then(read_index)).unwrap();
 
@@ -391,7 +388,7 @@ fn patch_dups(args: Cli){
     let file = OpenOptions::new()
         .write(true)
         .read(true)
-        .open(args.in_path.as_path().to_str().unwrap())
+        .open(args.in_path.as_ref().expect("Missing input path").to_str().unwrap())
         .unwrap();
 
     let reader = Reader::new_with_index(file.try_clone().unwrap(), ParsingTemplate::new(), args.index_file.and_then(read_index)).unwrap();

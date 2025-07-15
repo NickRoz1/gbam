@@ -9,7 +9,7 @@ use bam_tools::sorting::sort::TempFilesMode;
 use bam_tools::Reader;
 use std::borrow::Cow;
 use std::fs::File;
-use std::io::{self, Write, BufReader, BufWriter};
+use std::io::{self, Write, BufReader, BufWriter, Read, stdin};
 use std::path::PathBuf;
 use std::str::FromStr;
 use tempdir::TempDir;
@@ -33,7 +33,7 @@ pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs, full_command: S
     writer.finish().unwrap();
 }
 
-pub fn sam_to_gbam(in_path: &str, out_path: &str, codec: Codecs, full_command: String) {
+pub fn sam_to_gbam(in_path: Option<&str>, out_path: &str, codec: Codecs, full_command: String) {
     let (mut sam_reader, mut writer) = get_sam_reader_gbam_writer(in_path, out_path, codec, full_command);
     let ref_names = sam_reader.reference_names();
 
@@ -343,7 +343,7 @@ fn get_bam_reader_gbam_writer(
     (bgzf_reader, writer)
 }
 
-fn get_sam_reader_gbam_writer(
+fn get_sam_reader_gbam_writer1(
     in_path: &str,
     out_path: &str,
     codec: Codecs,
@@ -365,6 +365,42 @@ fn get_sam_reader_gbam_writer(
     let ref_seqs = sam_reader.reference_sequences();
 
     // Create GBAM writer
+    let writer = Writer::new(
+        buf_writer,
+        vec![codec; FIELDS_NUM],
+        8,
+        vec![Fields::RefID],
+        ref_seqs,
+        sam_header,
+        full_command,
+        false,
+    );
+
+    (sam_reader, writer)
+}
+
+fn get_sam_reader_gbam_writer(
+    in_path: Option<&str>, // now optional
+    out_path: &str,
+    codec: Codecs,
+    full_command: String,
+) -> (SamReader<BufReader<Box<dyn io::Read>>>, Writer<BufWriter<File>>) {
+    // Input: file or stdin
+    let reader: Box<dyn Read> = match in_path {
+        Some(path) => Box::new(File::open(path).expect("failed to open input file")),
+        None => Box::new(io::stdin()), // <-- default to stdin
+    };
+    let buf_reader = BufReader::new(reader);
+
+    // Output: file
+    let fout = File::create(out_path).expect("failed to create output file");
+    let buf_writer = BufWriter::new(fout);
+
+    // Create the SAM reader
+    let sam_reader = SamReader::new(buf_reader);
+    let (sam_header, _) = sam_reader.header().expect("failed to get header");
+    let ref_seqs = sam_reader.reference_sequences();
+
     let writer = Writer::new(
         buf_writer,
         vec![codec; FIELDS_NUM],
