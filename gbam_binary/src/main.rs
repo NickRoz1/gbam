@@ -54,8 +54,6 @@ struct Cli {
     /// The path to the BAM file to read
     // #[structopt(parse(from_os_str))]
     // in_path: PathBuf,
-    #[structopt(parse(from_os_str), required_unless = "convert_sam_to_gbam")]
-    in_path: Option<PathBuf>,
     /// The path to write output GBAM file
     #[structopt(short, parse(from_os_str))]
     out_path: Option<PathBuf>,
@@ -100,6 +98,13 @@ struct Cli {
     /// Convert SAM to GBAM
     #[structopt(long)]
     convert_sam_to_gbam: bool,
+    #[structopt(
+        parse(from_os_str),
+        required_unless = "convert-sam-to-gbam",
+        name = "in-path",
+        help = "The input BAM/SAM/GBAM file. Omit when using --convert-sam-to-gbam to read from stdin."
+    )]
+    in_path: Option<PathBuf>,
 }
 
 /// Limited wrapper of `gbam_tools` converts BAM file to GBAM
