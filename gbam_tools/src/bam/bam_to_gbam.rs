@@ -56,6 +56,25 @@ pub fn sam_to_gbam(in_path: Option<&str>, out_path: &str, codec: Codecs, full_co
     writer.finish().unwrap();
 }
 
+fn parse_cigar_ops(cigar: &str) -> Vec<(u32, u8)> {
+    let mut result = Vec::new();
+    let mut num = String::new();
+    for c in cigar.chars() {
+        if c.is_ascii_digit() {
+            num.push(c);
+        } else {
+            let len: u32 = num.parse().unwrap_or(0);
+            let op_code = match c {
+                'M' => 0, 'I' => 1, 'D' => 2, 'N' => 3, 'S' => 4,
+                'H' => 5, 'P' => 6, '=' => 7, 'X' => 8, _ => 15,
+            };
+            result.push((len, op_code));
+            num.clear();
+        }
+    }
+    result
+}
+
 fn count_cigar_ops(cigar: &str) -> u16 {
     let mut count = 0;
     let mut num = false;
@@ -92,8 +111,10 @@ pub fn convert_sam_record_to_bam(record: &SamRecord, ref_names: &[String]) -> Ve
     };
 
     let l_read_name = record.qname.len() + 1; // including null terminator
-    let n_cigar_op = count_cigar_ops(&record.cigar);
-    let l_seq = record.seq.len();
+    // let n_cigar_op = count_cigar_ops(&record.cigar);
+    let n_cigar_op = parse_cigar_ops(&record.cigar).len() as u16;
+    // let l_seq = record.seq.len();
+    let l_seq = if record.seq == "*" { 0 } else { record.seq.len() };
     let bin = 0u16; // Optional: compute bin if needed
 
     let mut data = Vec::new();
@@ -117,8 +138,12 @@ pub fn convert_sam_record_to_bam(record: &SamRecord, ref_names: &[String]) -> Ve
     data.push(0); // null terminator
 
     data.extend_from_slice(&encode_cigar(&record.cigar)); // CIGAR
-    data.extend_from_slice(&encode_seq(&record.seq));     // SEQ
-    data.extend_from_slice(&encode_qual(&record.qual));   // QUAL
+    // data.extend_from_slice(&encode_seq(&record.seq));     // SEQ
+    let encoded_seq = encode_seq(&record.seq);
+    data.extend_from_slice(&encoded_seq);
+    // data.extend_from_slice(&encode_qual(&record.qual));   // QUAL
+    let encoded_qual = encode_qual(&record.qual, l_seq);
+    data.extend_from_slice(&encoded_qual);
 
     // Optional: Tags
     for tag_field in &record.tags {
@@ -193,10 +218,17 @@ fn encode_cigar(cigar: &str) -> Vec<u8> {
 }
 
 fn encode_seq(seq: &str) -> Vec<u8> {
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity((seq.len() + 1) / 2);
     let mut byte = 0u8;
+
     for (i, base) in seq.chars().enumerate() {
-        let code = encode_base(base);
+        let code = match base.to_ascii_uppercase() {
+            '=' => 0, 'A' => 1, 'C' => 2, 'M' => 3,
+            'G' => 4, 'R' => 5, 'S' => 6, 'V' => 7,
+            'T' => 8, 'W' => 9, 'Y' => 10, 'H' => 11,
+            'K' => 12, 'D' => 13, 'B' => 14, 'N' => 15,
+            _ => 15,
+        };
         if i % 2 == 0 {
             byte = code << 4;
         } else {
@@ -208,14 +240,17 @@ fn encode_seq(seq: &str) -> Vec<u8> {
     if seq.len() % 2 != 0 {
         result.push(byte);
     }
+
     result
 }
 
-fn encode_qual(qual: &str) -> Vec<u8> {
+fn encode_qual(qual: &str, l_seq: usize) -> Vec<u8> {
     if qual == "*" {
-        vec![0xFF]
+        vec![0xFF; l_seq]
     } else {
-        qual.bytes().map(|b| b.saturating_sub(33)).collect()
+        let bytes: Vec<u8> = qual.bytes().map(|b| b.saturating_sub(33)).collect();
+        assert_eq!(bytes.len(), l_seq, "QUAL length mismatch");
+        bytes
     }
 }
 
