@@ -171,9 +171,9 @@ pub fn convert_sam_record_to_bam(record: &SamRecord, ref_names: &[String]) -> Ve
             }
             "f" => {
                 if let Ok(val) = value.parse::<f32>() {
-                    record.extend_from_slice(tag.as_bytes());
-                    record.extend_from_slice(b"f");
-                    record.extend_from_slice(&val.to_le_bytes());
+                    data.extend_from_slice(tag.as_bytes());
+                    data.extend_from_slice(b"f");
+                    data.extend_from_slice(&val.to_le_bytes());
                 } else {
                     eprintln!("Failed to parse float for tag {}:{}", tag, value);
                 }
