@@ -178,7 +178,7 @@ fn convert_sam(args: Cli, full_command: String) {
         .unwrap();
 
     let start = Instant::now();
-    sam_to_gbam(None, out_path, Codecs::Brotli, full_command);
+    sam_to_gbam(None, out_path, Codecs::Brotli, full_command, args.thread_num);
     let duration = start.elapsed();
     println!("SAM → GBAM conversion completed in: {:.2?}", duration);
 }
