@@ -33,8 +33,9 @@ pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs, full_command: S
     writer.finish().unwrap();
 }
 
-pub fn sam_to_gbam(in_path: Option<&str>, out_path: &str, codec: Codecs, full_command: String) {
-    let (mut sam_reader, mut writer) = get_sam_reader_gbam_writer(in_path, out_path, codec, full_command);
+pub fn sam_to_gbam(in_path: Option<&str>, out_path: &str, codec: Codecs, full_command: String,  thread_num: Option<usize>) {
+    let (mut sam_reader, mut writer) = get_sam_reader_gbam_writer(
+        in_path, out_path, codec, full_command, thread_num.unwrap_or(8));
     let ref_names = sam_reader.reference_names();
 
     for result in sam_reader.records() {
@@ -54,44 +55,6 @@ pub fn sam_to_gbam(in_path: Option<&str>, out_path: &str, codec: Codecs, full_co
     }
 
     writer.finish().unwrap();
-}
-
-fn parse_cigar_ops(cigar: &str) -> Vec<(u32, u8)> {
-    let mut result = Vec::new();
-    let mut num = String::new();
-    for c in cigar.chars() {
-        if c.is_ascii_digit() {
-            num.push(c);
-        } else {
-            let len: u32 = num.parse().unwrap_or(0);
-            let op_code = match c {
-                'M' => 0, 'I' => 1, 'D' => 2, 'N' => 3, 'S' => 4,
-                'H' => 5, 'P' => 6, '=' => 7, 'X' => 8, _ => 15,
-            };
-            result.push((len, op_code));
-            num.clear();
-        }
-    }
-    result
-}
-
-fn count_cigar_ops(cigar: &str) -> u16 {
-    let mut count = 0;
-    let mut num = false;
-
-    for c in cigar.chars() {
-        if c.is_ascii_digit() {
-            num = true;
-        } else if num {
-            count += 1;
-            num = false;
-        } else {
-            // CIGAR like "M" or "X" without number — invalid
-            return 0;
-        }
-    }
-
-    count
 }
 
 /// Converts a parsed SamRecord into a BAM binary record
@@ -184,6 +147,63 @@ pub fn convert_sam_record_to_bam(record: &SamRecord, ref_names: &[String]) -> Ve
                 data.extend_from_slice(value.as_bytes());
                 data.push(0);
             }
+            "B" => {
+                // Split subtype and rest of values
+                let (subtype, values_str) = if let Some((sub, vals)) = value.split_once(',') {
+                    (sub, Some(vals))
+                } else {
+                    // Allow values like "C" (no data)
+                    (value, None)
+                };
+
+                let sub_char = subtype.chars().next().unwrap_or('C') as u8;
+                data.extend_from_slice(tag.as_bytes());
+                data.extend_from_slice(b"B");
+                data.push(sub_char);
+
+                // Write 0 count for empty arrays, or count real values
+                let values: Vec<&str> = values_str
+                    .map(|s| s.split(',').filter(|v| !v.is_empty()).collect())
+                    .unwrap_or_else(Vec::new);
+                let count = values.len() as u32;
+                data.extend_from_slice(&count.to_le_bytes());
+
+                for v in values {
+                    match sub_char as char {
+                        'C' => {
+                            let val = v.parse::<u8>().unwrap_or(0);
+                            data.push(val);
+                        }
+                        'c' => {
+                            let val = v.parse::<i8>().unwrap_or(0);
+                            data.push(val as u8);
+                        }
+                        'S' => {
+                            let val = v.parse::<u16>().unwrap_or(0);
+                            data.extend_from_slice(&val.to_le_bytes());
+                        }
+                        's' => {
+                            let val = v.parse::<i16>().unwrap_or(0);
+                            data.extend_from_slice(&val.to_le_bytes());
+                        }
+                        'I' => {
+                            let val = v.parse::<u32>().unwrap_or(0);
+                            data.extend_from_slice(&val.to_le_bytes());
+                        }
+                        'i' => {
+                            let val = v.parse::<i32>().unwrap_or(0);
+                            data.extend_from_slice(&val.to_le_bytes());
+                        }
+                        'f' => {
+                            let val = v.parse::<f32>().unwrap_or(0.0);
+                            data.extend_from_slice(&val.to_le_bytes());
+                        }
+                        _ => {
+                            eprintln!("Unsupported B array subtype '{}'", sub_char as char);
+                        }
+                    }
+                }
+            }
             _ => {} // Skip unsupported types
         }
     }
@@ -196,34 +216,39 @@ pub fn convert_sam_record_to_bam(record: &SamRecord, ref_names: &[String]) -> Ve
 }
 
 
-fn encode_cigar(cigar: &str) -> Vec<u8> {
-    let mut bytes = Vec::new();
+fn parse_cigar_ops(cigar: &str) -> Vec<(u32, u8)> {
+    if cigar == "*" {
+        return vec![];
+    }
+    let mut result = Vec::new();
     let mut num = String::new();
-
-    for ch in cigar.chars() {
-        if ch.is_ascii_digit() {
-            num.push(ch);
+    for c in cigar.chars() {
+        if c.is_ascii_digit() {
+            num.push(c);
         } else {
             let len: u32 = num.parse().unwrap_or(0);
-            let op = match ch {
-                'M' => 0,
-                'I' => 1,
-                'D' => 2,
-                'N' => 3,
-                'S' => 4,
-                'H' => 5,
-                'P' => 6,
-                '=' => 7,
-                'X' => 8,
-                _ => panic!("Unsupported CIGAR op: {}", ch),
+            let op_code = match c {
+                'M' => 0, 'I' => 1, 'D' => 2, 'N' => 3, 'S' => 4,
+                'H' => 5, 'P' => 6, '=' => 7, 'X' => 8, _ => 15,
             };
-            let code = (len << 4) | op;
-            bytes.write_u32::<LittleEndian>(code).unwrap();
+            result.push((len, op_code));
             num.clear();
         }
     }
+    result
+}
 
-    bytes
+fn encode_cigar(cigar: &str) -> Vec<u8> {
+    if cigar == "*" {
+        return vec![];
+    }
+    let ops = parse_cigar_ops(cigar);
+    let mut result = Vec::with_capacity(ops.len() * 4);
+    for (len, op_code) in ops {
+        let encoded = (len << 4) | (op_code as u32);
+        result.extend_from_slice(&encoded.to_le_bytes());
+    }
+    result
 }
 
 fn encode_seq(seq: &str) -> Vec<u8> {
@@ -428,6 +453,7 @@ fn get_sam_reader_gbam_writer(
     out_path: &str,
     codec: Codecs,
     full_command: String,
+    thread_num: usize
 ) -> (SamReader<BufReader<Box<dyn io::Read>>>, Writer<BufWriter<File>>) {
     // Input: file or stdin
     let reader: Box<dyn Read> = match in_path {
@@ -448,7 +474,7 @@ fn get_sam_reader_gbam_writer(
     let writer = Writer::new(
         buf_writer,
         vec![codec; FIELDS_NUM],
-        8,
+        thread_num,
         vec![Fields::RefID],
         ref_seqs,
         sam_header,
