@@ -208,6 +208,9 @@ fn parse_tags(tags: &[u8]) -> Result<Data, Box<dyn std::error::Error>> {
                 i += 1;
                 Value::Character(Character::try_from(c)?)
             }
+            // For a tag which has [78, 77, 67, 1] bytes, it is decoded as NM:C:1.
+            // But here type C is not a valid BAM tag type. Hence if the tag type is C
+            // value should be converted to 8-bit signed integer type.
             'C' => {
                 // Integer
                 let val = i8::from_le_bytes(tags[i..i + 1].try_into()?);
