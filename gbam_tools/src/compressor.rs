@@ -140,7 +140,7 @@ pub fn compress(source: &[u8], mut dest: Vec<u8>, codec: Codecs) -> Vec<u8> {
         Codecs::Brotli => {
             dest.clear();
             {
-                let mut writer = CompressorWriter::new(&mut dest, 4096, 11, 22);
+                let mut writer = CompressorWriter::new(&mut dest, 4096, 8, 22);
                 writer.write_all(source).unwrap();
                 writer.flush().unwrap();
             }

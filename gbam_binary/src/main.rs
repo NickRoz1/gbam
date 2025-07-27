@@ -165,7 +165,11 @@ fn convert_to_bam(args: Cli) {
         .as_path()
         .to_str()
         .unwrap();
+    let start_time = Instant::now();
     gbam_to_bam(in_path, out_path);
+    let elapsed_time = start_time.elapsed();
+
+    println!("Execution time for convert_to_bam: {:.2?}", elapsed_time);
 }
 
 fn flagstat(args: Cli) {
