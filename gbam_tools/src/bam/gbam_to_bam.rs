@@ -77,10 +77,16 @@ pub fn gbam_to_bam(in_path: &str, out_path: &str) -> Result<(), Box<dyn std::err
 
         // Set the position
         if let Some(mut pos) = gbam_record.pos {
-            // Not sure why, always had to add 1 to pos so that reconverted BAM is identical to
-            // the original
+            // Add 1 to pos to match the original BAM
             pos += 1;
-            builder = builder.set_alignment_start(Position::new(pos as usize).unwrap());
+        
+            // Ensure the position is valid before setting it
+            if let Some(position) = Position::new(pos as usize) {
+                builder = builder.set_alignment_start(position);
+            } else {
+                eprintln!("Invalid position: {}", pos);
+                // Optionally handle the invalid case (e.g., skip setting the alignment start)
+            }
         }
 
         // Set the Fags
