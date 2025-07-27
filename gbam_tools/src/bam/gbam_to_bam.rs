@@ -105,7 +105,12 @@ pub fn gbam_to_bam(in_path: &str, out_path: &str) -> Result<(), Box<dyn std::err
         // Set the next position
         if let Some(next_pos) = gbam_record.next_pos {
             if next_pos != -1 {
-                builder = builder.set_mate_alignment_start(Position::new(next_pos as usize).unwrap());
+                if let Some(position) = Position::new(next_pos as usize) {
+                    builder = builder.set_mate_alignment_start(position);
+                } else {
+                    eprintln!("Invalid next_pos: {}", next_pos);
+                    // Handle the invalid case (e.g., skip setting the mate alignment start)
+                }
             }
         }
 
@@ -212,6 +217,12 @@ fn parse_tags(tags: &[u8]) -> Result<Data, Box<dyn std::error::Error>> {
             // But here type C is not a valid BAM tag type. Hence if the tag type is C
             // value should be converted to 8-bit signed integer type.
             'C' => {
+                // Integer
+                let val = u8::from_le_bytes(tags[i..i + 1].try_into()?);
+                i += 1;
+                Value::UInt8(val)
+            }
+            'c' => {
                 // Integer
                 let val = i8::from_le_bytes(tags[i..i + 1].try_into()?);
                 i += 1;
