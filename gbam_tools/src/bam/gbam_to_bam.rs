@@ -78,7 +78,7 @@ pub fn gbam_to_bam(in_path: &str, out_path: &str) -> Result<(), Box<dyn std::err
         // Set the position
         if let Some(mut pos) = gbam_record.pos {
             // Add 1 to pos to match the original BAM
-            pos += 1;
+            pos += 2;
         
             // Ensure the position is valid before setting it
             if let Some(position) = Position::new(pos as usize) {
