@@ -1,15 +1,15 @@
-use super::meta::{BlockMeta, Codecs, FileInfo, FileMeta, FILE_INFO_SIZE, Stat};
+use super::meta::{BlockMeta, Codecs, FileInfo, FileMeta, Stat, FILE_INFO_SIZE};
 use crate::compressor::{CompressTask, Compressor, OrderingKey};
 use crate::{SIZE_LIMIT, U32_SIZE};
 use bam_tools::record::bamrawrecord::BAMRawRecord;
 use bam_tools::record::fields::{
     field_type, is_data_field, var_size_field_to_index, FieldType, Fields, FIELDS_NUM,
 };
-use byteorder::{LittleEndian, WriteBytesExt, ReadBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use crc32fast::Hasher;
 use std::borrow::Cow;
-use std::convert::TryInto;
 use std::convert::TryFrom;
+use std::convert::TryInto;
 use std::io::{Seek, SeekFrom, Write};
 use std::collections::HashMap;
 use once_cell::sync::Lazy;
@@ -105,7 +105,10 @@ where
 
         let mut count = 0;
         for field in Fields::iterator().filter(|f| is_data_field(f)) {
-            let stat_collector = collect_stats_for.iter().find(|f| *f == field).and(Some(Stat::default()));
+            let stat_collector = collect_stats_for
+                .iter()
+                .find(|f| *f == field)
+                .and(Some(Stat::default()));
             let col = match field_type(field) {
                 FieldType::FixedSized => {
                     Box::new(FixedColumn::new(*field, stat_collector)) as Box<dyn Column>
@@ -148,7 +151,7 @@ where
             ref_seqs,
             sam_header,
             full_command,
-            is_sorted
+            is_sorted,
         )
     }
 
@@ -204,9 +207,9 @@ where
         let total_bytes_written = self.inner.stream_position()?;
         // Revert back to the beginning of the file
         self.inner.seek(SeekFrom::Start(0)).unwrap();
-        self.inner.write_all(&[0;FILE_INFO_SIZE]).unwrap();
+        self.inner.write_all(&[0; FILE_INFO_SIZE]).unwrap();
         self.inner.seek(SeekFrom::Start(0)).unwrap();
-        let file_info = & mut self.file_info;
+        let file_info = &mut self.file_info;
         file_info.seekpos = meta_start_pos;
         file_info.crc32 = crc32;
         let file_info_bytes = serde_json::to_string(&file_info).unwrap();
@@ -223,7 +226,7 @@ fn flush_field_buffer<WS: Write + Seek>(
 ) {
     // Use an empty buffer to start the flushing process
     // Don't worry, Vec::new() is temporary, it won't need to fully allocate the Vec as it replaces the reference with the &mut from the reused Buffer
-    let data = std::mem::replace(&mut inner.buffer, Vec::new());
+    let data = std::mem::take(&mut inner.buffer);
 
     let field = &inner.field;
     let codec = *file_meta.get_field_codec(field);
@@ -341,10 +344,9 @@ impl Inner {
     }
 
     pub fn generate_block_info(&mut self) -> BlockInfo {
-        let stat = if self.stats_collector.is_some(){
+        let stat = if self.stats_collector.is_some() {
             self.stats_collector.replace(Stat::default())
-        }
-        else{
+        } else {
             None
         };
         let codec = *FIELD_CODEC_MAP.get(&self.field).expect("Missing codec mapping");

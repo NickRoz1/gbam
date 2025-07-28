@@ -112,7 +112,7 @@ pub(crate) fn get_tag<'a>(data: &'a [u8], tag: &[u8; 2]) -> Option<(&'a [u8], Ta
 // Returns value of HI tag.
 // The field type is i so it's assumed it will fit in i32.
 pub fn get_hit_count(data: &[u8]) -> Option<i32> {
-    if let Some((mut tag, tag_type)) = get_tag(data, &[b'H', b'I']) {
+    if let Some((mut tag, tag_type)) = get_tag(data, b"HI") {
         let val = match tag_type {
             TagType::A => tag.read_u8().unwrap() as i32,
             TagType::c => tag.read_i8().unwrap() as i32,

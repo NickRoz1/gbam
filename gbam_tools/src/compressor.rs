@@ -1,8 +1,9 @@
+use super::Codecs;
+use crate::writer::BlockInfo;
 use crate::SIZE_LIMIT;
 use flume::{Receiver, Sender};
 use rayon::ThreadPool;
 
-use super::Codecs;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use brotli::CompressorWriter;
@@ -17,8 +18,8 @@ use std::fs::File;
 
 // use lz4_flex::block::{compress_into, get_maximum_output_size};
 use lzzzz::lz4;
+use xz2::write::XzEncoder;
 
-use crate::writer::BlockInfo;
 
 pub(crate) enum OrderingKey {
     Key(u64),
@@ -133,7 +134,7 @@ impl Compressor {
 pub fn compress(source: &[u8], mut dest: Vec<u8>, codec: Codecs) -> Vec<u8> {
     let compressed_bytes = match codec {
         Codecs::Gzip => {
-            let mut encoder = GzEncoder::new(dest, Compression::default());
+            let mut encoder = GzEncoder::new(dest, Compression::new(9));
             encoder.write_all(source).unwrap();
             encoder.finish()
         }
@@ -145,12 +146,11 @@ pub fn compress(source: &[u8], mut dest: Vec<u8>, codec: Codecs) -> Vec<u8> {
                     dest.resize(size, 0);
                     Ok(dest)
                 }
-                Err(_) => Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                Err(_) => Err(std::io::Error::other(
                     "Compression error",
                 )),
             }
-        },
+        }
         Codecs::Brotli => {
             dest.clear();
             {
@@ -159,17 +159,22 @@ pub fn compress(source: &[u8], mut dest: Vec<u8>, codec: Codecs) -> Vec<u8> {
                 writer.flush().unwrap();
             }
             Ok(dest)
-        },
+        }
+        Codecs::Xz => {
+            let mut encoder = XzEncoder::new(Vec::new(), 6);
+            encoder.write_all(source).unwrap();
+            let compressed = encoder.finish().unwrap();
+            Ok(compressed)
+        }
         Codecs::Zstd => {
             // encode_all returns a Vec<u8>
-            match encode_all(source, 15) {
+            match encode_all(source, 14) {
                 Ok(c) => Ok(c),
-                Err(_) => Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                Err(_) => Err(std::io::Error::other(
                     "Zstd compression error",
                 )),
             }
-        },
+        }
         Codecs::NoCompression => {
             dest.clear();
             dest.extend_from_slice(source);
