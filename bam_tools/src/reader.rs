@@ -131,14 +131,13 @@ impl Read for Reader {
                         const CHECK_PROGRESS_ONCE_PER_BLOCKS: usize = 1000;
                         self.count_of_blocks += 1;
                         self.count_of_bytes_read += new_block.compressed_size;
-                        if self.progress_bar.is_some() {
-                            if self.count_of_blocks % CHECK_PROGRESS_ONCE_PER_BLOCKS == 0 {
+                        if self.progress_bar.is_some()
+                            && self.count_of_blocks % CHECK_PROGRESS_ONCE_PER_BLOCKS == 0 {
                                 self.progress_bar
                                     .as_mut()
                                     .unwrap()
                                     .set_position(self.count_of_bytes_read);
                             }
-                        }
                         self.block_buffer = Some(new_block);
                         // https://rust-lang.github.io/rfcs/0980-read-exact.html#about-errorkindinterrupted
                         Err(std::io::Error::from(io::ErrorKind::Interrupted))

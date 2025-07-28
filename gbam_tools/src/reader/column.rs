@@ -3,14 +3,14 @@ use std::{collections::BTreeMap, io::Result, sync::Arc};
 use super::reader::generate_block_treemap;
 use super::record::GbamRecord;
 use crate::SIZE_LIMIT;
-use lzzzz::{lz4};
 use bam_tools::record::fields::Fields;
 use byteorder::{LittleEndian, ReadBytesExt};
 use flate2::write::GzDecoder;
-use std::io::{Read, Write};
-use brotli::Decompressor as BrotliDecompressorReader;
+use lzzzz::lz4;
 use memmap2::Mmap;
 use std::convert::TryFrom;
+use std::io::{Read, Write};
+use xz2::read::XzDecoder;
 
 use crate::{meta::FileMeta, Codecs};
 
@@ -42,7 +42,7 @@ impl Inner {
 /// columns also require parsing of additional fixed sized fields columns.
 pub trait Column {
     // Fills GbamRecord field with data from corresponding BAM record.
-    fn fill_record_field(&mut self, item_num: usize, rec: &mut GbamRecord) ;
+    fn fill_record_field(&mut self, item_num: usize, rec: &mut GbamRecord);
 }
 
 /// GBAM file column. Responsible for fetching data.
@@ -161,8 +161,8 @@ fn fetch_block(inner_column: &mut Inner, block_num: usize) -> Result<()> {
     let block_size = block_meta.block_size;
     let uncompressed_size = block_meta.uncompressed_size;
 
-    let data =
-        &reader[usize::try_from(block_meta.seekpos).unwrap()..usize::try_from(block_meta.seekpos + block_size as u64).unwrap()];
+    let data = &reader[usize::try_from(block_meta.seekpos).unwrap()
+        ..usize::try_from(block_meta.seekpos + block_size as u64).unwrap()];
     // inner_column.buffer.clear();
     // dbg!(uncompressed_size);
     inner_column.buffer.resize(uncompressed_size as usize, 0);
@@ -171,10 +171,9 @@ fn fetch_block(inner_column: &mut Inner, block_num: usize) -> Result<()> {
     if uncompressed_size > 0 {
         decompress_block(data, &mut inner_column.buffer, codec).expect("Decompression failed.");
     }
-    
+
     Ok(())
 }
-
 
 pub fn decompress_block(source: &[u8], dest: &mut Vec<u8>, codec: &Codecs) -> std::io::Result<()> {
     use std::io::Write;
@@ -195,6 +194,10 @@ pub fn decompress_block(source: &[u8], dest: &mut Vec<u8>, codec: &Codecs) -> st
         Codecs::Zstd => {
             dest.clear();
             let mut decoder = zstd::stream::Decoder::new(source)?;
+            decoder.read_to_end(dest)?;
+        }
+        Codecs::Xz => {
+            let mut decoder = XzDecoder::new(source);
             decoder.read_to_end(dest)?;
         }
         Codecs::NoCompression => {
