@@ -30,7 +30,7 @@ brotli = "3.3.4"
 zstd = "0.12"
 
 [lib]
-crate-type = ["rlib", "cdylib"]
+crate-type = ["rlib"]
 
 [package.metadata.maturin]
 requires-dist = ["pysam==0.16.0.1"]
