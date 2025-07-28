@@ -78,7 +78,7 @@ pub fn gbam_to_bam(in_path: &str, out_path: &str) -> Result<(), Box<dyn std::err
         // Set the position
         if let Some(mut pos) = gbam_record.pos {
             // Add 1 to pos to match the original BAM
-            pos += 2;
+            pos += 1;
         
             // Ensure the position is valid before setting it
             if let Some(position) = Position::new(pos as usize) {
@@ -111,10 +111,11 @@ pub fn gbam_to_bam(in_path: &str, out_path: &str) -> Result<(), Box<dyn std::err
         // Set the next position
         if let Some(next_pos) = gbam_record.next_pos {
             if next_pos != -1 {
-                if let Some(position) = Position::new(next_pos as usize) {
+                let mut adjusted_next_pos = next_pos + 1; // Create a mutable copy and add 1
+                if let Some(position) = Position::new(adjusted_next_pos as usize) {
                     builder = builder.set_mate_alignment_start(position);
                 } else {
-                    eprintln!("Invalid next_pos: {}", next_pos);
+                    eprintln!("Invalid next_pos: {}", adjusted_next_pos);
                     // Handle the invalid case (e.g., skip setting the mate alignment start)
                 }
             }
