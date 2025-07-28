@@ -32,10 +32,10 @@ pub mod query {
     pub mod depth;
     pub mod flagstat;
     pub mod int2str;
-    pub mod markdup {
-        pub mod markdup;
-        mod sorted_storage;
-    }
+    //pub mod markdup {
+    //    pub mod markdup;
+    //    mod sorted_storage;
+    //}
 }
 
 

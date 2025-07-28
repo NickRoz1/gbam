@@ -221,17 +221,11 @@ fn flush_field_buffer<WS: Write + Seek>(
     compressor: &mut Compressor,
     inner: &mut Inner,
 ) {
+    // Use an empty buffer to start the flushing process
+    // Don't worry, Vec::new() is temporary, it won't need to fully allocate the Vec as it replaces the reference with the &mut from the reused Buffer
+    let data = std::mem::replace(&mut inner.buffer, Vec::new());
+
     let field = &inner.field;
-    let mut completed_task = compressor.get_compr_block();
-
-    if let OrderingKey::Key(key) = completed_task.ordering_key {
-        write_data_and_update_meta(writer, file_meta, key, &mut completed_task);
-    }
-
-    let old_buffer = &mut inner.buffer;
-
-    let data = std::mem::replace(old_buffer, completed_task.buf);
-
     let codec = *file_meta.get_field_codec(field);
 
     compressor.compress_block(
@@ -240,6 +234,15 @@ fn flush_field_buffer<WS: Write + Seek>(
         data,
         codec,
     );
+
+    let mut completed_task = compressor.get_compr_block();
+
+    if let OrderingKey::Key(key) = completed_task.ordering_key {
+        write_data_and_update_meta(writer, file_meta, key, &mut completed_task);
+    }
+
+    // We need to reuse the same buffer for the next task, as it is always the same size so we can avoid re-allocating the same buffer for each processed block
+    inner.buffer = completed_task.buf;
 
     inner.reset_for_new_block();
 }

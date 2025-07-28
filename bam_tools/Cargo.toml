@@ -7,6 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+console = { version = ">=0.9.1, <1.0.0", features=["default"] }
 byteorder = "1.2.3"
 flate2 = "1.0.1"
 num_cpus = "0.2"
