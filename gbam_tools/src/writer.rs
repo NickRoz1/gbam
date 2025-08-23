@@ -40,7 +40,7 @@ impl Default for BlockInfo {
 }
 
 pub static FIELD_CODEC_MAP: Lazy<HashMap<Fields, Codecs>> = Lazy::new(|| {
-    let path = Path::new("codec_map.json");
+    let path = std::env::var("CODEC_MAP_PATH").unwrap_or_else(|_| "codec_map.json".to_string());
     let json_str = fs::read_to_string(path).expect("Failed to read codec_map.json");
 
     let parsed: Value = serde_json::from_str(&json_str).expect("Invalid JSON format");
