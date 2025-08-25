@@ -113,8 +113,7 @@ pub struct FieldMeta {
 }
 
 impl FieldMeta {
-    pub fn new(field: &Fields) -> Self {
-        let codec = *FIELD_CODEC_MAP.get(field).expect("Missing codec mapping");
+    pub fn new(field: &Fields, codec: Codecs) -> Self {
         FieldMeta {
             item_size: field_item_size(field).map(|v| v as u32), // TODO
             codec,
@@ -249,10 +248,13 @@ impl<'de> Deserialize<'de> for FieldMetaMap {
 }
 
 impl FileMeta {
-    pub fn new(codec: Codecs, ref_seqs: Vec<(String, u32)>, sam_header: Vec<u8>) -> Self {
+    pub fn new(mut codec: Codecs, ref_seqs: Vec<(String, u32)>, sam_header: Vec<u8>, codec_map_required: bool) -> Self {
         let mut map: [FieldMeta; FIELDS_NUM] = Default::default();
         for field in Fields::iterator() {
-            map[*field as usize] = FieldMeta::new(field);
+            if codec_map_required {
+                codec = *FIELD_CODEC_MAP.get(field).expect("Missing codec mapping");
+            }
+            map[*field as usize] = FieldMeta::new(field, codec);
         }
 
         // When patching markdup, have to decompress and compress column. If compressing, offsets will change and ruin the file.

@@ -78,7 +78,6 @@ impl Compressor {
         ordering_key: OrderingKey,
         block_info: BlockInfo,
         data: Vec<u8>,
-        codec: Codecs,
     ) {
         let buf_queue_tx = self.buf_tx.clone();
         let buf_queue_rx = self.buf_rx.clone();
