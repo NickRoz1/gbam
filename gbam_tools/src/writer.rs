@@ -11,6 +11,12 @@ use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::convert::TryInto;
 use std::io::{Seek, SeekFrom, Write};
+use std::collections::HashMap;
+use once_cell::sync::Lazy;
+use std::fs;
+use std::path::Path;
+use serde_json::Value;
+use std::str::FromStr;
 
 pub(crate) struct BlockInfo {
     pub numitems: u32,
@@ -18,6 +24,7 @@ pub(crate) struct BlockInfo {
     pub field: Fields,
     // Interpretation is up to the reader.
     pub stats: Option<Stat>,
+    pub codec: Codecs,
 }
 
 impl Default for BlockInfo {
@@ -27,9 +34,33 @@ impl Default for BlockInfo {
             uncompr_size: 0,
             field: Fields::RefID,
             stats: None,
+            codec: Codecs::Brotli,
         }
     }
 }
+
+pub static FIELD_CODEC_MAP: Lazy<HashMap<Fields, Codecs>> = Lazy::new(|| {
+    let path = std::env::var("CODEC_MAP_PATH").unwrap_or_else(|_| "codec_map.json".to_string());
+    let json_str = fs::read_to_string(path).expect("Failed to read codec_map.json");
+
+    let parsed: Value = serde_json::from_str(&json_str).expect("Invalid JSON format");
+
+    let mut map = HashMap::new();
+    for (field_str, codec_str) in parsed.as_object().unwrap() {
+        let field = Fields::from_str(field_str)
+            .unwrap_or_else(|_| panic!("Unknown field in JSON: {}", field_str));
+        let codec = match codec_str.as_str().unwrap() {
+            "Brotli" => Codecs::Brotli,
+            "Zstd" => Codecs::Zstd,
+            "Lz4" => Codecs::Lz4,
+            "Gzip" => Codecs::Gzip,
+            "NoCompression" => Codecs::NoCompression,
+            other => panic!("Unsupported codec: {}", other),
+        };
+        map.insert(field, codec);
+    }
+    map
+});
 
 /// The data is held in blocks.
 ///
@@ -65,6 +96,7 @@ where
         sam_header: Vec<u8>,
         full_command: String,
         is_sorted: bool,
+        codec_map_required: bool
     ) -> Self {
         inner
             .seek(SeekFrom::Start((FILE_INFO_SIZE) as u64))
@@ -95,7 +127,7 @@ where
 
         Self {
             // TODO: Codecs (currently only one is supported).
-            file_meta: FileMeta::new(codecs[0], ref_seqs, sam_header),
+            file_meta: FileMeta::new(codecs[0], ref_seqs, sam_header,  codec_map_required),
             inner,
             compressor: Compressor::new(thread_num),
             columns,
@@ -121,11 +153,12 @@ where
             sam_header,
             full_command,
             is_sorted,
+            false
         )
     }
 
     /// Push BAM record into this writer
-    pub fn push_record(&mut self, record: &BAMRawRecord) {
+    pub fn push_record(&mut self, record: &BAMRawRecord, codec_map_required: bool) {
         // Index fields are not written on their own. They hold index data for variable sized fields.
         for col in self.columns.iter_mut() {
             // Attempt to write data in this column. If the column is full it
@@ -139,6 +172,7 @@ where
                     &mut self.file_meta,
                     &mut self.compressor,
                     inner,
+                    codec_map_required
                 );
             }
         }
@@ -146,7 +180,7 @@ where
 
     /// Terminates the writer. Always call after writting all the data. Returns
     /// total amount of bytes written.
-    pub fn finish(&mut self) -> std::io::Result<u64> {
+    pub fn finish(&mut self, codec_map_required: bool) -> std::io::Result<u64> {
         // Flush leftovers
         let mut columns: Vec<Box<dyn Column>> = self.columns.drain(..).collect();
         for (inner, idx) in columns.iter_mut().map(|col| col.get_inners()) {
@@ -154,9 +188,9 @@ where
             let meta = &mut self.file_meta;
             let compress = &mut self.compressor;
 
-            flush_field_buffer(writer, meta, compress, inner);
+            flush_field_buffer(writer, meta, compress, inner, codec_map_required);
             if let Some(idx_inner) = idx {
-                flush_field_buffer(writer, meta, compress, idx_inner);
+                flush_field_buffer(writer, meta, compress, idx_inner, codec_map_required);
             }
         }
 
@@ -192,6 +226,7 @@ fn flush_field_buffer<WS: Write + Seek>(
     file_meta: &mut FileMeta,
     compressor: &mut Compressor,
     inner: &mut Inner,
+    codec_map_required: bool
 ) {
     // Use an empty buffer to start the flushing process
     // Don't worry, Vec::new() is temporary, it won't need to fully allocate the Vec as it replaces the reference with the &mut from the reused Buffer
@@ -202,9 +237,8 @@ fn flush_field_buffer<WS: Write + Seek>(
 
     compressor.compress_block(
         OrderingKey::Key(inner.block_num),
-        inner.generate_block_info(),
+        inner.generate_block_info(codec_map_required, codec),
         data,
-        codec,
     );
 
     let mut completed_task = compressor.get_compr_block();
@@ -312,17 +346,21 @@ impl Inner {
         self.block_num += 1;
     }
 
-    pub fn generate_block_info(&mut self) -> BlockInfo {
+    pub fn generate_block_info(&mut self, codec_map_required: bool, mut codec: Codecs) -> BlockInfo {
         let stat = if self.stats_collector.is_some() {
             self.stats_collector.replace(Stat::default())
         } else {
             None
         };
+        if codec_map_required {
+            codec = *FIELD_CODEC_MAP.get(&self.field).expect("Missing codec mapping");
+        }
         BlockInfo {
             numitems: self.rec_count,
             uncompr_size: self.offset,
             field: self.field,
             stats: stat,
+            codec: codec,
         }
     }
 }
@@ -424,7 +462,7 @@ where
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         assert!(!buf.is_empty());
         let wrapper = BAMRawRecord(Cow::Borrowed(buf));
-        self.push_record(&wrapper);
+        self.push_record(&wrapper, false);
         Ok(buf.len())
     }
 

@@ -1,4 +1,5 @@
 use super::GBAM_MAGIC;
+use crate::writer::FIELD_CODEC_MAP;
 use bam_tools::record::fields::{field_item_size, Fields, FIELDS_NUM};
 use serde::ser::{SerializeMap, Serializer};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -247,14 +248,17 @@ impl<'de> Deserialize<'de> for FieldMetaMap {
 }
 
 impl FileMeta {
-    pub fn new(codec: Codecs, ref_seqs: Vec<(String, u32)>, sam_header: Vec<u8>) -> Self {
+    pub fn new(mut codec: Codecs, ref_seqs: Vec<(String, u32)>, sam_header: Vec<u8>, codec_map_required: bool) -> Self {
         let mut map: [FieldMeta; FIELDS_NUM] = Default::default();
         for field in Fields::iterator() {
+            if codec_map_required {
+                codec = *FIELD_CODEC_MAP.get(field).expect("Missing codec mapping");
+            }
             map[*field as usize] = FieldMeta::new(field, codec);
         }
 
         // When patching markdup, have to decompress and compress column. If compressing, offsets will change and ruin the file.
-        map[Fields::Flags as usize].codec = Codecs::NoCompression;
+        // map[Fields::Flags as usize].codec = Codecs::NoCompression;
 
         FileMeta {
             field_to_meta: map,

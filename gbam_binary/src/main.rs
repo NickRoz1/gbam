@@ -99,6 +99,9 @@ struct Cli {
     /// Calculate uncompressed size of BAM file.
     #[structopt(long)]
     calc_uncompressed_size: bool,
+    /// Use codec map from JSON file if specified.
+    #[structopt(long)]
+    codec_map_required: bool,
 }
 
 /// Limited wrapper of `gbam_tools` converts BAM file to GBAM
@@ -158,9 +161,15 @@ fn convert(args: Cli, full_command: String) {
             args.temp_dir,
             full_command,
             args.index_sort,
+            args.codec_map_required
         );
     } else {
-        bam_to_gbam(in_path, out_path, Codecs::Brotli, full_command);
+        bam_to_gbam(
+            in_path, out_path,
+            Codecs::Brotli,
+            full_command,
+            args.codec_map_required
+        );
     }
 }
 

@@ -16,17 +16,17 @@ use tempdir::TempDir;
 const MEM_LIMIT: usize = 2000 * MEGA_BYTE_SIZE;
 
 /// Converts BAM file to GBAM file. This uses the `bam_parallel` reader.
-pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs, full_command: String) {
+pub fn bam_to_gbam(in_path: &str, out_path: &str, codec: Codecs, full_command: String, codec_map_required: bool) {
     let (mut bam_reader, mut writer) =
-        get_bam_reader_gbam_writer(in_path, out_path, codec, full_command);
+        get_bam_reader_gbam_writer(in_path, out_path, codec, full_command, false);
 
     let mut records = bam_reader.records();
     while let Some(Ok(rec)) = records.next_rec() {
         let wrapper = BAMRawRecord(Cow::Borrowed(rec));
-        writer.push_record(&wrapper);
+        writer.push_record(&wrapper, codec_map_required);
     }
 
-    writer.finish().unwrap();
+    writer.finish(codec_map_required).unwrap();
 }
 
 /// Converts BAM file to GBAM file. Sorts BAM file in process. This uses the `bam_parallel` reader.
@@ -38,6 +38,7 @@ pub fn bam_sort_to_gbam(
     temp_dir: Option<PathBuf>,
     full_command: String,
     index_sort: bool,
+    codec_map_required: bool
 ) {
     let fin_for_ref_seqs = File::open(in_path).expect("failed");
 
@@ -61,6 +62,7 @@ pub fn bam_sort_to_gbam(
         sam_header,
         full_command,
         true,
+        codec_map_required
     );
 
     let tmp_dir_path = temp_dir.map_or(std::env::temp_dir(), |path| path);
@@ -100,7 +102,7 @@ pub fn bam_sort_to_gbam(
     )
     .unwrap();
 
-    writer.finish().unwrap();
+    writer.finish(false).unwrap();
 }
 
 /// Consumes SAM header from input BAM reader.
@@ -125,6 +127,7 @@ fn get_bam_reader_gbam_writer(
     out_path: &str,
     codec: Codecs,
     full_command: String,
+    codec_map_required: bool
 ) -> (Reader, Writer<BufWriter<File>>) {
     let fin = File::open(in_path).expect("failed");
     let fout = File::create(out_path).expect("failed");
@@ -147,6 +150,7 @@ fn get_bam_reader_gbam_writer(
         sam_header,
         full_command,
         false,
+        codec_map_required
     );
 
     (bgzf_reader, writer)
