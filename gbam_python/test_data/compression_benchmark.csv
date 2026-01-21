@@ -1,0 +1,7 @@
+test,bam_size_mb,gbam_size_mb,decompression_time_s,throughput_mb_s
+all_lz4,49.33,68.37,54.08,1.26
+all_zstd,49.33,41.35,52.01,0.79
+all_brotli,49.33,36.64,53.16,0.69
+zstd_fixed_brotli_var,49.33,37.02,53.1,0.7
+brotli_fixed_zstd_var,49.33,40.97,52.88,0.77
+hybrid,49.33,39.4,52.38,0.75
